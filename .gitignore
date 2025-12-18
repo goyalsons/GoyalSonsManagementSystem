@@ -53,3 +53,7 @@ vite.config.ts.*
 # Server public (generated)
 server/public
 
+# Replit
+.replit
+.local/
+replit.nix
