@@ -1,0 +1,226 @@
+Create a full GMS (Goyalsons Management System) monorepo with Next.js (App Router) + TypeScript, Prisma + PostgreSQL, Redis + BullMQ worker, S3-compatible attachments, Google Sheets sync, Docker compose, tests, and documentation. Build production-ready scaffolding and implement minimal working flows for the **User module** and **Attendance module** (including geolocation check-in). Produce well-documented code, README, and a Training / Help page in-app.
+
+Requirements & deliverables:
+1. Tech stack
+   - Next.js 14 (App Router) with TypeScript
+   - Tailwind CSS and shadcn/ui (or basic component set)
+   - Prisma ORM (Postgres)
+   - PostgreSQL (use Docker image in docker-compose)
+   - Redis (for cache & BullMQ queue; Docker)
+   - BullMQ worker (Node) for background jobs (sheets export/import + attendance post-processing)
+   - AWS S3 or S3-compatible storage (local dev: use `localstack` or `minio` optional)
+   - Google Sheets integration (service account credentials via env)
+   - NextAuth (or JWT-based) authentication (email/password) — choose NextAuth with JWT sessions
+   - OpenAPI / Swagger minimal doc for API endpoints
+
+2. Repo structure (create these folders & files)
+   / (root)
+     ├─ package.json
+     ├─ tsconfig.json
+     ├─ next.config.mjs
+     ├─ tailwind.config.cjs
+     ├─ postcss.config.cjs
+     ├─ prisma/schema.prisma
+     ├─ docker-compose.yml
+     ├─ .env.example
+     ├─ README.md
+     ├─ /app (Next.js app router)
+     │    ├─ layout.tsx
+     │    ├─ page.tsx (dashboard)
+     │    ├─ /login/page.tsx
+     │    ├─ /employees/page.tsx
+     │    ├─ /attendance/page.tsx (check-in UI)
+     │    ├─ /training/page.tsx (training docs + videos placeholders)
+     ├─ /src
+     │    ├─ /lib
+     │    │   ├─ prisma.ts
+     │    │   ├─ redis.ts
+     │    │   ├─ auth.ts (NextAuth config)
+     │    │   └─ permissions.ts
+     │    ├─ /services
+     │    │   └─ sheets.service.ts
+     │    ├─ /api (Next.js route handlers)
+     │    │   ├─ /users/route.ts
+     │    │   ├─ /auth/route.ts
+     │    │   ├─ /attendance/route.ts
+     │    ├─ /worker
+     │    │   ├─ index.ts (bullmq worker)
+     │    │   └─ jobs/attendancePostProcess.ts
+     │    └─ /components (LoginForm, CheckInButton, MapPreview, Navbar, etc.)
+     ├─ /migrations (auto created by prisma migrate)
+     └─ /docs
+         ├─ architecture.md
+         ├─ erd.png (placeholder)
+         └─ admin-training.md
+
+3. Prisma schema
+   - Use the following Prisma schema (create prisma/schema.prisma). Include users, roles, policies, user_roles, employees, attendance, tasks, announcements, claims, sessions, audit_logs. Attendance is defined as a parent table; document that partitioning must be applied via SQL (example provided in migrations/sql/).
+
+   Paste this into prisma/schema.prisma:
+
+   ```prisma
+   generator client {
+     provider = "prisma-client-js"
+   }
+
+   datasource db {
+     provider = "postgresql"
+     url      = env("DATABASE_URL")
+   }
+
+   model User {
+     id           String    @id @default(uuid())
+     username     String    @unique
+     email        String    @unique
+     passwordHash String
+     isActive     Boolean   @default(true)
+     createdAt    DateTime  @default(now())
+     updatedAt    DateTime  @updatedAt
+     roles        UserRole[]
+     employee     Employee? @relation(fields: [employeeId], references: [id])
+     employeeId   String?
+     sessions     Session[]
+     auditLogs    AuditLog[]
+   }
+
+   model Role {
+     id          String     @id @default(uuid())
+     name        String     @unique
+     description String?
+     policies    RolePolicy[]
+     users       UserRole[]
+     createdAt   DateTime   @default(now())
+   }
+
+   model Policy {
+     id          String      @id @default(uuid())
+     key         String      @unique
+     description String?
+     roles       RolePolicy[]
+     createdAt   DateTime    @default(now())
+   }
+
+   model UserRole {
+     user   User   @relation(fields: [userId], references: [id])
+     userId String
+     role   Role   @relation(fields: [roleId], references: [id])
+     roleId String
+     @@id([userId, roleId])
+   }
+
+   model RolePolicy {
+     role     Role   @relation(fields: [roleId], references: [id])
+     roleId   String
+     policy   Policy @relation(fields: [policyId], references: [id])
+     policyId String
+     @@id([roleId, policyId])
+   }
+
+   model Employee {
+     id            String      @id @default(uuid())
+     user          User?       @relation()
+     firstName     String
+     lastName      String?
+     employeeCode  String?     @unique
+     department    String?
+     designation   String?
+     phone         String?
+     joiningDate   DateTime?
+     createdAt     DateTime    @default(now())
+     updatedAt     DateTime    @updatedAt
+     targets       EmployeeTarget[]
+     tasks         Task[]
+     announcements Announcement[] @relation("AnnouncementRecipients")
+     claims        Claim[]
+   }
+
+   model Attendance {
+     id           String   @id @default(uuid())
+     employee     Employee @relation(fields: [employeeId], references: [id])
+     employeeId   String
+     date         DateTime
+     checkInAt    DateTime?
+     checkOutAt   DateTime?
+     status       String
+     lat          Float?
+     lng          Float?
+     geoAccuracy  Int?
+     meta         Json?
+     createdAt    DateTime @default(now())
+   }
+
+   model EmployeeTarget {
+     id          String   @id @default(uuid())
+     employee    Employee @relation(fields: [employeeId], references: [id])
+     employeeId  String
+     periodStart DateTime
+     periodEnd   DateTime
+     metric      String
+     value       Float
+     achieved    Float   @default(0)
+     createdAt   DateTime @default(now())
+   }
+
+   model Task {
+     id          String   @id @default(uuid())
+     title       String
+     description String?
+     assignee    Employee? @relation(fields: [assigneeId], references: [id])
+     assigneeId  String?
+     creator     User?     @relation(fields: [creatorId], references: [id])
+     creatorId   String?
+     status      String    @default("open")
+     priority    String?
+     dueDate     DateTime?
+     createdAt   DateTime  @default(now())
+     updatedAt   DateTime  @updatedAt
+   }
+
+   model Announcement {
+     id          String   @id @default(uuid())
+     title       String
+     body        String
+     createdBy   User?    @relation(fields: [createdById], references: [id])
+     createdById String?
+     scope       String
+     createdAt   DateTime @default(now())
+   }
+
+   model Claim {
+     id          String   @id @default(uuid())
+     employee    Employee @relation(fields: [employeeId], references: [id])
+     employeeId  String
+     amount      Float
+     currency    String   @default("INR")
+     category    String
+     status      String   @default("pending")
+     submittedAt DateTime @default(now())
+     attachments ClaimAttachment[]
+   }
+
+   model ClaimAttachment {
+     id       String @id @default(uuid())
+     claim    Claim  @relation(fields: [claimId], references: [id])
+     claimId  String
+     url      String
+     name     String?
+   }
+
+   model Session {
+     id        String   @id @default(uuid())
+     user      User     @relation(fields: [userId], references: [id])
+     userId    String
+     expiresAt DateTime
+     createdAt DateTime @default(now())
+   }
+
+   model AuditLog {
+     id        String   @id @default(uuid())
+     user      User?    @relation(fields: [userId], references: [id])
+     userId    String?
+     action    String
+     entity    String
+     entityId  String?
+     meta      Json?
+     createdAt DateTime @default(now())
+   }

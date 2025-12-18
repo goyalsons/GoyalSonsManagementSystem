@@ -1,0 +1,362 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model OrgUnit {
+  id          String    @id @default(uuid())
+  name        String    @unique
+  code        String    @unique
+  description String?
+  type        String    @default("functional") // "branch" for physical locations, "functional" for departments
+  level       Int       @default(0)
+  path        String?
+  parentId    String?
+  parent      OrgUnit?  @relation("OrgHierarchy", fields: [parentId], references: [id])
+  children    OrgUnit[] @relation("OrgHierarchy")
+  users       User[]
+  employees   Employee[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model User {
+  id            String        @id @default(uuid())
+  name          String
+  email         String        @unique
+  phone         String?
+  passwordHash  String
+  status        String        @default("active")
+  isSuperAdmin  Boolean       @default(false)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  
+  orgUnit       OrgUnit?      @relation(fields: [orgUnitId], references: [id])
+  orgUnitId     String?
+  roles         UserRole[]
+  
+  employee      Employee?     @relation(fields: [employeeId], references: [id])
+  employeeId    String?       @unique
+  sessions      Session[]
+  auditLogs     AuditLog[]
+  tasksCreated  Task[]
+  announcements Announcement[]
+  settings      UserSettings?
+}
+
+model Role {
+  id          String       @id @default(uuid())
+  name        String       @unique
+  description String?
+  level       Int          @default(0)
+  users       UserRole[]
+  policies    RolePolicy[]
+  createdAt   DateTime     @default(now())
+}
+
+model Policy {
+  id          String       @id @default(uuid())
+  key         String       @unique
+  description String?
+  category    String?
+  roles       RolePolicy[]
+  createdAt   DateTime     @default(now())
+}
+
+model UserRole {
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  roleId    String
+  createdAt DateTime @default(now())
+  @@id([userId, roleId])
+}
+
+model RolePolicy {
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  roleId    String
+  policy    Policy   @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  policyId  String
+  createdAt DateTime @default(now())
+  @@id([roleId, policyId])
+}
+
+model Employee {
+  id              String      @id @default(uuid())
+  user            User?       @relation()
+  firstName       String
+  lastName        String?
+  employeeCode    String?     @unique
+  cardNumber      String?     @unique
+  phone           String?
+  secondaryPhone  String?
+  personalEmail   String?
+  companyEmail    String?
+  gender          String?
+  aadhaar         String?
+  profileImageUrl String?
+  status          String      @default("ACTIVE")
+  weeklyOff       String?
+  shiftStart      String?
+  shiftEnd        String?
+  interviewDate   DateTime?
+  joiningDate     DateTime?
+  externalId      String?     @unique
+  autoNumber      String?
+  zohoId          String?
+  metadata        Json?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  
+  orgUnit         OrgUnit?    @relation(fields: [orgUnitId], references: [id])
+  orgUnitId       String?
+  department      Department? @relation(fields: [departmentId], references: [id])
+  departmentId    String?
+  designation     Designation? @relation(fields: [designationId], references: [id])
+  designationId   String?
+  timePolicy      TimePolicy? @relation(fields: [timePolicyId], references: [id])
+  timePolicyId    String?
+  
+  attendance      Attendance[]
+  targets         EmployeeTarget[]
+  tasks           Task[]
+  announcements   Announcement[] @relation("AnnouncementRecipients")
+  claims          Claim[]
+
+  @@index([orgUnitId])
+  @@index([departmentId])
+  @@index([designationId])
+  @@index([status])
+  @@index([firstName])
+}
+
+model Department {
+  id          String     @id @default(uuid())
+  code        String     @unique
+  name        String
+  description String?
+  isActive    Boolean    @default(true)
+  employees   Employee[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+model Designation {
+  id          String     @id @default(uuid())
+  code        String     @unique
+  name        String
+  description String?
+  isActive    Boolean    @default(true)
+  employees   Employee[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+model TimePolicy {
+  id            String     @id @default(uuid())
+  code          String     @unique
+  name          String
+  isSinglePunch Boolean    @default(false)
+  scheduleJson  Json?
+  isActive      Boolean    @default(true)
+  employees     Employee[]
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+}
+
+model DataImportLog {
+  id          String   @id @default(uuid())
+  sourceName  String
+  sourceUrl   String?
+  status      String   @default("pending")
+  recordsTotal Int     @default(0)
+  recordsImported Int  @default(0)
+  recordsFailed Int    @default(0)
+  errorMessage String?
+  startedAt   DateTime @default(now())
+  completedAt DateTime?
+  metadata    Json?
+}
+
+model Attendance {
+  id           String   @id @default(uuid())
+  employee     Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  employeeId   String
+  date         DateTime
+  checkInAt    DateTime?
+  checkOutAt   DateTime?
+  status       String
+  lat          Float?
+  lng          Float?
+  geoAccuracy  Int?
+  meta         Json?
+  createdAt    DateTime @default(now())
+}
+
+model EmployeeTarget {
+  id          String   @id @default(uuid())
+  employee    Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  employeeId  String
+  periodStart DateTime
+  periodEnd   DateTime
+  metric      String
+  value       Float
+  achieved    Float    @default(0)
+  createdAt   DateTime @default(now())
+}
+
+model Task {
+  id          String    @id @default(uuid())
+  title       String
+  description String?
+  assignee    Employee? @relation(fields: [assigneeId], references: [id])
+  assigneeId  String?
+  creator     User?     @relation(fields: [creatorId], references: [id])
+  creatorId   String?
+  status      String    @default("open")
+  priority    String?
+  dueDate     DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Announcement {
+  id          String     @id @default(uuid())
+  title       String
+  body        String
+  createdBy   User?      @relation(fields: [createdById], references: [id])
+  createdById String?
+  scope       String
+  recipients  Employee[] @relation("AnnouncementRecipients")
+  createdAt   DateTime   @default(now())
+}
+
+model Claim {
+  id          String            @id @default(uuid())
+  employee    Employee          @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  employeeId  String
+  amount      Float
+  currency    String            @default("INR")
+  category    String
+  status      String            @default("pending")
+  submittedAt DateTime          @default(now())
+  attachments ClaimAttachment[]
+}
+
+model ClaimAttachment {
+  id       String @id @default(uuid())
+  claim    Claim  @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  claimId  String
+  url      String
+  name     String?
+}
+
+model Session {
+  id             String   @id @default(uuid())
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId         String
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+  loginType      String   @default("mdo")  // "mdo" for management, "employee" for card login
+  employeeCardNo String?                    // Card number for employee logins
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  user      User?    @relation(fields: [userId], references: [id])
+  userId    String?
+  action    String
+  entity    String
+  entityId  String?
+  meta      Json?
+  createdAt DateTime @default(now())
+}
+
+model OtpCode {
+  id        String   @id @default(uuid())
+  phone     String?
+  email     String?
+  code      String
+  type      String   @default("login")
+  used      Boolean  @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  
+  @@index([phone, code])
+  @@index([email, code])
+}
+
+model UserSettings {
+  id                String   @id @default(uuid())
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId            String   @unique
+  theme             String   @default("light")
+  emailNotifications Boolean @default(true)
+  smsNotifications  Boolean  @default(false)
+  loginMethod       String   @default("password")
+  timezone          String   @default("Asia/Kolkata")
+  language          String   @default("en")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model ApiRouting {
+  id                  String   @id @default(uuid())
+  name                String   @unique
+  description         String?
+  endpoint            String?
+  method              String   @default("GET")
+  sourceType          String   @default("api")
+  csvFilePath         String?
+  csvUrl              String?
+  headers             Json?
+  isActive            Boolean  @default(true)
+  status              String   @default("draft") // draft, tested, active
+  syncEnabled         Boolean  @default(false)
+  syncIntervalHours   Int      @default(0)
+  syncIntervalMinutes Int      @default(10)
+  syncSchedule        String?
+  lastSyncAt          DateTime?
+  lastSyncStatus      String?
+  lastTestAt          DateTime?
+  lastTestStatus      String?
+  syncProgressCurrent Int      @default(0)
+  syncProgressTotal   Int      @default(0)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+model SystemSettings {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       String
+  description String?
+  category    String   @default("general")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model SmsLog {
+  id              String    @id @default(uuid())
+  recipientPhone  String
+  messageType     String    @default("OTP")
+  messageText     String?
+  status          String    @default("pending")
+  apiResponse     Json?
+  apiMessageId    String?
+  customerRef     String?
+  sentAt          DateTime?
+  deliveredAt     DateTime?
+  failedAt        DateTime?
+  errorMessage    String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  @@index([recipientPhone])
+  @@index([status])
+  @@index([apiMessageId])
+}

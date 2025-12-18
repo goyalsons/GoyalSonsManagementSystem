@@ -1,0 +1,149 @@
+Great — Starting PHASE 1: Next.js + Tailwind + Shadcn UI Base Setup
+Below is the exact step-by-step setup for Replit, including every command and file you must create.
+
+🚀 PHASE 1 — SETUP NEXT.JS PROJECT ON REPLIT
+✅ STEP 1 — Create Replit Project
+
+On Replit:
+
+Click Create Repl
+
+Choose Node.js
+
+After Repl is created → open the Shell
+
+✅ STEP 2 — Install Next.js (App Router)
+
+Paste this in Replit Shell:
+
+npx create-next-app@latest gms --ts --eslint --src-dir --app --no-tailwind --import-alias "@/*"
+
+
+Replit will ask questions → always choose yes except Tailwind (we add it manually).
+
+Then run:
+
+cd gms
+
+✅ STEP 3 — Install TailwindCSS
+
+Run in Shell:
+
+npm install -D tailwindcss postcss autoprefixer
+npx tailwindcss init -p
+
+
+Now replace tailwind.config.js with this:
+
+/** @type {import('tailwindcss').Config} */
+module.exports = {
+  content: [
+    "./src/app/**/*.{js,ts,jsx,tsx}",
+    "./src/components/**/*.{js,ts,jsx,tsx}",
+  ],
+  theme: {
+    extend: {},
+  },
+  plugins: [],
+};
+
+✅ STEP 4 — Add Tailwind to globals.css
+
+Go to:
+src/app/globals.css
+Replace entire file:
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-gray-100 text-gray-900;
+}
+
+✅ STEP 5 — Install Shadcn UI
+
+Run:
+
+npx shadcn-ui@latest init
+
+
+Then install base components:
+
+npx shadcn-ui@latest add button card input avatar sheet dropdown-menu
+
+✅ STEP 6 — Setup App Layout with Sidebar
+
+Create this file:
+src/app/layout.tsx
+
+import "./globals.css";
+import { ReactNode } from "react";
+
+export const metadata = {
+  title: "Goyalsons Management System",
+  description: "GMS Dashboard",
+};
+
+export default function RootLayout({ children }: { children: ReactNode }) {
+  return (
+    <html lang="en">
+      <body className="flex min-h-screen">
+        <aside className="w-64 bg-white shadow-xl p-4">
+          <h1 className="text-xl font-bold mb-4">GMS</h1>
+
+          <ul className="space-y-2">
+            <li><a href="/dashboard" className="block p-2 rounded hover:bg-gray-100">Dashboard</a></li>
+            <li><a href="/users" className="block p-2 rounded hover:bg-gray-100">Users</a></li>
+            <li><a href="/employees" className="block p-2 rounded hover:bg-gray-100">Employees</a></li>
+            <li><a href="/attendance" className="block p-2 rounded hover:bg-gray-100">Attendance</a></li>
+            <li><a href="/tasks" className="block p-2 rounded hover:bg-gray-100">Tasks</a></li>
+            <li><a href="/claims" className="block p-2 rounded hover:bg-gray-100">Claims</a></li>
+            <li><a href="/announcements" className="block p-2 rounded hover:bg-gray-100">Announcements</a></li>
+          </ul>
+        </aside>
+
+        <main className="flex-1 p-6">{children}</main>
+      </body>
+    </html>
+  );
+}
+
+✅ STEP 7 — Create Dashboard Page
+
+Create file:
+src/app/dashboard/page.tsx
+
+export default function Dashboard() {
+  return (
+    <div>
+      <h2 className="text-2xl font-bold mb-4">Dashboard</h2>
+
+      <div className="grid grid-cols-3 gap-4">
+        <div className="p-4 bg-white shadow rounded">Employees: 0</div>
+        <div className="p-4 bg-white shadow rounded">Attendance Today: 0</div>
+        <div className="p-4 bg-white shadow rounded">Tasks Pending: 0</div>
+      </div>
+    </div>
+  );
+}
+
+✅ STEP 8 — Run the Project
+
+In Replit Shell:
+
+npm run dev
+
+
+Then open the Web Preview → your dashboard & sidebar will appear.
+
+🎉 PHASE 1 COMPLETED
+
+You now have:
+
+✔ Next.js Project
+✔ Tailwind Installed
+✔ Shadcn UI Installed
+✔ Sidebar Layout
+✔ Basic Dashboard
+✔ Clean folder structure ready for modules

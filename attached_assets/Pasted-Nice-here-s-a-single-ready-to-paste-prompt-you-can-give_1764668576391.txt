@@ -1,0 +1,429 @@
+Nice — here’s a single ready-to-paste prompt you can give to Replit (or to any AI assistant / project generator) to create the full GMS project (Next.js + TypeScript + Prisma + PostgreSQL + Redis + BullMQ worker + Google Sheets integration + Docker + docs + training module).
+
+It’s explicit about the repo layout, required files, env vars, scripts, initial API + frontend scaffolding (User + Attendance), Prisma schema, partitioning note, and run/seed instructions. Paste the whole thing into Replit and tell it to “create project” / “run” / “generate files” — it has everything it needs.
+
+Replit Prompt — create full GMS project
+Create a full GMS (Goyalsons Management System) monorepo with Next.js (App Router) + TypeScript, Prisma + PostgreSQL, Redis + BullMQ worker, S3-compatible attachments, Google Sheets sync, Docker compose, tests, and documentation. Build production-ready scaffolding and implement minimal working flows for the **User module** and **Attendance module** (including geolocation check-in). Produce well-documented code, README, and a Training / Help page in-app.
+
+Requirements & deliverables:
+1. Tech stack
+   - Next.js 14 (App Router) with TypeScript
+   - Tailwind CSS and shadcn/ui (or basic component set)
+   - Prisma ORM (Postgres)
+   - PostgreSQL (use Docker image in docker-compose)
+   - Redis (for cache & BullMQ queue; Docker)
+   - BullMQ worker (Node) for background jobs (sheets export/import + attendance post-processing)
+   - AWS S3 or S3-compatible storage (local dev: use `localstack` or `minio` optional)
+   - Google Sheets integration (service account credentials via env)
+   - NextAuth (or JWT-based) authentication (email/password) — choose NextAuth with JWT sessions
+   - OpenAPI / Swagger minimal doc for API endpoints
+
+2. Repo structure (create these folders & files)
+   / (root)
+     ├─ package.json
+     ├─ tsconfig.json
+     ├─ next.config.mjs
+     ├─ tailwind.config.cjs
+     ├─ postcss.config.cjs
+     ├─ prisma/schema.prisma
+     ├─ docker-compose.yml
+     ├─ .env.example
+     ├─ README.md
+     ├─ /app (Next.js app router)
+     │    ├─ layout.tsx
+     │    ├─ page.tsx (dashboard)
+     │    ├─ /login/page.tsx
+     │    ├─ /employees/page.tsx
+     │    ├─ /attendance/page.tsx (check-in UI)
+     │    ├─ /training/page.tsx (training docs + videos placeholders)
+     ├─ /src
+     │    ├─ /lib
+     │    │   ├─ prisma.ts
+     │    │   ├─ redis.ts
+     │    │   ├─ auth.ts (NextAuth config)
+     │    │   └─ permissions.ts
+     │    ├─ /services
+     │    │   └─ sheets.service.ts
+     │    ├─ /api (Next.js route handlers)
+     │    │   ├─ /users/route.ts
+     │    │   ├─ /auth/route.ts
+     │    │   ├─ /attendance/route.ts
+     │    ├─ /worker
+     │    │   ├─ index.ts (bullmq worker)
+     │    │   └─ jobs/attendancePostProcess.ts
+     │    └─ /components (LoginForm, CheckInButton, MapPreview, Navbar, etc.)
+     ├─ /migrations (auto created by prisma migrate)
+     └─ /docs
+         ├─ architecture.md
+         ├─ erd.png (placeholder)
+         └─ admin-training.md
+
+3. Prisma schema
+   - Use the following Prisma schema (create prisma/schema.prisma). Include users, roles, policies, user_roles, employees, attendance, tasks, announcements, claims, sessions, audit_logs. Attendance is defined as a parent table; document that partitioning must be applied via SQL (example provided in migrations/sql/).
+
+   Paste this into prisma/schema.prisma:
+
+   ```prisma
+   generator client {
+     provider = "prisma-client-js"
+   }
+
+   datasource db {
+     provider = "postgresql"
+     url      = env("DATABASE_URL")
+   }
+
+   model User {
+     id           String    @id @default(uuid())
+     username     String    @unique
+     email        String    @unique
+     passwordHash String
+     isActive     Boolean   @default(true)
+     createdAt    DateTime  @default(now())
+     updatedAt    DateTime  @updatedAt
+     roles        UserRole[]
+     employee     Employee? @relation(fields: [employeeId], references: [id])
+     employeeId   String?
+     sessions     Session[]
+     auditLogs    AuditLog[]
+   }
+
+   model Role {
+     id          String     @id @default(uuid())
+     name        String     @unique
+     description String?
+     policies    RolePolicy[]
+     users       UserRole[]
+     createdAt   DateTime   @default(now())
+   }
+
+   model Policy {
+     id          String      @id @default(uuid())
+     key         String      @unique
+     description String?
+     roles       RolePolicy[]
+     createdAt   DateTime    @default(now())
+   }
+
+   model UserRole {
+     user   User   @relation(fields: [userId], references: [id])
+     userId String
+     role   Role   @relation(fields: [roleId], references: [id])
+     roleId String
+     @@id([userId, roleId])
+   }
+
+   model RolePolicy {
+     role     Role   @relation(fields: [roleId], references: [id])
+     roleId   String
+     policy   Policy @relation(fields: [policyId], references: [id])
+     policyId String
+     @@id([roleId, policyId])
+   }
+
+   model Employee {
+     id            String      @id @default(uuid())
+     user          User?       @relation()
+     firstName     String
+     lastName      String?
+     employeeCode  String?     @unique
+     department    String?
+     designation   String?
+     phone         String?
+     joiningDate   DateTime?
+     createdAt     DateTime    @default(now())
+     updatedAt     DateTime    @updatedAt
+     targets       EmployeeTarget[]
+     tasks         Task[]
+     announcements Announcement[] @relation("AnnouncementRecipients")
+     claims        Claim[]
+   }
+
+   model Attendance {
+     id           String   @id @default(uuid())
+     employee     Employee @relation(fields: [employeeId], references: [id])
+     employeeId   String
+     date         DateTime
+     checkInAt    DateTime?
+     checkOutAt   DateTime?
+     status       String
+     lat          Float?
+     lng          Float?
+     geoAccuracy  Int?
+     meta         Json?
+     createdAt    DateTime @default(now())
+   }
+
+   model EmployeeTarget {
+     id          String   @id @default(uuid())
+     employee    Employee @relation(fields: [employeeId], references: [id])
+     employeeId  String
+     periodStart DateTime
+     periodEnd   DateTime
+     metric      String
+     value       Float
+     achieved    Float   @default(0)
+     createdAt   DateTime @default(now())
+   }
+
+   model Task {
+     id          String   @id @default(uuid())
+     title       String
+     description String?
+     assignee    Employee? @relation(fields: [assigneeId], references: [id])
+     assigneeId  String?
+     creator     User?     @relation(fields: [creatorId], references: [id])
+     creatorId   String?
+     status      String    @default("open")
+     priority    String?
+     dueDate     DateTime?
+     createdAt   DateTime  @default(now())
+     updatedAt   DateTime  @updatedAt
+   }
+
+   model Announcement {
+     id          String   @id @default(uuid())
+     title       String
+     body        String
+     createdBy   User?    @relation(fields: [createdById], references: [id])
+     createdById String?
+     scope       String
+     createdAt   DateTime @default(now())
+   }
+
+   model Claim {
+     id          String   @id @default(uuid())
+     employee    Employee @relation(fields: [employeeId], references: [id])
+     employeeId  String
+     amount      Float
+     currency    String   @default("INR")
+     category    String
+     status      String   @default("pending")
+     submittedAt DateTime @default(now())
+     attachments ClaimAttachment[]
+   }
+
+   model ClaimAttachment {
+     id       String @id @default(uuid())
+     claim    Claim  @relation(fields: [claimId], references: [id])
+     claimId  String
+     url      String
+     name     String?
+   }
+
+   model Session {
+     id        String   @id @default(uuid())
+     user      User     @relation(fields: [userId], references: [id])
+     userId    String
+     expiresAt DateTime
+     createdAt DateTime @default(now())
+   }
+
+   model AuditLog {
+     id        String   @id @default(uuid())
+     user      User?    @relation(fields: [userId], references: [id])
+     userId    String?
+     action    String
+     entity    String
+     entityId  String?
+     meta      Json?
+     createdAt DateTime @default(now())
+   }
+
+
+Docker-compose (create docker-compose.yml)
+
+Services: postgres:15, redis:latest, app (Next.js), worker (Node), optional minio/localstack for S3.
+
+Expose ports for local dev: 5432, 6379, 3000 (Next), 4000 (worker debug if needed).
+
+Bind volumes for postgres data.
+
+Example docker-compose skeleton to include in repo:
+
+version: '3.8'
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: gms
+      POSTGRES_PASSWORD: gms_pass
+      POSTGRES_DB: gms_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  app:
+    build: .
+    command: ["npm","run","dev"]
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgres://gms:gms_pass@postgres:5432/gms_db
+      REDIS_URL: redis://redis:6379
+      GOOGLE_SERVICE_ACCOUNT_JSON: '${GOOGLE_SERVICE_ACCOUNT_JSON}'
+    depends_on:
+      - postgres
+      - redis
+
+  worker:
+    build: .
+    command: ["node","dist/worker/index.js"]
+    environment:
+      DATABASE_URL: postgres://gms:gms_pass@postgres:5432/gms_db
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      - postgres
+      - redis
+
+volumes:
+  pgdata:
+
+
+.env.example (create)
+
+DATABASE_URL=postgresql://gms:gms_pass@localhost:5432/gms_db
+NEXTAUTH_SECRET=change_me
+NEXTAUTH_URL=http://localhost:3000
+REDIS_URL=redis://localhost:6379
+JWT_SECRET=change_me_too
+AWS_S3_BUCKET=
+AWS_ACCESS_KEY_ID=
+AWS_SECRET_ACCESS_KEY=
+GOOGLE_SERVICE_ACCOUNT_JSON='{"type":"service_account", ... }'
+
+
+Implement minimal working code:
+
+NextAuth config: username/password provider (credentials provider) for login; use Prisma adapter for sessions.
+
+API: /api/users with GET (list), POST (create) — validate, hash passwords with bcrypt, create default role employee.
+
+API: /api/attendance/checkin endpoint that:
+
+Accepts { employeeId, lat, lng, accuracy }
+
+Auth checks (session)
+
+Validates geofence (if env var GEOFENCE_CENTER and GEOFENCE_RADIUS_METERS set, check distance)
+
+Writes attendance row for today (create or update)
+
+Pushes job to BullMQ queue attendance.postProcess with attendance id
+
+Returns attendance record
+
+Worker: listens for attendance.postProcess and updates analytics table (or increments Redis counters) and writes a summary row to Google Sheets via sheets.service.ts.
+
+sheets.service.ts: implement writeRows(spreadsheetId, range, rows) using googleapis and service account JSON.
+
+Frontend (in /app)
+
+Login page (form)
+
+Dashboard (summary cards: total employees, today's checked-in count)
+
+Employees list (table, fetch /api/employees)
+
+Attendance page: big Check-in / Check-out button, grabs geolocation via browser, shows map preview (use simple google maps iframe or static map placeholder), displays last 10 check-ins.
+
+Docs & training
+
+README.md with steps to run locally (docker-compose up, npx prisma migrate dev, seed)
+
+docs/architecture.md (HLD summary)
+
+docs/admin-training.md (how to create users, assign roles, how to check-in, submit claims)
+
+In-app /training page with step-by-step instructions and placeholder videos (links).
+
+Tests
+
+Add basic unit/integration tests using Vitest or Jest for:
+
+User creation + password hashing
+
+Attendance check-in API flow (mock prisma & geo)
+
+Add GitHub Actions workflow skeleton for CI (lint/test).
+
+Scripts (package.json)
+
+dev: next dev
+
+build: next build
+
+start: next start
+
+migrate:dev: prisma migrate dev
+
+prisma:generate: prisma generate
+
+seed: run a seed script to create default roles/policies/admin user
+
+worker: ts-node/compiled worker start
+
+Extra requirements & notes for the generator:
+
+Code must be TypeScript, strongly typed, and well-commented.
+
+Add inline README comments in each module explaining how to extend for more features (targets, tasks, claims).
+
+Add an initial seed: roles (superadmin, admin, manager, employee) and a superadmin user (password: Admin@123).
+
+Add migration SQL file examples to create monthly attendance partitions (e.g., migrations/sql/2025-12_create_attendance_partition.sql) and a small script to create next N month partitions.
+
+Add a short troubleshooting section in README for common Docker / Prisma issues.
+
+Ensure all sensitive env variables are read from .env and not committed.
+
+Final deliverable format:
+
+A working repo in the Replit workspace with the above files.
+
+A clear top-level README with quickstart commands:
+
+docker-compose up -d
+
+npm install
+
+npx prisma migrate deploy or npx prisma migrate dev
+
+npm run dev
+
+A short "what's next" list with tasks for future modules (claims approval flow, analytics dashboards, payroll integration).
+
+Implementation priority:
+
+Project skeleton + docker-compose + prisma schema + .env.example + README
+
+Auth + Users API + seed roles
+
+Prisma migrations & seed
+
+Attendance API + worker + basic frontend (check-in)
+
+Google Sheets write (worker demonstration)
+
+Docs, training page, tests, CI
+
+If anything cannot be implemented (e.g., Google Service Account details), create placeholders and clear instructions on how to populate them.
+
+Produce the project now and confirm (print) the created file list and commands to run locally. Also include instructions how to connect a Google Service Account for Sheets (how to generate JSON and share sheet).
+
+Do not ask clarification questions — assume sensible defaults and implement the flows exactly as described.
+
+
+---
+
+If you want, I can also:
+- convert the above into a single `create.sh` script that Replit can run to scaffold the project,
+- or generate the initial code files inline here for you to copy/paste.
+
+Which would you like next?
