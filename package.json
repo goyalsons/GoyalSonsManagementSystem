@@ -10,8 +10,7 @@
     "dev:client": "vite dev --port 5000",
     "dev": "cross-env NODE_ENV=development tsx server/index.ts",
     "build": "tsx script/build.ts",
-    "postinstall": "prisma migrate deploy || prisma db push",
-    "start": "cross-env NODE_ENV=production node dist/index.cjs",
+    "start": "npx prisma migrate deploy && cross-env NODE_ENV=production node dist/index.cjs",
     "seed": "prisma db seed",
     "check": "tsc"
   },
