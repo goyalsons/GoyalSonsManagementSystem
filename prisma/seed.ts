@@ -104,19 +104,19 @@ async function main() {
 
   // Departments (linked to org units)
   const departmentRecords = [
-    { code: "IT", name: "IT", orgUnitId: itUnit.id },
-    { code: "MKT", name: "Marketing", orgUnitId: marketingUnit.id },
-    { code: "OPS", name: "Operations", orgUnitId: operationsUnit.id },
-    { code: "FIN", name: "Finance", orgUnitId: financeUnit.id },
-    { code: "HR", name: "HR", orgUnitId: hrUnit.id },
+    { code: "IT", name: "IT" },
+    { code: "MKT", name: "Marketing" },
+    { code: "OPS", name: "Operations" },
+    { code: "FIN", name: "Finance" },
+    { code: "HR", name: "HR" },
   ];
 
   const departmentsMap = new Map<string, string>();
   for (const dept of departmentRecords) {
     const record = await prisma.department.upsert({
       where: { code: dept.code },
-      update: { name: dept.name, orgUnitId: dept.orgUnitId },
-      create: { code: dept.code, name: dept.name, orgUnitId: dept.orgUnitId },
+      update: { name: dept.name },
+      create: { code: dept.code, name: dept.name },
     });
     departmentsMap.set(dept.code, record.id);
   }
@@ -442,7 +442,16 @@ async function main() {
           designationId: staffDesignation.id,
           phone: `+91-98765${String(empCounter).padStart(5, "0")}`,
           joiningDate: new Date(`2023-0${Math.min(i + 1, 9)}-${Math.min((i + 1) * 5, 28)}`),
-          orgUnitId: dept.orgUnitId,
+          orgUnitId:
+            dept.code === "IT"
+              ? itUnit.id
+              : dept.code === "MKT"
+              ? marketingUnit.id
+              : dept.code === "OPS"
+              ? operationsUnit.id
+              : dept.code === "FIN"
+              ? financeUnit.id
+              : hrUnit.id,
         },
       });
       empCounter++;
