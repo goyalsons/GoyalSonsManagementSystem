@@ -102,6 +102,32 @@ async function main() {
 
   console.log("Created org units");
 
+  // Departments (linked to org units)
+  const departmentRecords = [
+    { code: "IT", name: "IT", orgUnitId: itUnit.id },
+    { code: "MKT", name: "Marketing", orgUnitId: marketingUnit.id },
+    { code: "OPS", name: "Operations", orgUnitId: operationsUnit.id },
+    { code: "FIN", name: "Finance", orgUnitId: financeUnit.id },
+    { code: "HR", name: "HR", orgUnitId: hrUnit.id },
+  ];
+
+  const departmentsMap = new Map<string, string>();
+  for (const dept of departmentRecords) {
+    const record = await prisma.department.upsert({
+      where: { code: dept.code },
+      update: { name: dept.name, orgUnitId: dept.orgUnitId },
+      create: { code: dept.code, name: dept.name, orgUnitId: dept.orgUnitId },
+    });
+    departmentsMap.set(dept.code, record.id);
+  }
+
+  // Single designation reused for seeds
+  const staffDesignation = await prisma.designation.upsert({
+    where: { code: "STAFF" },
+    update: { name: "Staff" },
+    create: { code: "STAFF", name: "Staff" },
+  });
+
   const policies = [
     { key: "attendance.view", description: "View attendance records", category: "attendance" },
     { key: "attendance.create", description: "Create attendance records", category: "attendance" },
@@ -373,8 +399,8 @@ async function main() {
       firstName: "Vikram",
       lastName: "Singh",
       employeeCode: "EMP001",
-      department: "HR",
-      designation: "HR Associate",
+      departmentId: departmentsMap.get("HR"),
+      designationId: staffDesignation.id,
       phone: "+91-9876543210",
       joiningDate: new Date("2023-01-15"),
       orgUnitId: hrUnit.id,
@@ -401,16 +427,8 @@ async function main() {
     create: { userId: employeeUser.id, roleId: employeeRole.id },
   });
 
-  const departments = [
-    { unit: itUnit, name: "IT" },
-    { unit: marketingUnit, name: "Marketing" },
-    { unit: operationsUnit, name: "Operations" },
-    { unit: financeUnit, name: "Finance" },
-    { unit: hrUnit, name: "HR" },
-  ];
-
   let empCounter = 2;
-  for (const dept of departments) {
+  for (const dept of departmentRecords) {
     for (let i = 0; i < 5; i++) {
       const empCode = `EMP${String(empCounter).padStart(3, "0")}`;
       await prisma.employee.upsert({
@@ -420,11 +438,11 @@ async function main() {
           firstName: `Employee${empCounter}`,
           lastName: dept.name,
           employeeCode: empCode,
-          department: dept.name,
-          designation: `${dept.name} Staff`,
+          departmentId: departmentsMap.get(dept.code),
+          designationId: staffDesignation.id,
           phone: `+91-98765${String(empCounter).padStart(5, "0")}`,
           joiningDate: new Date(`2023-0${Math.min(i + 1, 9)}-${Math.min((i + 1) * 5, 28)}`),
-          orgUnitId: dept.unit.id,
+          orgUnitId: dept.orgUnitId,
         },
       });
       empCounter++;
