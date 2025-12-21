@@ -1,3 +1,4 @@
+import type React from "react";
 import { useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
@@ -6,13 +7,17 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/lib/auth-context";
 import { 
-  Search, IndianRupee, TrendingUp, TrendingDown, Calendar, 
-  User, BarChart3, Store, Hash, ArrowRight, Loader2,
-  AlertCircle
+  Search, TrendingUp, TrendingDown, Calendar, 
+  User, BarChart3, Store, Hash, Loader2,
+  AlertCircle, Table2, Users
 } from "lucide-react";
 import { format } from "date-fns";
+import SalesExcelPivotTable, { type SalesDataRow } from "@/components/SalesExcelPivotTable";
+
+type Trend = "up" | "down" | "neutral";
 
 interface StaffCard {
   smno: string;
@@ -47,6 +52,26 @@ interface SummaryData {
     to: string | null;
   };
   selectedSmno: string | null;
+}
+
+interface PivotApiResponse {
+  success: boolean;
+  data: SalesDataRow[];
+  recordCount: number;
+}
+
+function getTrendMeta(current: number, previous: number) {
+  const diff = current - previous;
+  const trend: Trend = diff > 0 ? "up" : diff < 0 ? "down" : "neutral";
+  const percent = previous ? (diff / previous) * 100 : null;
+
+  return { trend, diff, percent };
+}
+
+function formatPercent(percent: number | null) {
+  if (percent === null || Number.isNaN(percent)) return "–";
+  const rounded = Math.abs(percent) >= 1000 ? Math.round(Math.abs(percent)) : Math.abs(percent).toFixed(1);
+  return `${rounded}%`;
 }
 
 function formatCurrency(value: number) {
@@ -114,7 +139,7 @@ function StaffCardCompact({
   isSelected: boolean; 
   onClick: () => void;
 }) {
-  const trend = card.todaySale > card.lastSale ? "up" : card.todaySale < card.lastSale ? "down" : "neutral";
+  const { trend } = getTrendMeta(card.todaySale, card.lastSale);
   const TrendIcon = trend === "up" ? TrendingUp : trend === "down" ? TrendingDown : null;
   const trendColor = trend === "up" ? "text-emerald-500" : trend === "down" ? "text-red-500" : "text-slate-400";
 
@@ -187,6 +212,13 @@ function DetailTable({
     );
   }
 
+  const { trend, diff, percent } = getTrendMeta(card.todaySale, card.lastSale);
+  const trendCopy = {
+    up: "performing better than last recorded sale",
+    down: "performing lower than last recorded sale",
+    neutral: "matching the last recorded sale",
+  }[trend];
+
   return (
     <div className="space-y-6">
       {/* Staff Info Header */}
@@ -219,6 +251,9 @@ function DetailTable({
         </div>
       )}
 
+      
+        
+      
       {/* Brand Breakdown Table */}
       {rows.length > 0 ? (
         <div className="overflow-hidden rounded-xl border border-slate-200">
@@ -292,6 +327,7 @@ function DetailTable({
   );
 }
 
+
 export default function SalesStaffPage() {
   const { user, isEmployeeLogin } = useAuth();
   const isEmployee = isEmployeeLogin();
@@ -300,6 +336,7 @@ export default function SalesStaffPage() {
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedSmno, setSelectedSmno] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<string>("staff");
 
   // Auto-load employee's own data
   useEffect(() => {
@@ -322,6 +359,21 @@ export default function SalesStaffPage() {
     staleTime: 5 * 60 * 1000,
   });
 
+  // Fetch pivot data from real API
+  const { data: pivotResponse, isLoading: pivotLoading } = useQuery<PivotApiResponse>({
+    queryKey: ["/api/sales/pivot"],
+    queryFn: async () => {
+      const res = await fetch("/api/sales/pivot", {
+        headers: { Authorization: `Bearer ${localStorage.getItem("gms_token")}` },
+      });
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // Extract pivot data or use empty array
+  const pivotData: SalesDataRow[] = pivotResponse?.success ? pivotResponse.data : [];
+
   // Filter cards based on search query
   const filteredCards = useMemo(() => {
     if (!data?.cards) return [];
@@ -334,6 +386,18 @@ export default function SalesStaffPage() {
       (card.unit && card.unit.toLowerCase().includes(query))
     );
   }, [data?.cards, searchQuery]);
+
+  const summaryTotals = useMemo(() => {
+    return filteredCards.reduce(
+      (acc, card) => {
+        acc.today += card.todaySale;
+        acc.last += card.lastSale;
+        acc.total += card.totalSale;
+        return acc;
+      },
+      { today: 0, last: 0, total: 0 }
+    );
+  }, [filteredCards]);
 
   const handleSearch = () => {
     setSearchQuery(searchInput.trim());
@@ -387,180 +451,228 @@ export default function SalesStaffPage() {
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-3">
-          <div className="h-9 w-9 rounded-lg bg-indigo-500 flex items-center justify-center">
-            <BarChart3 className="h-5 w-5 text-white" />
-          </div>
-          Sales Staff
-        </h1>
-        <p className="text-slate-500 mt-1">
-          {isEmployee 
-            ? "Your personal sales performance" 
-            : "View and analyze staff sales performance"
-          }
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-3">
+            <div className="h-9 w-9 rounded-lg bg-indigo-500 flex items-center justify-center">
+              <BarChart3 className="h-5 w-5 text-white" />
+            </div>
+            Sales Staff
+          </h1>
+          <p className="text-slate-500 mt-1">
+            {isEmployee 
+              ? "Your personal sales performance" 
+              : "View and analyze staff sales performance"
+            }
+          </p>
+        </div>
       </div>
 
-      {/* Search Bar - Only for MDO */}
-      {!isEmployee && (
-        <Card className="border-slate-200 bg-white shadow-sm">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base font-medium flex items-center gap-2 text-slate-700">
-              <Search className="h-4 w-4" /> Search Sales Staff
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-col sm:flex-row gap-3">
-              <div className="flex-1">
-                <Label htmlFor="search" className="text-sm text-slate-500 mb-1.5 block">
-                  Card Number or Name
-                </Label>
-                <div className="relative">
-                  <Input
-                    id="search"
-                    placeholder="Enter card number (e.g., 5195) or name..."
-                    value={searchInput}
-                    onChange={(e) => setSearchInput(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    className="pr-24 h-11"
-                  />
-                  <Button
-                    size="sm"
-                    className="absolute right-1.5 top-1/2 -translate-y-1/2 h-8 px-4 bg-indigo-600 hover:bg-indigo-700"
-                    onClick={handleSearch}
-                  >
-                    <Search className="h-4 w-4 mr-1.5" />
-                    Search
-                  </Button>
+      {/* Tabs for Staff View / Pivot View */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="grid w-full max-w-md grid-cols-2 mb-6">
+          <TabsTrigger value="staff" className="flex items-center gap-2">
+            <Users className="h-4 w-4" />
+            Staff View
+          </TabsTrigger>
+          <TabsTrigger value="pivot" className="flex items-center gap-2">
+            <Table2 className="h-4 w-4" />
+            Pivot Table
+          </TabsTrigger>
+        </TabsList>
+
+        {/* ─────────────────── Staff View Tab ─────────────────── */}
+        <TabsContent value="staff" className="space-y-6 mt-0">
+          {/* Search Bar - Only for MDO */}
+          {!isEmployee && (
+            <Card className="border-slate-200 bg-white shadow-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base font-medium flex items-center gap-2 text-slate-700">
+                  <Search className="h-4 w-4" /> Search Sales Staff
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <div className="flex-1">
+                    <Label htmlFor="search" className="text-sm text-slate-500 mb-1.5 block">
+                      Card Number or Name
+                    </Label>
+                    <div className="relative">
+                      <Input
+                        id="search"
+                        placeholder="Enter card number (e.g., 5195) or name..."
+                        value={searchInput}
+                        onChange={(e) => setSearchInput(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        className="pr-24 h-11"
+                      />
+                      <Button
+                        size="sm"
+                        className="absolute right-1.5 top-1/2 -translate-y-1/2 h-8 px-4 bg-indigo-600 hover:bg-indigo-700"
+                        onClick={handleSearch}
+                      >
+                        <Search className="h-4 w-4 mr-1.5" />
+                        Search
+                      </Button>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
-            
-            {searchQuery && (
-              <div className="mt-3 flex items-center gap-2 text-sm text-slate-500">
-                <span>Showing results for:</span>
-                <Badge variant="secondary" className="font-mono">
-                  {searchQuery}
-                </Badge>
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  className="h-6 px-2 text-xs"
-                  onClick={() => { setSearchInput(""); setSearchQuery(""); }}
-                >
-                  Clear
-                </Button>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Summary Stats */}
-      {data?.cards && data.cards.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <Card className="border-slate-200">
-            <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-slate-700">{filteredCards.length}</div>
-              <div className="text-xs text-slate-500">Staff Members</div>
-            </CardContent>
-          </Card>
-          <Card className="bg-emerald-500 border-emerald-500">
-            <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-white">
-                {formatCurrency(filteredCards.reduce((sum, c) => sum + c.todaySale, 0))}
-              </div>
-              <div className="text-xs text-white/80">Today's Total</div>
-            </CardContent>
-          </Card>
-          <Card className="bg-blue-500 border-blue-500">
-            <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-white">
-                {formatCurrency(filteredCards.reduce((sum, c) => sum + c.lastSale, 0))}
-              </div>
-              <div className="text-xs text-white/80">Last Sale Total</div>
-            </CardContent>
-          </Card>
-          <Card className="border-slate-200">
-            <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-slate-700">
-                {formatCurrency(filteredCards.reduce((sum, c) => sum + c.totalSale, 0))}
-              </div>
-              <div className="text-xs text-slate-500">
-                {data.dateRange?.from && data.dateRange?.to 
-                  ? `${data.dateRange.from} to ${data.dateRange.to}`
-                  : "Total Sales"
-                }
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* Main Content Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Staff Cards List */}
-        <div className="space-y-3">
-          <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-2">
-            <User className="h-4 w-4" />
-            Staff Members ({filteredCards.length})
-          </h2>
-          
-          {filteredCards.length === 0 ? (
-            <Card className="border-slate-200">
-              <CardContent className="py-12 text-center">
-                <Search className="h-12 w-12 mx-auto mb-3 text-slate-300" />
-                <p className="text-slate-500 font-medium">No staff found</p>
-                <p className="text-slate-400 text-sm mt-1">
-                  {searchQuery ? "Try a different search term" : "No sales data available"}
-                </p>
+                
+                {searchQuery && (
+                  <div className="mt-3 flex items-center gap-2 text-sm text-slate-500">
+                    <span>Showing results for:</span>
+                    <Badge variant="secondary" className="font-mono">
+                      {searchQuery}
+                    </Badge>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="h-6 px-2 text-xs"
+                      onClick={() => { setSearchInput(""); setSearchQuery(""); }}
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                )}
               </CardContent>
             </Card>
-          ) : (
-            <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2">
-              {filteredCards.map((card, idx) => (
-                <StaffCardCompact
-                  key={card.smno}
-                  card={card}
-                  isSelected={effectiveSelected === card.smno}
-                  onClick={() => setSelectedSmno(card.smno)}
-                />
-              ))}
+          )}
+
+          {/* Summary Stats */}
+          {data?.cards && data.cards.length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <Card className="bg-emerald-500 border-emerald-500">
+                <CardContent className="p-4 text-center">
+                  <div className="text-2xl font-bold text-white">
+                    {formatCurrency(summaryTotals.today)}
+                  </div>
+                  <div className="text-xs text-white/80">Today's Total</div>
+                </CardContent>
+              </Card>
+              <Card className="bg-blue-500 border-blue-500">
+                <CardContent className="p-4 text-center">
+                  <div className="text-2xl font-bold text-white">
+                    {formatCurrency(summaryTotals.last)}
+                  </div>
+                  <div className="text-xs text-white/80">Last Sale Total</div>
+                </CardContent>
+              </Card>
+              <Card className="border-slate-200">
+                <CardContent className="p-4 text-center">
+                  <div className="text-2xl font-bold text-slate-700">
+                    {formatCurrency(summaryTotals.total)}
+                  </div>
+                  <div className="text-xs text-slate-500">
+                    {data.dateRange?.from && data.dateRange?.to 
+                      ? `${data.dateRange.from} to ${data.dateRange.to}`
+                      : "Total Sales"
+                    }
+                  </div>
+                </CardContent>
+              </Card>
             </div>
           )}
-        </div>
 
-        {/* Detail Panel */}
-        <div>
-          <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-2 mb-3">
-            <BarChart3 className="h-4 w-4" />
-            Sales Breakdown
-          </h2>
-          
+          {/* Main Content Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Staff Cards List */}
+            <div className="space-y-3">
+              <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-2">
+                <User className="h-4 w-4" />
+                Staff Members ({filteredCards.length})
+              </h2>
+              
+              {filteredCards.length === 0 ? (
+                <Card className="border-slate-200">
+                  <CardContent className="py-12 text-center">
+                    <Search className="h-12 w-12 mx-auto mb-3 text-slate-300" />
+                    <p className="text-slate-500 font-medium">No staff found</p>
+                    <p className="text-slate-400 text-sm mt-1">
+                      {searchQuery ? "Try a different search term" : "No sales data available"}
+                    </p>
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2">
+                  {filteredCards.map((card) => (
+                    <StaffCardCompact
+                      key={card.smno}
+                      card={card}
+                      isSelected={effectiveSelected === card.smno}
+                      onClick={() => setSelectedSmno(card.smno)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Detail Panel */}
+            <div>
+              <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-2 mb-3">
+                <BarChart3 className="h-4 w-4" />
+                Sales Breakdown
+              </h2>
+              
+              <Card className="border-slate-200 bg-white">
+                <CardContent className="p-6">
+                  <AnimatePresence mode="wait">
+                    <motion.div
+                      key={effectiveSelected || "empty"}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      transition={{ duration: 0.2 }}
+                    >
+                      <DetailTable
+                        card={selectedCard}
+                        month={data?.table?.month ?? null}
+                        rows={data?.table?.rows ?? []}
+                        grandTotal={data?.table?.grandTotal ?? 0}
+                        grandQty={data?.table?.grandQty ?? 0}
+                      />
+                    </motion.div>
+                  </AnimatePresence>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </TabsContent>
+
+        {/* ─────────────────── Pivot Table Tab ─────────────────── */}
+        <TabsContent value="pivot" className="mt-0">
           <Card className="border-slate-200 bg-white">
-            <CardContent className="p-6">
-              <AnimatePresence mode="wait">
-                <motion.div
-                  key={effectiveSelected || "empty"}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  transition={{ duration: 0.2 }}
-                >
-                  <DetailTable
-                    card={selectedCard}
-                    month={data?.table?.month ?? null}
-                    rows={data?.table?.rows ?? []}
-                    grandTotal={data?.table?.grandTotal ?? 0}
-                    grandQty={data?.table?.grandQty ?? 0}
-                  />
-                </motion.div>
-              </AnimatePresence>
+            <CardHeader className="pb-4">
+              <CardTitle className="text-lg font-semibold flex items-center gap-2 text-slate-800">
+                <Table2 className="h-5 w-5 text-indigo-500" />
+                Division-wise Sales Breakdown
+              </CardTitle>
+              <p className="text-sm text-slate-500 mt-1">
+                {isEmployee 
+                  ? "Your personal sales breakdown by Division → Brand Type"
+                  : "Excel-style pivot table grouped by Division → Brand Type across Units"
+                }
+              </p>
+            </CardHeader>
+            <CardContent>
+              {pivotLoading ? (
+                <div className="flex items-center justify-center py-16">
+                  <div className="flex flex-col items-center gap-3">
+                    <Loader2 className="h-8 w-8 animate-spin text-indigo-500" />
+                    <p className="text-slate-500 text-sm">Loading pivot data...</p>
+                  </div>
+                </div>
+              ) : (
+                <SalesExcelPivotTable 
+                  data={pivotData} 
+                  showSalesmanFilter={!isEmployee}
+                  defaultSmno={isEmployee && employeeCardNo ? parseInt(employeeCardNo, 10) : null}
+                  employeeName={user?.name || ""}
+                />
+              )}
             </CardContent>
           </Card>
-        </div>
-      </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

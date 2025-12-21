@@ -10,6 +10,7 @@ import express from "express";
 import { createServer, type Server } from "http";
 import https from "follow-redirects";
 import { prisma } from "./lib/prisma";
+import { format } from "date-fns";
 import { 
   authenticateUser, 
   requireAuth, 
@@ -3288,25 +3289,21 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
         }
       }
 
-      // Calculate date range from all data
-      let minDate: string | null = null;
-      let maxDate: string | null = null;
-      data.forEach(r => {
-        const dateStr = r.dat || r.DAT || "";
-        if (dateStr) {
-          if (!minDate || dateStr < minDate) minDate = dateStr;
-          if (!maxDate || dateStr > maxDate) maxDate = dateStr;
-        }
-      });
-
-      // Sort dates properly using parseBillDate for accurate comparison
+      // Calculate date range from all data, but force the start day to the 1st of the earliest month
       const allDates = data
         .map(r => ({ str: r.dat || r.DAT || "", date: parseBillDate(r.dat || r.DAT) }))
         .filter(d => d.date !== null)
         .sort((a, b) => a.date!.getTime() - b.date!.getTime());
       
-      const fromDate = allDates.length > 0 ? allDates[0].str : null;
-      const toDate = allDates.length > 0 ? allDates[allDates.length - 1].str : null;
+      const earliestDate = allDates.length > 0 ? allDates[0].date! : null;
+      const latestDate = allDates.length > 0 ? allDates[allDates.length - 1].date! : null;
+
+      const fromDate = earliestDate
+        ? format(new Date(earliestDate.getFullYear(), earliestDate.getMonth(), 1), "dd-MMM-yyyy").toUpperCase()
+        : null;
+      const toDate = latestDate
+        ? format(latestDate, "dd-MMM-yyyy").toUpperCase()
+        : null;
 
       return res.json({
         success: true,
@@ -3326,6 +3323,51 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
     } catch (error: any) {
       console.error("Sales staff summary error:", error);
       res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  // Sales Pivot Data (for Excel-style pivot table)
+  app.get("/api/sales/pivot", requireAuth, async (req, res) => {
+    try {
+      const isEmployeeLogin = req.user!.loginType === "employee";
+      const employeeCardNo = req.user!.employeeCardNo;
+
+      // Fetch fresh data or use cache
+      const now = Date.now();
+      if (!billSummaryCache || now - billSummaryCache.timestamp > BILL_SUMMARY_CACHE_TTL) {
+        console.log('[Sales Pivot] Fetching fresh bill summary data...');
+        const records = await fetchBillSummaryFromAPI();
+        billSummaryCache = { data: records, timestamp: now };
+      }
+
+      let data = [...billSummaryCache.data];
+
+      // Filter by employee if employee login
+      if (isEmployeeLogin && employeeCardNo) {
+        data = data.filter((r) => r.SMNO === employeeCardNo);
+      }
+
+      // Transform data to pivot format
+      // API returns: dat, UNIT, SMNO, SM, divi, BTYPE, QTY, NetSale
+      const pivotData = data.map((r) => ({
+        dat: r.dat || r.DAT || "",
+        unit: r.UNIT || "",
+        smno: parseInt(r.SMNO, 10) || 0,
+        sm: r.SM || "",
+        divi: r.divi || r.DIVI || "",
+        btype: (r.BTYPE === "Y" ? "Y" : "N") as "Y" | "N",
+        qty: parseInt(r.QTY, 10) || 0,
+        netsale: parseFloat(r.NetSale || r.NETSALE || 0) || 0,
+      }));
+
+      return res.json({
+        success: true,
+        data: pivotData,
+        recordCount: pivotData.length,
+      });
+    } catch (error: any) {
+      console.error("Sales pivot error:", error);
+      res.status(500).json({ success: false, message: error.message, data: [] });
     }
   });
 

@@ -490,25 +490,25 @@ export default function AttendanceHistoryPage() {
                 <Card className="border-gray-200 bg-gray-50">
                   <CardContent className="p-3 text-center">
                     <div className="text-2xl font-bold text-gray-700">{summary.total}</div>
-                    <div className="text-xs text-gray-500">Total Days</div>
+                    <div className="text-xs text-gray-500">Total Task</div>
                   </CardContent>
                 </Card>
                 <Card style={{ backgroundColor: "#10b981", borderColor: "#10b981" }}>
                   <CardContent className="p-3 text-center">
                     <div className="text-2xl font-bold text-white">{summary.present}</div>
-                    <div className="text-xs text-white/80">Present</div>
+                    <div className="text-xs text-white/80">Completed</div>
                   </CardContent>
                 </Card>
                 <Card style={{ backgroundColor: "#ef4444", borderColor: "#ef4444" }}>
                   <CardContent className="p-3 text-center">
                     <div className="text-2xl font-bold text-white">{totalAbsent}</div>
-                    <div className="text-xs text-white/80">Absent</div>
+                    <div className="text-xs text-white/80">Not Completed</div>
                   </CardContent>
                 </Card>
                 <Card style={{ backgroundColor: "#eab308", borderColor: "#eab308" }}>
                   <CardContent className="p-3 text-center">
                     <div className="text-2xl font-bold text-white">{summary.halfDay}</div>
-                    <div className="text-xs text-white/80">Half Day</div>
+                    <div className="text-xs text-white/80">Half Completed</div>
                   </CardContent>
                 </Card>
               </div>
@@ -617,27 +617,27 @@ export default function AttendanceHistoryPage() {
                   <div className="w-5 h-5 rounded flex items-center justify-center" style={{ backgroundColor: "#10b981" }}>
                     <span className="text-white text-[10px] font-bold">1</span>
                   </div>
-                  <span>Present</span>
+                  <span>Completed</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="w-5 h-5 rounded relative flex items-center justify-center" style={{ backgroundColor: "#10b981" }}>
                     <span className="text-white text-[10px] font-bold">1</span>
                     <div className="absolute bottom-0 w-1.5 h-1.5 rounded-full bg-white" />
                   </div>
-                  <span>Present Late</span>
+                  <span>Completed Late</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="w-5 h-5 rounded relative flex items-center justify-center" style={{ backgroundColor: "#10b981" }}>
                     <span className="text-white text-[10px] font-bold">1</span>
                     <div className="absolute bottom-0 w-1.5 h-1.5 rounded-full bg-blue-500" />
                   </div>
-                  <span>Early Out</span>
+                  <span>Early</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="w-5 h-5 rounded flex items-center justify-center" style={{ backgroundColor: "#ef4444" }}>
                     <span className="text-white text-[10px] font-bold">1</span>
                   </div>
-                  <span>Absent</span>
+                  <span>Not Completed</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="w-5 h-5 rounded relative flex items-center justify-center" style={{ backgroundColor: "#ef4444" }}>
@@ -647,20 +647,20 @@ export default function AttendanceHistoryPage() {
                       <div className="w-1.5 h-1.5 rounded-full bg-black" />
                     </div>
                   </div>
-                  <span>Double Absent</span>
+                  <span>Double Not Completed</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="w-5 h-5 rounded flex items-center justify-center" style={{ backgroundColor: "#eab308" }}>
                     <span className="text-white text-[10px] font-bold">1</span>
                   </div>
-                  <span>Half Day</span>
+                  <span>Half Completed</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="w-5 h-5 rounded relative flex items-center justify-center" style={{ backgroundColor: "#f97316" }}>
                     <span className="text-white text-[10px] font-bold">1</span>
                     <div className="absolute bottom-0 w-1.5 h-1.5 rounded-full bg-blue-500" />
                   </div>
-                  <span>Miss In/Out</span>
+                  <span>Miss</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="w-5 h-5 rounded relative flex items-center justify-center" style={{ backgroundColor: "#ffffff", border: "1px solid #e5e7eb" }}>
