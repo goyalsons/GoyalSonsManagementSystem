@@ -223,10 +223,42 @@ export default function SalesExcelPivotTable({
   }, [data, defaultSmno]);
 
   // Extract unique dates from data (sorted descending - latest first)
+  // For members: only show current month and previous month
+  // For MDO: show all dates
   const availableDates = useMemo(() => {
     const uniqueDates = Array.from(new Set(data.map((d) => d.dat))).filter(d => d);
-    return sortDatesDescending(uniqueDates);
-  }, [data]);
+    const allDates = sortDatesDescending(uniqueDates);
+    
+    // If member mode (showSalesmanFilter === false), filter to current and previous month only
+    if (!showSalesmanFilter) {
+      const now = new Date();
+      const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      currentMonthStart.setHours(0, 0, 0, 0);
+      
+      // Previous month start
+      const previousMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      previousMonthStart.setHours(0, 0, 0, 0);
+      
+      // Current month end (today)
+      const currentMonthEnd = new Date(now);
+      currentMonthEnd.setHours(23, 59, 59, 999);
+      
+      // Previous month end
+      const previousMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+      
+      return allDates.filter(dateStr => {
+        const date = parseDate(dateStr);
+        if (!date) return false;
+        
+        // Include if date is in current month (up to today) or previous month
+        return (date >= currentMonthStart && date <= currentMonthEnd) ||
+               (date >= previousMonthStart && date <= previousMonthEnd);
+      });
+    }
+    
+    // MDO mode: return all dates
+    return allDates;
+  }, [data, showSalesmanFilter]);
 
   // State for selected date (default: "all" to show all dates)
   const [selectedDate, setSelectedDate] = useState<string>("all");
