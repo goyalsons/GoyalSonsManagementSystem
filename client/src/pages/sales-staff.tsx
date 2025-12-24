@@ -368,19 +368,25 @@ export default function SalesStaffPage() {
   });
 
   // Fetch pivot data from real API
-  const { data: pivotResponse, isLoading: pivotLoading } = useQuery<PivotApiResponse>({
+  const { data: pivotResponse, isLoading: pivotLoading, isError: pivotError } = useQuery<PivotApiResponse>({
     queryKey: ["/api/sales/pivot"],
     queryFn: async () => {
       const res = await fetch("/api/sales/pivot", {
         headers: { Authorization: `Bearer ${localStorage.getItem("gms_token")}` },
       });
-      return res.json();
+      const result = await res.json();
+      if (!res.ok || result.success === false) {
+        throw new Error(result.message || `HTTP ${res.status}: Failed to load pivot data`);
+      }
+      return result;
     },
     staleTime: 5 * 60 * 1000,
+    retry: 1,
+    retryDelay: 2000,
   });
 
   // Extract pivot data or use empty array
-  const pivotData: SalesDataRow[] = pivotResponse?.success ? pivotResponse.data : [];
+  const pivotData: SalesDataRow[] = pivotResponse?.success ? (pivotResponse.data || []) : [];
 
   // Filter cards based on search query
   const filteredCards = useMemo(() => {

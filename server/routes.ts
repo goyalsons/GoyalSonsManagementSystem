@@ -3917,15 +3917,56 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
       const isEmployeeLogin = req.user!.loginType === "employee";
       const employeeCardNo = req.user!.employeeCardNo;
 
-      // Fetch fresh data or use cache
-      const now = Date.now();
-      if (!billSummaryCache || now - billSummaryCache.timestamp > BILL_SUMMARY_CACHE_TTL) {
-        console.log('[Sales Pivot] Fetching fresh bill summary data...');
-        const records = await fetchBillSummaryFromAPI();
-        billSummaryCache = { data: records, timestamp: now };
+      // Read from PostgreSQL instead of cache
+      let data: any[] = [];
+      try {
+        data = await getBillSummaryFromDB();
+        
+        // If database is empty, fetch from API and store
+        if (data.length === 0) {
+          console.log('[Sales Pivot] Database empty, fetching initial data from API...');
+          try {
+            const records = await fetchBillSummaryFromAPI();
+            if (records.length > 0) {
+              await storeBillSummaryInDB(records);
+              data = await getBillSummaryFromDB();
+            } else {
+              console.warn('[Sales Pivot] API returned empty data');
+              data = [];
+            }
+          } catch (apiError: any) {
+            console.error('[Sales Pivot] Failed to fetch from API:', apiError);
+            // Return empty data instead of error for pivot
+            return res.json({
+              success: true,
+              data: [],
+              recordCount: 0,
+              message: `Database is empty and unable to fetch from API: ${apiError.message}. Please use the Refresh button.`,
+            });
+          }
+        }
+      } catch (dbError: any) {
+        console.error('[Sales Pivot] Error reading from DB:', dbError);
+        // Try to fallback to API
+        try {
+          console.log('[Sales Pivot] Attempting API fallback...');
+          data = await fetchBillSummaryFromAPI();
+          // Try to store for next time, but don't fail if it doesn't work
+          try {
+            await storeBillSummaryInDB(data);
+          } catch (storeError) {
+            console.warn('[Sales Pivot] Failed to store API data, but continuing with response:', storeError);
+          }
+        } catch (apiError: any) {
+          console.error('[Sales Pivot] Both DB and API failed:', apiError);
+          return res.json({
+            success: true,
+            data: [],
+            recordCount: 0,
+            message: `Unable to load pivot data. Please try refreshing.`,
+          });
+        }
       }
-
-      let data = [...billSummaryCache.data];
 
       // Filter by employee if employee login
       if (isEmployeeLogin && employeeCardNo) {
@@ -3936,13 +3977,13 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
       // API returns: dat, UNIT, SMNO, SM, divi, BTYPE, QTY, NetSale
       const pivotData = data.map((r) => ({
         dat: r.dat || r.DAT || "",
-        unit: r.UNIT || "",
-        smno: parseInt(r.SMNO, 10) || 0,
-        sm: r.SM || "",
+        unit: r.UNIT || r.unit || "",
+        smno: parseInt(r.SMNO || r.smno || "0", 10) || 0,
+        sm: r.SM || r.sm || "",
         divi: r.divi || r.DIVI || "",
-        btype: (r.BTYPE === "Y" ? "Y" : "N") as "Y" | "N",
-        qty: parseInt(r.QTY, 10) || 0,
-        netsale: parseFloat(r.NetSale || r.NETSALE || 0) || 0,
+        btype: ((r.BTYPE || r.btype || "").toString().toUpperCase() === "Y" ? "Y" : "N") as "Y" | "N",
+        qty: parseInt(r.QTY || r.qty || "0", 10) || 0,
+        netsale: parseFloat(r.NetSale || r.NETSALE || r.netSale || "0") || 0,
       }));
 
       return res.json({
