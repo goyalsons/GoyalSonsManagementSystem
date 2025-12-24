@@ -100,8 +100,12 @@ export default function Dashboard() {
   const [currentTime, setCurrentTime] = useState(new Date());
 
   useEffect(() => {
+    // Update time every second, but batch updates to reduce reflows
     const timer = setInterval(() => {
-      setCurrentTime(new Date());
+      // Use requestAnimationFrame to batch the state update with other DOM operations
+      requestAnimationFrame(() => {
+        setCurrentTime(new Date());
+      });
     }, 1000);
     return () => clearInterval(timer);
   }, []);

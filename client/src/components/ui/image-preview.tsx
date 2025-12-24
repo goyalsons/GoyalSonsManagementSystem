@@ -29,32 +29,35 @@ export function ImagePreview({
       clearTimeout(timeoutRef.current);
     }
 
-    // Calculate position for the preview
-    const rect = (e.target as HTMLElement).getBoundingClientRect();
-    const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
+    // Use requestAnimationFrame to batch DOM reads
+    requestAnimationFrame(() => {
+      // Calculate position for the preview
+      const rect = (e.target as HTMLElement).getBoundingClientRect();
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
 
-    // Position preview to the right of the image by default
-    let x = rect.right + 12;
-    let y = rect.top - 20;
+      // Position preview to the right of the image by default
+      let x = rect.right + 12;
+      let y = rect.top - 20;
 
-    // If preview would go off right edge, show on left
-    if (x + previewSize > viewportWidth - 20) {
-      x = rect.left - previewSize - 12;
-    }
+      // If preview would go off right edge, show on left
+      if (x + previewSize > viewportWidth - 20) {
+        x = rect.left - previewSize - 12;
+      }
 
-    // If preview would go off bottom, adjust y
-    if (y + previewSize > viewportHeight - 20) {
-      y = viewportHeight - previewSize - 20;
-    }
+      // If preview would go off bottom, adjust y
+      if (y + previewSize > viewportHeight - 20) {
+        y = viewportHeight - previewSize - 20;
+      }
 
-    // If preview would go off top, adjust y
-    if (y < 20) {
-      y = 20;
-    }
+      // If preview would go off top, adjust y
+      if (y < 20) {
+        y = 20;
+      }
 
-    setPosition({ x, y });
-    setIsHovered(true);
+      setPosition({ x, y });
+      setIsHovered(true);
+    });
   };
 
   const handleMouseLeave = () => {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -85,16 +85,21 @@ export default function TodayAttendancePage() {
     refetchInterval: 60000,
   });
 
-  const filteredData = attendanceData?.data?.filter((record: TodayAttendanceRecord) => {
-    if (!debouncedSearch) return true;
+  // Memoize filtered data to avoid recalculating on every render
+  const filteredData = React.useMemo(() => {
+    if (!attendanceData?.data) return [];
+    if (!debouncedSearch) return attendanceData.data;
+    
     const searchLower = debouncedSearch.toLowerCase();
-    return (
-      record.firstName?.toLowerCase().includes(searchLower) ||
-      record.lastName?.toLowerCase().includes(searchLower) ||
-      record.cardNumber?.toLowerCase().includes(searchLower) ||
-      record.phone?.includes(searchLower)
-    );
-  }) || [];
+    return attendanceData.data.filter((record: TodayAttendanceRecord) => {
+      return (
+        record.firstName?.toLowerCase().includes(searchLower) ||
+        record.lastName?.toLowerCase().includes(searchLower) ||
+        record.cardNumber?.toLowerCase().includes(searchLower) ||
+        record.phone?.includes(searchLower)
+      );
+    });
+  }, [attendanceData?.data, debouncedSearch]);
 
   const formatTime = (dateStr: string | null) => {
     if (!dateStr) return "-";
