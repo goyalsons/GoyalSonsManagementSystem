@@ -729,9 +729,9 @@ export default function SalesStaffPage() {
               ) : (
                 <SalesExcelPivotTable 
                   data={pivotData} 
-                  showSalesmanFilter={true}
-                  defaultSmno={null}
-                  employeeName={""}
+                  showSalesmanFilter={!isEmployee}
+                  defaultSmno={isEmployee && employeeCardNo ? parseInt(employeeCardNo, 10) : null}
+                  employeeName={user?.name || ""}
                 />
               )}
             </CardContent>
