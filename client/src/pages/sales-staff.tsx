@@ -341,12 +341,12 @@ export default function SalesStaffPage() {
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Auto-load employee's own data
-  // useEffect(() => {
-  //   if (isEmployee && employeeCardNo) {
-  //     setSearchInput(employeeCardNo);
-  //     setSearchQuery(employeeCardNo);
-  //   }
-  // }, [isEmployee, employeeCardNo]);
+  useEffect(() => {
+    if (isEmployee && employeeCardNo) {
+      setSearchInput(employeeCardNo);
+      setSearchQuery(employeeCardNo);
+    }
+  }, [isEmployee, employeeCardNo]);
 
   const { data, isLoading, isError, error } = useQuery<SummaryData>({
     queryKey: ["/api/sales/staff/summary", selectedSmno],

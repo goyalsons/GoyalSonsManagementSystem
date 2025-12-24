@@ -3860,7 +3860,11 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
         }
       }
 
-      // All members can see all sales data - no filtering by employee
+      // Filter by employee if employee login (MDO users see all data)
+      if (isEmployeeLogin && employeeCardNo) {
+        data = data.filter((r) => r.SMNO === employeeCardNo);
+      }
+
       // MTD Filter: Only include records from current month (1st of month to today)
       const now = new Date();
       const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -3935,8 +3939,11 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
         .sort((a, b) => b.todaySale - a.todaySale);
 
       // Determine which staff to show detail for
-      // All members can see all staff - no auto-selection of employee's own data
+      // Employees see only their own data, MDO users can see all
       let targetSmno: string | null = requestedSmno;
+      if (isEmployeeLogin) {
+        targetSmno = employeeCardNo || null;
+      }
       if (!targetSmno && cards.length > 0) {
         targetSmno = cards[0].smno;
       }
@@ -4084,7 +4091,11 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
         }
       }
 
-      // All members can see all sales data - no filtering by employee
+      // Filter by employee if employee login (MDO users see all data)
+      if (isEmployeeLogin && employeeCardNo) {
+        data = data.filter((r) => r.SMNO === employeeCardNo);
+      }
+
       // NO MTD FILTERING for pivot table - show all historical data
       // This allows users to see trends across multiple months
 
