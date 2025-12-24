@@ -567,7 +567,8 @@ export default function MainLayout({ children }: MainLayoutProps) {
     const isMDO = user?.loginType === "mdo";
     
     // Items members/employees should see (restricted list - no Targets, Tasks, Claims, Announcements, Training, Work Log)
-    const employeeAllowedItems = ["Dashboard", "Sales Staff"];
+    // But Task History should be accessible to members
+    const employeeAllowedItems = ["Dashboard", "Sales Staff", "Members"];
     
     // Items that are MDO-only (hidden from members)
     const mdoOnlyItems = ["Targets & Goals", "Tasks", "Claims", "Announcements", "Training", "Work Log"];
@@ -604,6 +605,14 @@ export default function MainLayout({ children }: MainLayoutProps) {
         // For MDO users: filter out Task History from Work Log (they see it under Members)
         if (!isEmployee && item.label === "Work Log") {
           return { ...item, subItems: item.subItems.filter(sub => sub.label !== "Task History") };
+        }
+        
+        // For members: show only Task History from Members section (hide other Members subItems)
+        if (isEmployee && item.label === "Members") {
+          return { 
+            ...item, 
+            subItems: item.subItems.filter(sub => sub.label === "Task History") 
+          };
         }
         
         return item;

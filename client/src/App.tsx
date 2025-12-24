@@ -131,6 +131,7 @@ function AuthenticatedRoutes() {
           <Route path="/attendance/fill">
             {() => <ProtectedRoute component={FillAttendancePage} isMDOOnly={true} />}
           </Route>
+          {/* Task History is accessible to both members and MDO */}
           <Route path="/attendance/history" component={AttendanceHistoryPage} />
           
           {/* MDO-only routes - redirect members */}
