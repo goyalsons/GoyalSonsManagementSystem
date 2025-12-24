@@ -3536,9 +3536,10 @@ export async function registerRoutes(
   async function fetchBillSummaryFromAPI(): Promise<any[]> {
     try {
       // New vendor API for bill summary: dat, UNIT, SMNO, SM, divi, BTYPE, QTY, NetSale, updon
+      // MTD (Month-To-Date): Only fetch current month data from 1st of month to today
       const sqlQuery = `SELECT TO_CHAR(a.BILLDATE, 'DD-MON-YYYY') dat,a.UNIT,a.SMNO,a.SM,Case When a.DIV in ('BOYS','GIRLS','INFANTS') then 'KIDS' else a.DIV end divi,a.BTYPE,round(SUM(A.QTY),0) QTY,round(Sum(a.SAL),0) NetSale , SYSDATE updon
 FROM GSMT.SM_MONTHLY_BILLSUMMARY a
-WHERE trunc(A.BILLDATE,'mon') >= TRUNC(ADD_MONTHS(SYSDATE,-1),'mon') and a.DIV <> 'NON-INVENTORY'
+WHERE trunc(A.BILLDATE,'mon') = TRUNC(SYSDATE,'mon') AND A.BILLDATE <= SYSDATE and a.DIV <> 'NON-INVENTORY'
 Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV in ('BOYS','GIRLS','INFANTS') then 'KIDS' else a.DIV end,a.BTYPE`;
       const encodedSql = encodeURIComponent(sqlQuery);
       const apiPath = `/gsweb_v3/webform2.aspx?sql=${encodedSql}&TYP=sql&key=ank2024`;
@@ -3737,12 +3738,26 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
         data = data.filter((r) => r.SMNO === employeeCardNo);
       }
 
-      // Get today's date for comparison
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const yesterday = new Date(today);
+      // MTD Filter: Only include records from current month (1st of month to today)
+      const now = new Date();
+      const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      currentMonthStart.setHours(0, 0, 0, 0);
+      const today = new Date(now);
+      today.setHours(23, 59, 59, 999);
+
+      // Filter data to only include current month records
+      data = data.filter((r) => {
+        const recordDate = parseBillDate(r.dat || r.DAT);
+        if (!recordDate) return false;
+        return recordDate >= currentMonthStart && recordDate <= today;
+      });
+
+      // Get today's date for comparison (reset to start of day)
+      const todayStart = new Date(now);
+      todayStart.setHours(0, 0, 0, 0);
+      const yesterday = new Date(todayStart);
       yesterday.setDate(yesterday.getDate() - 1);
-      const dayBeforeYesterday = new Date(today);
+      const dayBeforeYesterday = new Date(todayStart);
       dayBeforeYesterday.setDate(dayBeforeYesterday.getDate() - 2);
 
       // Build daily totals per staff for cards (today, last sale date, last-last sale date)
@@ -3817,28 +3832,17 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
       let grandQty = 0;
 
       if (staffRecords.length > 0) {
-        // Find the latest month in the data
-        const monthsInData = new Set<string>();
-        staffRecords.forEach(r => {
+        // MTD: Use current month for table display
+        const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        tableMonth = currentMonthKey;
+        
+        // Filter records for current month (MTD)
+        const monthRecords = staffRecords.filter(r => {
           const d = parseBillDate(r.dat || r.DAT);
-          if (d) {
-            const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-            monthsInData.add(monthKey);
-          }
+          if (!d) return false;
+          const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+          return monthKey === currentMonthKey;
         });
-        const sortedMonths = Array.from(monthsInData).sort().reverse();
-        const latestMonth = sortedMonths[0];
-
-        if (latestMonth) {
-          tableMonth = latestMonth;
-          
-          // Filter records for the latest month
-          const monthRecords = staffRecords.filter(r => {
-            const d = parseBillDate(r.dat || r.DAT);
-            if (!d) return false;
-            const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-            return monthKey === latestMonth;
-          });
 
           // Group by BTYPE (N = INH, Y = SOR)
           const byBrand: Record<string, { quantity: number; netAmount: number }> = {};
@@ -3874,21 +3878,12 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
         }
       }
 
-      // Calculate date range from all data, but force the start day to the 1st of the earliest month
-      const allDates = data
-        .map(r => ({ str: r.dat || r.DAT || "", date: parseBillDate(r.dat || r.DAT) }))
-        .filter(d => d.date !== null)
-        .sort((a, b) => a.date!.getTime() - b.date!.getTime());
+      // Calculate MTD date range: 1st of current month to today
+      const mtdStartDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      const mtdEndDate = new Date(now);
       
-      const earliestDate = allDates.length > 0 ? allDates[0].date! : null;
-      const latestDate = allDates.length > 0 ? allDates[allDates.length - 1].date! : null;
-
-      const fromDate = earliestDate
-        ? format(new Date(earliestDate.getFullYear(), earliestDate.getMonth(), 1), "dd-MMM-yyyy").toUpperCase()
-        : null;
-      const toDate = latestDate
-        ? format(latestDate, "dd-MMM-yyyy").toUpperCase()
-        : null;
+      const fromDate = format(mtdStartDate, "dd-MMM-yyyy").toUpperCase();
+      const toDate = format(mtdEndDate, "dd-MMM-yyyy").toUpperCase();
 
       return res.json({
         success: true,
@@ -3972,6 +3967,20 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
       if (isEmployeeLogin && employeeCardNo) {
         data = data.filter((r) => r.SMNO === employeeCardNo);
       }
+
+      // MTD Filter: Only include records from current month (1st of month to today)
+      const now = new Date();
+      const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      currentMonthStart.setHours(0, 0, 0, 0);
+      const today = new Date(now);
+      today.setHours(23, 59, 59, 999);
+
+      // Filter data to only include current month records
+      data = data.filter((r) => {
+        const recordDate = parseBillDate(r.dat || r.DAT);
+        if (!recordDate) return false;
+        return recordDate >= currentMonthStart && recordDate <= today;
+      });
 
       // Transform data to pivot format
       // API returns: dat, UNIT, SMNO, SM, divi, BTYPE, QTY, NetSale
