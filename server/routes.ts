@@ -3506,6 +3506,20 @@ export async function registerRoutes(
         timeoutPromise,
       ]);
       
+      // MTD Filter: Only get records from current month (1st of month to today)
+      const now = new Date();
+      const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      currentMonthStart.setHours(0, 0, 0, 0);
+      const today = new Date(now);
+      today.setHours(23, 59, 59, 999);
+
+      // Filter records to only include current month (MTD)
+      const mtdRecords = records.filter((r) => {
+        const recordDate = parseBillDate(r.dat);
+        if (!recordDate) return false;
+        return recordDate >= currentMonthStart && recordDate <= today;
+      });
+      
       // Convert back to the format expected by the frontend
       return mtdRecords.map((r) => ({
         dat: r.dat,
@@ -3639,7 +3653,9 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
     const month = months[parts[1]?.toUpperCase()];
     const year = parseInt(parts[2]);
     if (isNaN(day) || month === undefined || isNaN(year)) return null;
-    return new Date(year, month, day);
+    const date = new Date(year, month, day);
+    date.setHours(0, 0, 0, 0); // Normalize to start of day for accurate comparisons
+    return date;
   }
 
   // Refresh endpoint - fetches from API and stores in DB
