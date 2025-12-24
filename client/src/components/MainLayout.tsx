@@ -566,12 +566,12 @@ export default function MainLayout({ children }: MainLayoutProps) {
     const isEmployee = isEmployeeLogin();
     const isMDO = user?.loginType === "mdo";
     
-    // Items members/employees should see (restricted list - no Targets, Tasks, Claims, Announcements, Training, Work Log)
-    // But Task History should be accessible to members
-    const employeeAllowedItems = ["Dashboard", "Sales Staff", "Members"];
+    // Items members/employees should see (restricted list - no Targets, Tasks, Claims, Announcements, Training)
+    // Work Log is partially visible - members see only Task History
+    const employeeAllowedItems = ["Dashboard", "Work Log", "Sales Staff"];
     
     // Items that are MDO-only (hidden from members)
-    const mdoOnlyItems = ["Targets & Goals", "Tasks", "Claims", "Announcements", "Training", "Work Log"];
+    const mdoOnlyItems = ["Targets & Goals", "Tasks", "Claims", "Announcements", "Training"];
     
     return navItems
       .filter(item => {
@@ -607,8 +607,8 @@ export default function MainLayout({ children }: MainLayoutProps) {
           return { ...item, subItems: item.subItems.filter(sub => sub.label !== "Task History") };
         }
         
-        // For members: show only Task History from Members section (hide other Members subItems)
-        if (isEmployee && item.label === "Members") {
+        // For members: show only Task History from Work Log section (hide My Work Log, Today Work Log, Fill Work Log)
+        if (isEmployee && item.label === "Work Log") {
           return { 
             ...item, 
             subItems: item.subItems.filter(sub => sub.label === "Task History") 
