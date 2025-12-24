@@ -341,12 +341,12 @@ export default function SalesStaffPage() {
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Auto-load employee's own data
-  useEffect(() => {
-    if (isEmployee && employeeCardNo) {
-      setSearchInput(employeeCardNo);
-      setSearchQuery(employeeCardNo);
-    }
-  }, [isEmployee, employeeCardNo]);
+  // useEffect(() => {
+  //   if (isEmployee && employeeCardNo) {
+  //     setSearchInput(employeeCardNo);
+  //     setSearchQuery(employeeCardNo);
+  //   }
+  // }, [isEmployee, employeeCardNo]);
 
   const { data, isLoading, isError, error } = useQuery<SummaryData>({
     queryKey: ["/api/sales/staff/summary", selectedSmno],
@@ -729,9 +729,9 @@ export default function SalesStaffPage() {
               ) : (
                 <SalesExcelPivotTable 
                   data={pivotData} 
-                  showSalesmanFilter={!isEmployee}
-                  defaultSmno={isEmployee && employeeCardNo ? parseInt(employeeCardNo, 10) : null}
-                  employeeName={user?.name || ""}
+                  showSalesmanFilter={true}
+                  defaultSmno={null}
+                  employeeName={""}
                 />
               )}
             </CardContent>
