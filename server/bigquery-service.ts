@@ -54,7 +54,11 @@ let bigQueryClient: BigQuery | null = null;
 const attendanceCache: Map<string, CacheEntry> = new Map();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache
 
-function loadCredentials(): any {
+function loadCredentials(): {
+  project_id: string;
+  private_key: string;
+  client_email: string;
+} {
   const envValue = process.env.BIGQUERY_CREDENTIALS || process.env.GOOGLE_APPLICATION_CREDENTIALS;
   if (!envValue) {
     throw new Error("BIGQUERY_CREDENTIALS environment variable is not set");
@@ -93,9 +97,10 @@ function getBigQueryClient(): BigQuery {
         projectId: credentials.project_id,
         credentials,
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       console.error("BigQuery credentials error:", error);
-      throw new Error(`Invalid BIGQUERY_CREDENTIALS: ${error.message || error}`);
+      throw new Error(`Invalid BIGQUERY_CREDENTIALS: ${errorMessage}`);
     }
   }
   return bigQueryClient;
@@ -151,8 +156,8 @@ export async function getMemberAttendance(
 
   const [rows] = await client.query(options);
   
-  const records = (rows as any[]).map(row => {
-    const normalized: any = { ...row };
+  const records = (rows as unknown[]).map((row: any) => {
+    const normalized: Partial<AttendanceRecord> = { ...row };
     if (row.dt && typeof row.dt === 'object' && row.dt.value) {
       normalized.dt = row.dt.value;
     }
@@ -171,8 +176,8 @@ export async function getMemberAttendance(
     if (row.result_t_out && typeof row.result_t_out === 'object' && row.result_t_out.value) {
       normalized.result_t_out = row.result_t_out.value;
     }
-    return normalized;
-  }) as AttendanceRecord[];
+    return normalized as AttendanceRecord;
+  });
   
   console.log(`[BigQuery] Found ${records.length} records for card ${cardNo}`);
   
@@ -198,8 +203,31 @@ export async function getEmployeeAttendance(
 }
 
 export function isBigQueryConfigured(): boolean {
-  return !!process.env.BIGQUERY_CREDENTIALS;
+  try {
+    const envValue = process.env.BIGQUERY_CREDENTIALS || process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    if (!envValue) return false;
+    
+    // Check if it's a file path
+    const asPath = path.resolve(envValue.trim());
+    if (!envValue.trim().startsWith("{") && fs.existsSync(asPath)) {
+      // It's a file path, try to read and parse it
+      try {
+        const raw = fs.readFileSync(asPath, "utf8").trim();
+        const creds = JSON.parse(raw);
+        return !!(creds.project_id && creds.client_email && creds.private_key);
+      } catch {
+        return false;
+      }
+    }
+    
+    // It's a JSON string
+    const creds = JSON.parse(envValue);
+    return !!(creds.project_id && creds.client_email && creds.private_key);
+  } catch {
+    return false;
+  }
 }
+
 
 export function clearAttendanceCache(): void {
   attendanceCache.clear();
@@ -228,11 +256,20 @@ export function normalizeCardNumber(cardNo: string | number | null | undefined):
  * Get today's date in IST timezone (Asia/Kolkata) as YYYY-MM-DD string
  */
 export function getTodayDateIST(): string {
+  // Get current time in IST timezone
   const now = new Date();
-  // Convert to IST (UTC+5:30)
-  const istOffset = 5.5 * 60 * 60 * 1000;
-  const istDate = new Date(now.getTime() + istOffset);
-  return istDate.toISOString().split('T')[0];
+  // IST is UTC+5:30, so we need to get the local time in IST
+  // Use toLocaleString to get IST date string
+  const istDateString = now.toLocaleString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  });
+  
+  // Convert from DD/MM/YYYY to YYYY-MM-DD
+  const [day, month, year] = istDateString.split('/');
+  return `${year}-${month}-${day}`;
 }
 
 /**
@@ -276,13 +313,13 @@ export async function getTodayAttendanceFromBigQuery(): Promise<Map<string, Atte
   const attendanceMap = new Map<string, AttendanceRecord>();
   
   // Debug: Log first few records
-  const rawRows = rows as any[];
+  const rawRows = rows as unknown[];
   if (rawRows.length > 0) {
     console.log(`[BigQuery] Sample raw record:`, JSON.stringify(rawRows[0], null, 2));
   }
   
-  rawRows.forEach((row, idx) => {
-    const normalized: any = { ...row };
+  rawRows.forEach((row: any, idx: number) => {
+    const normalized: Partial<AttendanceRecord> = { ...row };
     // Normalize date/time fields from BigQuery DATE/TIME objects
     if (row.dt && typeof row.dt === 'object' && row.dt.value) {
       normalized.dt = row.dt.value;
@@ -312,6 +349,8 @@ export async function getTodayAttendanceFromBigQuery(): Promise<Map<string, Atte
       if (idx < 3) {
         console.log(`[BigQuery] Record ${idx}: card_no="${normalized.card_no}" -> normalized="${normalizedCardNo}", P=${normalized.P}, STATUS="${normalized.STATUS}"`);
       }
+    } else {
+      console.warn(`[BigQuery] Record ${idx} has null/undefined card_no, skipping`);
     }
   });
   

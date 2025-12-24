@@ -34,10 +34,10 @@ if (!fs.existsSync(uploadsDir)) {
 }
 
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
+  destination: (_req: express.Request, _file: Express.Multer.File, cb: (error: Error | null, destination: string) => void) => {
     cb(null, uploadsDir);
   },
-  filename: (req, file, cb) => {
+  filename: (_req: express.Request, file: Express.Multer.File, cb: (error: Error | null, filename: string) => void) => {
     const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
     cb(null, uniqueSuffix + "-" + file.originalname);
   },
@@ -46,7 +46,7 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   limits: { fileSize: 10 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
+  fileFilter: (_req: express.Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
     const allowedTypes = [".csv", ".json", ".xlsx", ".xls"];
     const ext = path.extname(file.originalname).toLowerCase();
     if (allowedTypes.includes(ext)) {
@@ -95,7 +95,7 @@ if (GOOGLE_OAUTH_ENABLED) {
   
   passport.deserializeUser(async (id: any, done: any) => {
     try {
-      const user = await prisma.user.findUnique({ where: { id: Number(id) } });
+      const user = await prisma.user.findUnique({ where: { id: String(id) } });
       done(null, user);
     } catch (error) {
       done(error);
@@ -2342,7 +2342,7 @@ export async function registerRoutes(
               recordCount = records.length;
               if (records.length > 0) {
                 sampleRecord = records[0];
-                fields = Object.keys(sampleRecord);
+                fields = sampleRecord ? Object.keys(sampleRecord) : [];
               }
             } catch {
               await prisma.apiRouting.update({
@@ -3088,8 +3088,8 @@ export async function registerRoutes(
       const paginatedData = filteredData.slice(skip, skip + limitNum);
 
       // Get unique departments and brands for filters
-      const departments = [...new Set(salesCache.data.map(r => r.DEPT).filter(Boolean))].sort();
-      const brands = [...new Set(salesCache.data.map(r => r.BRAND).filter(Boolean))].sort();
+      const departments = Array.from(new Set(salesCache.data.map(r => r.DEPT).filter(Boolean))).sort();
+      const brands = Array.from(new Set(salesCache.data.map(r => r.BRAND).filter(Boolean))).sort();
 
       res.json({ 
         success: true, 
