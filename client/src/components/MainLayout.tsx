@@ -625,8 +625,8 @@ export default function MainLayout({ children }: MainLayoutProps) {
           };
         }
         
-        // Filter Sales Staff from Members section for non-salesman users
-        if (item.label === "Members" && !isSalesman) {
+        // Filter Sales Staff from Members section for non-salesman users (but allow MDO users to see it)
+        if (item.label === "Members" && !isSalesman && isEmployee) {
           return {
             ...item,
             subItems: item.subItems.filter(sub => sub.label !== "Sales Staff")

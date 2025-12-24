@@ -79,6 +79,7 @@ function ProtectedRoute({
   const { user, hasRole } = useAuth();
   const [, setLocation] = useLocation();
   const isMember = user?.loginType === "employee";
+  const isMDO = user?.loginType === "mdo";
   const isSalesman = hasRole("Salesman");
 
   useEffect(() => {
@@ -86,17 +87,19 @@ function ProtectedRoute({
       // Redirect members trying to access MDO-only routes to dashboard
       setLocation("/");
     }
-    if (isSalesmanOnly && !isSalesman) {
-      // Redirect non-salesman users trying to access Sales Staff to dashboard
+    // For Sales Staff: MDO users can always access, members need Salesman role
+    if (isSalesmanOnly && isMember && !isSalesman) {
+      // Redirect non-salesman members trying to access Sales Staff to dashboard
       setLocation("/");
     }
-  }, [isMDOOnly, isSalesmanOnly, isMember, isSalesman, setLocation]);
+  }, [isMDOOnly, isSalesmanOnly, isMember, isMDO, isSalesman, setLocation]);
 
   // Don't render component for unauthorized access
   if (isMDOOnly && isMember) {
     return null;
   }
-  if (isSalesmanOnly && !isSalesman) {
+  // MDO users can always access Sales Staff, but members need Salesman role
+  if (isSalesmanOnly && isMember && !isSalesman) {
     return null;
   }
 
