@@ -223,26 +223,34 @@ export default function SalesExcelPivotTable({
   }, [data, defaultSmno]);
 
   // Extract unique dates from data (sorted descending - latest first)
-  // For members: only show December 1-24, 2025
+  // For members: show current month (1st to today) and previous full month (two months total)
   // For MDO: show all dates
   const availableDates = useMemo(() => {
     const uniqueDates = Array.from(new Set(data.map((d) => d.dat))).filter(d => d);
     const allDates = sortDatesDescending(uniqueDates);
     
-    // If member mode (showSalesmanFilter === false), filter to December 1-24, 2025 only
+    // If member mode (showSalesmanFilter === false), filter to current month and previous month
     if (!showSalesmanFilter) {
-      const decStart = new Date(2025, 11, 1); // December 1, 2025 (month is 0-indexed)
-      decStart.setHours(0, 0, 0, 0);
+      const now = new Date();
       
-      const decEnd = new Date(2025, 11, 24); // December 24, 2025
-      decEnd.setHours(23, 59, 59, 999);
+      // Current month: 1st of current month to today
+      const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      currentMonthStart.setHours(0, 0, 0, 0);
+      const currentMonthEnd = new Date(now);
+      currentMonthEnd.setHours(23, 59, 59, 999);
+      
+      // Previous month: 1st to last day of previous month
+      const previousMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      previousMonthStart.setHours(0, 0, 0, 0);
+      const previousMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
       
       return allDates.filter(dateStr => {
         const date = parseDate(dateStr);
         if (!date) return false;
         
-        // Include if date is between December 1-24, 2025
-        return date >= decStart && date <= decEnd;
+        // Include if date is in current month (up to today) or previous full month
+        return (date >= currentMonthStart && date <= currentMonthEnd) ||
+               (date >= previousMonthStart && date <= previousMonthEnd);
       });
     }
     
@@ -254,21 +262,31 @@ export default function SalesExcelPivotTable({
   const [selectedDate, setSelectedDate] = useState<string>("all");
 
   // Filter data by selected salesman and date
-  // For members: also filter to December 1-24, 2025 date range
+  // For members: also filter to current month (1st to today) and previous full month
   const filteredData = useMemo(() => {
     let result = data;
     
-    // For members: filter to December 1-24, 2025 date range
+    // For members: filter to current month (1st to today) and previous full month
     if (!showSalesmanFilter) {
-      const decStart = new Date(2025, 11, 1); // December 1, 2025
-      decStart.setHours(0, 0, 0, 0);
-      const decEnd = new Date(2025, 11, 24); // December 24, 2025
-      decEnd.setHours(23, 59, 59, 999);
+      const now = new Date();
+      
+      // Current month: 1st of current month to today
+      const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      currentMonthStart.setHours(0, 0, 0, 0);
+      const currentMonthEnd = new Date(now);
+      currentMonthEnd.setHours(23, 59, 59, 999);
+      
+      // Previous month: 1st to last day of previous month
+      const previousMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      previousMonthStart.setHours(0, 0, 0, 0);
+      const previousMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
       
       result = result.filter((row) => {
         const rowDate = parseDate(row.dat);
         if (!rowDate) return false;
-        return rowDate >= decStart && rowDate <= decEnd;
+        // Include if date is in current month (up to today) or previous full month
+        return (rowDate >= currentMonthStart && rowDate <= currentMonthEnd) ||
+               (rowDate >= previousMonthStart && rowDate <= previousMonthEnd);
       });
     }
     
