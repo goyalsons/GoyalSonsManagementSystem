@@ -3507,7 +3507,7 @@ export async function registerRoutes(
       ]);
       
       // Convert back to the format expected by the frontend
-      return records.map((r) => ({
+      return mtdRecords.map((r) => ({
         dat: r.dat,
         DAT: r.dat,
         UNIT: r.unit || '',
