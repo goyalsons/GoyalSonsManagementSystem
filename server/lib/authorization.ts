@@ -190,6 +190,12 @@ export async function getUserAuthInfo(userId: string) {
           firstName: true,
           lastName: true,
           gender: true,
+          designation: {
+            select: {
+              code: true,
+              name: true,
+            },
+          },
         },
       },
     },
@@ -211,6 +217,8 @@ export async function getUserAuthInfo(userId: string) {
       firstName: fullUser.employee.firstName,
       lastName: fullUser.employee.lastName,
       gender: fullUser.employee.gender,
+      designationCode: fullUser.employee.designation?.code || null,
+      designationName: fullUser.employee.designation?.name || null,
     } : null,
   };
 }

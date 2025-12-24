@@ -70,18 +70,20 @@ function FullPageLoader() {
 function ProtectedRoute({ 
   component: Component, 
   isMDOOnly = false,
-  isSalesmanOnly = false
+  isSalesmanOnly = false,
+  isSMDesignationOnly = false
 }: { 
   component: React.ComponentType<any>; 
   isMDOOnly?: boolean;
   isSalesmanOnly?: boolean;
+  isSMDesignationOnly?: boolean;
 }) {
   const { user, hasRole } = useAuth();
   const [, setLocation] = useLocation();
   const isMember = user?.loginType === "employee";
   const isMDO = user?.loginType === "mdo";
-  // Check for both "Salesman" and "Sales Man" (with space) role variations
-  const isSalesman = hasRole("Salesman") || hasRole("Sales Man");
+  const isSalesman = hasRole("Salesman");
+  const isSMDesignation = user?.employee?.designationCode?.toUpperCase() === "SM";
 
   useEffect(() => {
     if (isMDOOnly && isMember) {
@@ -93,7 +95,12 @@ function ProtectedRoute({
       // Redirect non-salesman members trying to access Sales Staff to dashboard
       setLocation("/");
     }
-  }, [isMDOOnly, isSalesmanOnly, isMember, isMDO, isSalesman, setLocation]);
+    // For Sales Staff with SM designation: MDO users can always access, members need SM designation
+    if (isSMDesignationOnly && isMember && !isSMDesignation) {
+      // Redirect members without SM designation trying to access Sales Staff to dashboard
+      setLocation("/");
+    }
+  }, [isMDOOnly, isSalesmanOnly, isSMDesignationOnly, isMember, isMDO, isSalesman, isSMDesignation, setLocation]);
 
   // Don't render component for unauthorized access
   if (isMDOOnly && isMember) {
@@ -101,6 +108,10 @@ function ProtectedRoute({
   }
   // MDO users can always access Sales Staff, but members need Salesman role
   if (isSalesmanOnly && isMember && !isSalesman) {
+    return null;
+  }
+  // MDO users can always access Sales Staff, but members need SM designation
+  if (isSMDesignationOnly && isMember && !isSMDesignation) {
     return null;
   }
 
@@ -176,9 +187,9 @@ function AuthenticatedRoutes() {
           
           <Route path="/sales" component={SalesPage} />
           <Route path="/sales/unit/:unitName" component={SalesUnitPage} />
-          {/* Sales Staff route - Salesman role only */}
+          {/* Sales Staff route - SM designation or MDO only */}
           <Route path="/sales-staff">
-            {() => <ProtectedRoute component={SalesStaffPage} isSalesmanOnly={true} />}
+            {() => <ProtectedRoute component={SalesStaffPage} isSMDesignationOnly={true} />}
           </Route>
           
           {isMDO && <Route path="/settings" component={SettingsPage} />}

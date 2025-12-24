@@ -565,14 +565,13 @@ export default function MainLayout({ children }: MainLayoutProps) {
   const visibleNavItems = useMemo(() => {
     const isEmployee = isEmployeeLogin();
     const isMDO = user?.loginType === "mdo";
-    // Check for both "Salesman" and "Sales Man" (with space) role variations
-    const isSalesman = hasRole("Salesman") || hasRole("Sales Man");
+    const isSMDesignation = user?.employee?.designationCode?.toUpperCase() === "SM";
     
     // Items members/employees should see (restricted list - no Targets, Tasks, Claims, Announcements, Training)
     // Work Log is partially visible - members see only Task History
-    // Sales Staff is only for Salesman role
+    // Sales Staff is only for SM designation or MDO
     const employeeAllowedItems = ["Dashboard", "Work Log"];
-    if (isSalesman) {
+    if (isSMDesignation) {
       employeeAllowedItems.push("Sales Staff");
     }
     
@@ -586,8 +585,8 @@ export default function MainLayout({ children }: MainLayoutProps) {
           return false;
         }
 
-        // Hide Sales Staff from non-salesman users
-        if (item.label === "Sales Staff" && !isSalesman) {
+        // Hide Sales Staff from members without SM designation (MDO can always see it)
+        if (item.label === "Sales Staff" && isEmployee && !isSMDesignation) {
           return false;
         }
 
@@ -626,8 +625,8 @@ export default function MainLayout({ children }: MainLayoutProps) {
           };
         }
         
-        // Filter Sales Staff from Members section for non-salesman users (but allow MDO users to see it)
-        if (item.label === "Members" && !isSalesman && isEmployee) {
+        // Filter Sales Staff from Members section for members without SM designation (but allow MDO users to see it)
+        if (item.label === "Members" && isEmployee && !isSMDesignation) {
           return {
             ...item,
             subItems: item.subItems.filter(sub => sub.label !== "Sales Staff")

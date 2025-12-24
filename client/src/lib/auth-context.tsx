@@ -13,6 +13,13 @@ export interface UserAuth {
   loginType: "mdo" | "employee";
   employeeCardNo: string | null;
   employeeId: string | null;
+  employee?: {
+    firstName: string;
+    lastName: string | null;
+    gender: string | null;
+    designationCode: string | null;
+    designationName: string | null;
+  } | null;
 }
 
 interface AuthContextType {

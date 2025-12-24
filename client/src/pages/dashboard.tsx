@@ -245,12 +245,11 @@ export default function Dashboard() {
     },
   ];
 
-  // Check for both "Salesman" and "Sales Man" (with space) role variations
-  const isSalesman = hasRole("Salesman") || hasRole("Sales Man");
+  const isSMDesignation = user?.employee?.designationCode?.toUpperCase() === "SM";
   
   const quickActions = isEmployee ? [
-    // Members only see Sales Staff if they have Salesman role (Work Log/Attendance is hidden)
-    ...(isSalesman ? [{ icon: TrendingUp, label: "Sales Staff", href: "/sales-staff", color: "text-indigo-600" }] : []),
+    // Members only see Sales Staff if they have SM designation (Work Log/Attendance is hidden)
+    ...(isSMDesignation ? [{ icon: TrendingUp, label: "Sales Staff", href: "/sales-staff", color: "text-indigo-600" }] : []),
   ] : [
     // MDO users see all actions
     { icon: Users, label: "Members", href: "/employees", color: "text-blue-600" },
