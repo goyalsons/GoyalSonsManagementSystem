@@ -414,12 +414,12 @@ function MobileBottomNav({ location }: { location: string }) {
   const isEmployee = isEmployeeLogin();
   const isMDO = user?.loginType === "mdo";
   
-  // Filter mobile nav items based on role - hide Targets and Tasks from members
+  // Filter mobile nav items based on role - hide Targets, Tasks, and Work Log from members
   const mobileNavItems = useMemo(() => {
     if (isEmployee) {
-      // Members only see Home and Work Log
+      // Members only see Home (Work Log is hidden)
       return baseMobileNavItems.filter(item => 
-        item.href === "/" || item.href === "/attendance"
+        item.href === "/"
       );
     }
     // MDO sees all items
@@ -566,11 +566,11 @@ export default function MainLayout({ children }: MainLayoutProps) {
     const isEmployee = isEmployeeLogin();
     const isMDO = user?.loginType === "mdo";
     
-    // Items members/employees should see (restricted list - no Targets, Tasks, Claims, Announcements, Training)
-    const employeeAllowedItems = ["Dashboard", "Work Log", "Sales Staff"];
+    // Items members/employees should see (restricted list - no Targets, Tasks, Claims, Announcements, Training, Work Log)
+    const employeeAllowedItems = ["Dashboard", "Sales Staff"];
     
     // Items that are MDO-only (hidden from members)
-    const mdoOnlyItems = ["Targets & Goals", "Tasks", "Claims", "Announcements", "Training"];
+    const mdoOnlyItems = ["Targets & Goals", "Tasks", "Claims", "Announcements", "Training", "Work Log"];
     
     return navItems
       .filter(item => {

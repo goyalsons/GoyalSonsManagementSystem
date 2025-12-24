@@ -246,8 +246,7 @@ export default function Dashboard() {
   ];
 
   const quickActions = isEmployee ? [
-    // Members only see Attendance and Sales Staff (no Targets, Tasks, Claims)
-    { icon: Calendar, label: "Attendance", href: "/attendance", color: "text-blue-600" },
+    // Members only see Sales Staff (Work Log/Attendance is hidden)
     { icon: TrendingUp, label: "Sales Staff", href: "/sales-staff", color: "text-indigo-600" },
   ] : [
     // MDO users see all actions
@@ -328,12 +327,14 @@ export default function Dashboard() {
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-lg font-semibold text-foreground">Recent Check-ins</CardTitle>
-                <Link href="/attendance/today">
-                  <Button variant="ghost" size="sm" className="text-primary hover:text-primary/80 hover:bg-primary/10">
-                    View All
-                    <ArrowRight className="h-4 w-4 ml-1" />
-                  </Button>
-                </Link>
+                {!isEmployee && (
+                  <Link href="/attendance/today">
+                    <Button variant="ghost" size="sm" className="text-primary hover:text-primary/80 hover:bg-primary/10">
+                      View All
+                      <ArrowRight className="h-4 w-4 ml-1" />
+                    </Button>
+                  </Link>
+                )}
               </div>
             </CardHeader>
             <CardContent>

@@ -121,9 +121,16 @@ function AuthenticatedRoutes() {
             {() => <ProtectedRoute component={TeamTargetsPage} isMDOOnly={true} />}
           </Route>
           
-          <Route path="/attendance" component={AttendancePage} />
-          <Route path="/attendance/today" component={TodayAttendancePage} />
-          <Route path="/attendance/fill" component={FillAttendancePage} />
+          {/* Work Log routes - MDO only, redirect members */}
+          <Route path="/attendance">
+            {() => <ProtectedRoute component={AttendancePage} isMDOOnly={true} />}
+          </Route>
+          <Route path="/attendance/today">
+            {() => <ProtectedRoute component={TodayAttendancePage} isMDOOnly={true} />}
+          </Route>
+          <Route path="/attendance/fill">
+            {() => <ProtectedRoute component={FillAttendancePage} isMDOOnly={true} />}
+          </Route>
           <Route path="/attendance/history" component={AttendanceHistoryPage} />
           
           {/* MDO-only routes - redirect members */}
