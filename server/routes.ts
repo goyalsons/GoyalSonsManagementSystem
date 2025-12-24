@@ -3452,40 +3452,95 @@ export async function registerRoutes(
   // ==================== SALES STAFF BILL SUMMARY API ====================
   
   // Helper function to store data in PostgreSQL
-  async function storeBillSummaryInDB(records: any[]): Promise<void> {
+  // Helper function to ensure database connection is alive
+  async function ensureDatabaseConnection(): Promise<void> {
     try {
-      // Clear old data (optional: you might want to keep historical data)
-      // For now, we'll replace all data on refresh
-      await prisma.salesStaffSummary.deleteMany({});
-      
-      // Insert new records
-      const dataToInsert = records.map((r) => ({
-        dat: r.dat || r.DAT || '',
-        unit: r.UNIT || r.unit || null,
-        smno: r.SMNO || r.smno || '',
-        sm: r.SM || r.sm || null,
-        divi: r.divi || r.DIVI || null,
-        btype: r.BTYPE || r.btype || null,
-        qty: parseInt(r.QTY || r.qty || '0', 10) || 0,
-        netSale: parseFloat(r.NetSale || r.NETSALE || r.netSale || '0') || 0,
-        updon: r.updon ? new Date(r.updon) : null,
-      }));
-
-      // Batch insert in chunks of 1000
-      const chunkSize = 1000;
-      for (let i = 0; i < dataToInsert.length; i += chunkSize) {
-        const chunk = dataToInsert.slice(i, i + chunkSize);
-        await prisma.salesStaffSummary.createMany({
-          data: chunk,
-          skipDuplicates: true,
-        });
+      await prisma.$queryRaw`SELECT 1`;
+    } catch (error: any) {
+      console.warn('[Database] Connection check failed, attempting reconnect...', error.message);
+      // Prisma will automatically reconnect on next query, but we can force it
+      try {
+        await prisma.$disconnect().catch(() => {});
+      } catch (disconnectError) {
+        // Ignore disconnect errors
       }
-      
-      console.log(`[Sales Staff Summary] Stored ${records.length} records in PostgreSQL`);
-    } catch (error) {
-      console.error('[Sales Staff Summary] Error storing data in DB:', error);
-      throw error;
+      // Wait a moment before retrying
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Test connection again
+      await prisma.$queryRaw`SELECT 1`;
     }
+  }
+
+  async function storeBillSummaryInDB(records: any[]): Promise<void> {
+    const maxRetries = 3;
+    let lastError: any = null;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        // Ensure database connection is alive before operations
+        await ensureDatabaseConnection();
+        
+        // Clear old data (optional: you might want to keep historical data)
+        // For now, we'll replace all data on refresh
+        await prisma.salesStaffSummary.deleteMany({});
+        
+        // Insert new records
+        const dataToInsert = records.map((r) => ({
+          dat: r.dat || r.DAT || '',
+          unit: r.UNIT || r.unit || null,
+          smno: r.SMNO || r.smno || '',
+          sm: r.SM || r.sm || null,
+          divi: r.divi || r.DIVI || null,
+          btype: r.BTYPE || r.btype || null,
+          qty: parseInt(r.QTY || r.qty || '0', 10) || 0,
+          netSale: parseFloat(r.NetSale || r.NETSALE || r.netSale || '0') || 0,
+          updon: r.updon ? new Date(r.updon) : null,
+        }));
+
+        // Batch insert in chunks of 1000
+        const chunkSize = 1000;
+        for (let i = 0; i < dataToInsert.length; i += chunkSize) {
+          const chunk = dataToInsert.slice(i, i + chunkSize);
+          await prisma.salesStaffSummary.createMany({
+            data: chunk,
+            skipDuplicates: true,
+          });
+        }
+        
+        console.log(`[Sales Staff Summary] Stored ${records.length} records in PostgreSQL`);
+        return; // Success, exit retry loop
+      } catch (error: any) {
+        lastError = error;
+        const errorMessage = error.message || String(error);
+        console.error(`[Sales Staff Summary] Error storing data in DB (attempt ${attempt}/${maxRetries}):`, errorMessage);
+        
+        // Check if it's a connection error
+        if (errorMessage.includes("Connection must be open") || 
+            errorMessage.includes("Connection closed") ||
+            errorMessage.includes("Connection terminated") ||
+            error.code === "P1001" ||
+            error.code === "P1008") {
+          // Wait before retrying (exponential backoff)
+          const waitTime = 1000 * attempt; // 1s, 2s, 3s
+          console.log(`[Sales Staff Summary] Connection error detected, retrying in ${waitTime}ms...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+          // Force reconnection
+          try {
+            await prisma.$disconnect().catch(() => {});
+            await new Promise(resolve => setTimeout(resolve, 500));
+          } catch (disconnectError) {
+            // Ignore disconnect errors
+          }
+          continue; // Retry
+        } else {
+          // Non-connection error, throw immediately
+          throw error;
+        }
+      }
+    }
+    
+    // All retries failed
+    throw new Error(`Failed to store data after ${maxRetries} attempts: ${lastError?.message || 'Unknown error'}`);
   }
 
   // Helper function to read data from PostgreSQL with timeout
@@ -3663,10 +3718,22 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
     try {
       console.log('[Sales Staff Summary] Refresh requested by user:', req.user!.id);
       
+      // Ensure database connection is alive before starting
+      await ensureDatabaseConnection();
+      
       // Fetch fresh data from API
       const records = await fetchBillSummaryFromAPI();
       
-      // Store in PostgreSQL
+      if (records.length === 0) {
+        console.warn('[Sales Staff Summary] API returned empty data');
+        return res.json({
+          success: true,
+          message: "Refresh completed, but no new data was returned from API",
+          recordCount: 0,
+        });
+      }
+      
+      // Store in PostgreSQL (with retry logic)
       await storeBillSummaryInDB(records);
       
       res.json({
@@ -3676,9 +3743,12 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
       });
     } catch (error: any) {
       console.error("Sales staff summary refresh error:", error);
+      const errorMessage = error.message || "Failed to refresh data";
       res.status(500).json({ 
         success: false, 
-        message: error.message || "Failed to refresh data" 
+        message: errorMessage.includes("Connection") 
+          ? "Database connection error. Please try again in a moment." 
+          : errorMessage
       });
     }
   });
