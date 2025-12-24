@@ -66,27 +66,37 @@ function FullPageLoader() {
   );
 }
 
-// Route guard component to redirect members away from restricted routes
+// Route guard component to redirect users away from restricted routes
 function ProtectedRoute({ 
   component: Component, 
-  isMDOOnly = false 
+  isMDOOnly = false,
+  isSalesmanOnly = false
 }: { 
   component: React.ComponentType<any>; 
   isMDOOnly?: boolean;
+  isSalesmanOnly?: boolean;
 }) {
-  const { user } = useAuth();
+  const { user, hasRole } = useAuth();
   const [, setLocation] = useLocation();
   const isMember = user?.loginType === "employee";
+  const isSalesman = hasRole("Salesman");
 
   useEffect(() => {
     if (isMDOOnly && isMember) {
       // Redirect members trying to access MDO-only routes to dashboard
       setLocation("/");
     }
-  }, [isMDOOnly, isMember, setLocation]);
+    if (isSalesmanOnly && !isSalesman) {
+      // Redirect non-salesman users trying to access Sales Staff to dashboard
+      setLocation("/");
+    }
+  }, [isMDOOnly, isSalesmanOnly, isMember, isSalesman, setLocation]);
 
-  // Don't render component for members accessing MDO-only routes
+  // Don't render component for unauthorized access
   if (isMDOOnly && isMember) {
+    return null;
+  }
+  if (isSalesmanOnly && !isSalesman) {
     return null;
   }
 
@@ -94,7 +104,7 @@ function ProtectedRoute({
 }
 
 function AuthenticatedRoutes() {
-  const { user } = useAuth();
+  const { user, hasRole } = useAuth();
   const isMDO = user?.loginType === "mdo";
 
   return (
@@ -162,7 +172,10 @@ function AuthenticatedRoutes() {
           
           <Route path="/sales" component={SalesPage} />
           <Route path="/sales/unit/:unitName" component={SalesUnitPage} />
-          <Route path="/sales-staff" component={SalesStaffPage} />
+          {/* Sales Staff route - Salesman role only */}
+          <Route path="/sales-staff">
+            {() => <ProtectedRoute component={SalesStaffPage} isSalesmanOnly={true} />}
+          </Route>
           
           {isMDO && <Route path="/settings" component={SettingsPage} />}
           <Route path="/admin/routing" component={ApiRoutingPage} />

@@ -543,7 +543,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
     });
     return initial;
   });
-  const { user, logout, hasPolicy, isEmployeeLogin } = useAuth();
+  const { user, logout, hasPolicy, hasRole, isEmployeeLogin } = useAuth();
   const { theme, toggleTheme } = useTheme();
 
   const toggleMenu = useCallback((label: string) => {
@@ -565,10 +565,15 @@ export default function MainLayout({ children }: MainLayoutProps) {
   const visibleNavItems = useMemo(() => {
     const isEmployee = isEmployeeLogin();
     const isMDO = user?.loginType === "mdo";
+    const isSalesman = hasRole("Salesman");
     
     // Items members/employees should see (restricted list - no Targets, Tasks, Claims, Announcements, Training)
     // Work Log is partially visible - members see only Task History
-    const employeeAllowedItems = ["Dashboard", "Work Log", "Sales Staff"];
+    // Sales Staff is only for Salesman role
+    const employeeAllowedItems = ["Dashboard", "Work Log"];
+    if (isSalesman) {
+      employeeAllowedItems.push("Sales Staff");
+    }
     
     // Items that are MDO-only (hidden from members)
     const mdoOnlyItems = ["Targets & Goals", "Tasks", "Claims", "Announcements", "Training"];
@@ -577,6 +582,11 @@ export default function MainLayout({ children }: MainLayoutProps) {
       .filter(item => {
         // Settings is ONLY for MDO
         if (item.label === "Settings" && !isMDO) {
+          return false;
+        }
+
+        // Hide Sales Staff from non-salesman users
+        if (item.label === "Sales Staff" && !isSalesman) {
           return false;
         }
 
@@ -615,9 +625,17 @@ export default function MainLayout({ children }: MainLayoutProps) {
           };
         }
         
+        // Filter Sales Staff from Members section for non-salesman users
+        if (item.label === "Members" && !isSalesman) {
+          return {
+            ...item,
+            subItems: item.subItems.filter(sub => sub.label !== "Sales Staff")
+          };
+        }
+        
         return item;
       });
-  }, [hasPolicy, isEmployeeLogin, user]);
+  }, [hasPolicy, isEmployeeLogin, hasRole, user]);
   
   const visibleAdminItems = useMemo(() => {
     if (isEmployeeLogin()) return [];

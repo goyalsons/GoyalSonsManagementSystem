@@ -94,7 +94,7 @@ function StatCard({
 }
 
 export default function Dashboard() {
-  const { user, isLoading: authLoading, isEmployeeLogin } = useAuth();
+  const { user, isLoading: authLoading, isEmployeeLogin, hasRole } = useAuth();
   const isEmployee = isEmployeeLogin();
   const [, setLocation] = useLocation();
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -245,9 +245,11 @@ export default function Dashboard() {
     },
   ];
 
+  const isSalesman = hasRole("Salesman");
+  
   const quickActions = isEmployee ? [
-    // Members only see Sales Staff (Work Log/Attendance is hidden)
-    { icon: TrendingUp, label: "Sales Staff", href: "/sales-staff", color: "text-indigo-600" },
+    // Members only see Sales Staff if they have Salesman role (Work Log/Attendance is hidden)
+    ...(isSalesman ? [{ icon: TrendingUp, label: "Sales Staff", href: "/sales-staff", color: "text-indigo-600" }] : []),
   ] : [
     // MDO users see all actions
     { icon: Users, label: "Members", href: "/employees", color: "text-blue-600" },
