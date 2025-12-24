@@ -223,36 +223,26 @@ export default function SalesExcelPivotTable({
   }, [data, defaultSmno]);
 
   // Extract unique dates from data (sorted descending - latest first)
-  // For members: only show current month and previous month
+  // For members: only show December 1-24, 2025
   // For MDO: show all dates
   const availableDates = useMemo(() => {
     const uniqueDates = Array.from(new Set(data.map((d) => d.dat))).filter(d => d);
     const allDates = sortDatesDescending(uniqueDates);
     
-    // If member mode (showSalesmanFilter === false), filter to current and previous month only
+    // If member mode (showSalesmanFilter === false), filter to December 1-24, 2025 only
     if (!showSalesmanFilter) {
-      const now = new Date();
-      const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      currentMonthStart.setHours(0, 0, 0, 0);
+      const decStart = new Date(2025, 11, 1); // December 1, 2025 (month is 0-indexed)
+      decStart.setHours(0, 0, 0, 0);
       
-      // Previous month start
-      const previousMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      previousMonthStart.setHours(0, 0, 0, 0);
-      
-      // Current month end (today)
-      const currentMonthEnd = new Date(now);
-      currentMonthEnd.setHours(23, 59, 59, 999);
-      
-      // Previous month end
-      const previousMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+      const decEnd = new Date(2025, 11, 24); // December 24, 2025
+      decEnd.setHours(23, 59, 59, 999);
       
       return allDates.filter(dateStr => {
         const date = parseDate(dateStr);
         if (!date) return false;
         
-        // Include if date is in current month (up to today) or previous month
-        return (date >= currentMonthStart && date <= currentMonthEnd) ||
-               (date >= previousMonthStart && date <= previousMonthEnd);
+        // Include if date is between December 1-24, 2025
+        return date >= decStart && date <= decEnd;
       });
     }
     
