@@ -3543,7 +3543,7 @@ export async function registerRoutes(
     throw new Error(`Failed to store data after ${maxRetries} attempts: ${lastError?.message || 'Unknown error'}`);
   }
 
-  // Helper function to read data from PostgreSQL with timeout
+  // Helper function to read data from PostgreSQL with timeout (MTD filtered)
   async function getBillSummaryFromDB(): Promise<any[]> {
     const DB_TIMEOUT_MS = 10000; // 10 seconds timeout for DB operations
     
@@ -3598,6 +3598,52 @@ export async function registerRoutes(
       }));
     } catch (error: any) {
       console.error('[Sales Staff Summary] Error reading from database:', error);
+      throw error;
+    }
+  }
+
+  // Helper function to read ALL data from PostgreSQL (no MTD filtering) - for pivot table
+  async function getBillSummaryFromDBAll(): Promise<any[]> {
+    const DB_TIMEOUT_MS = 10000; // 10 seconds timeout for DB operations
+    
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error('Database query timed out after 10 seconds'));
+      }, DB_TIMEOUT_MS);
+    });
+
+    try {
+      const records = await Promise.race([
+        prisma.salesStaffSummary.findMany({
+          orderBy: { dat: 'desc' }, // Order by date for pivot table
+        }),
+        timeoutPromise,
+      ]);
+      
+      // NO MTD FILTERING - return all historical data
+      // Convert back to the format expected by the frontend
+      return records.map((r) => ({
+        dat: r.dat,
+        DAT: r.dat,
+        UNIT: r.unit || '',
+        unit: r.unit || '',
+        SMNO: r.smno,
+        smno: r.smno,
+        SM: r.sm || '',
+        sm: r.sm || '',
+        divi: r.divi || '',
+        DIVI: r.divi || '',
+        BTYPE: r.btype || '',
+        btype: r.btype || '',
+        QTY: r.qty.toString(),
+        qty: r.qty.toString(),
+        NetSale: r.netSale.toString(),
+        NETSALE: r.netSale.toString(),
+        netSale: r.netSale.toString(),
+        updon: r.updon,
+      }));
+    } catch (error: any) {
+      console.error('[Sales Staff Summary] Error reading all data from database:', error);
       throw error;
     }
   }
@@ -3997,10 +4043,11 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
       const isEmployeeLogin = req.user!.loginType === "employee";
       const employeeCardNo = req.user!.employeeCardNo;
 
-      // Read from PostgreSQL instead of cache
+      // Read ALL data from PostgreSQL (no MTD filtering for pivot table)
+      // Pivot table should show all historical data so users can see trends across months
       let data: any[] = [];
       try {
-        data = await getBillSummaryFromDB();
+        data = await getBillSummaryFromDBAll();
         
         // If database is empty, fetch from API and store
         if (data.length === 0) {
@@ -4009,7 +4056,7 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
             const records = await fetchBillSummaryFromAPI();
             if (records.length > 0) {
               await storeBillSummaryInDB(records);
-              data = await getBillSummaryFromDB();
+              data = await getBillSummaryFromDBAll();
             } else {
               console.warn('[Sales Pivot] API returned empty data');
               data = [];
@@ -4053,19 +4100,8 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
         data = data.filter((r) => r.SMNO === employeeCardNo);
       }
 
-      // MTD Filter: Only include records from current month (1st of month to today)
-      const now = new Date();
-      const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      currentMonthStart.setHours(0, 0, 0, 0);
-      const today = new Date(now);
-      today.setHours(23, 59, 59, 999);
-
-      // Filter data to only include current month records
-      data = data.filter((r) => {
-        const recordDate = parseBillDate(r.dat || r.DAT);
-        if (!recordDate) return false;
-        return recordDate >= currentMonthStart && recordDate <= today;
-      });
+      // NO MTD FILTERING for pivot table - show all historical data
+      // This allows users to see trends across multiple months
 
       // Transform data to pivot format
       // API returns: dat, UNIT, SMNO, SM, divi, BTYPE, QTY, NetSale
