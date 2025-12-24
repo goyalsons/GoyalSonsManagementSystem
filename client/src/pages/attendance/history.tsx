@@ -701,14 +701,6 @@ export default function AttendanceHistoryPage() {
                     </Badge>
                   </div>
                 </div>
-                <div>
-                  <span className="text-muted-foreground">Time In:</span>
-                  <div className="font-medium text-foreground">{selectedRecord.result_t_in || selectedRecord.t_in || "-"}</div>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Time Out:</span>
-                  <div className="font-medium text-foreground">{selectedRecord.result_t_out || selectedRecord.t_out || "-"}</div>
-                </div>
                 <div className="col-span-2">
                   <span className="text-muted-foreground">Remarks:</span>
                   <div className="font-medium text-sm text-foreground">{selectedRecord.status_remarks || "-"}</div>

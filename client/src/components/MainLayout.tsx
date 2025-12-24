@@ -569,11 +569,8 @@ export default function MainLayout({ children }: MainLayoutProps) {
     
     // Items members/employees should see (restricted list - no Targets, Tasks, Claims, Announcements, Training)
     // Work Log is partially visible - members see only Task History
-    // Sales Staff is only for SM designation or MDO
-    const employeeAllowedItems = ["Dashboard", "Work Log"];
-    if (isSMDesignation) {
-      employeeAllowedItems.push("Sales Staff");
-    }
+    // Sales Staff is visible to all members
+    const employeeAllowedItems = ["Dashboard", "Work Log", "Sales Staff"];
     
     // Items that are MDO-only (hidden from members)
     const mdoOnlyItems = ["Targets & Goals", "Tasks", "Claims", "Announcements", "Training"];
@@ -582,11 +579,6 @@ export default function MainLayout({ children }: MainLayoutProps) {
       .filter(item => {
         // Settings is ONLY for MDO
         if (item.label === "Settings" && !isMDO) {
-          return false;
-        }
-
-        // Hide Sales Staff from members without SM designation (MDO can always see it)
-        if (item.label === "Sales Staff" && isEmployee && !isSMDesignation) {
           return false;
         }
 
@@ -625,13 +617,8 @@ export default function MainLayout({ children }: MainLayoutProps) {
           };
         }
         
-        // Filter Sales Staff from Members section for members without SM designation (but allow MDO users to see it)
-        if (item.label === "Members" && isEmployee && !isSMDesignation) {
-          return {
-            ...item,
-            subItems: item.subItems.filter(sub => sub.label !== "Sales Staff")
-          };
-        }
+        // Sales Staff is visible to all members in Members section
+        // No need to filter it out
         
         return item;
       });
