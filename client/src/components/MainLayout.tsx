@@ -565,7 +565,8 @@ export default function MainLayout({ children }: MainLayoutProps) {
   const visibleNavItems = useMemo(() => {
     const isEmployee = isEmployeeLogin();
     const isMDO = user?.loginType === "mdo";
-    const isSalesman = hasRole("Salesman");
+    // Check for both "Salesman" and "Sales Man" (with space) role variations
+    const isSalesman = hasRole("Salesman") || hasRole("Sales Man");
     
     // Items members/employees should see (restricted list - no Targets, Tasks, Claims, Announcements, Training)
     // Work Log is partially visible - members see only Task History

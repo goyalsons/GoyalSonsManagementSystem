@@ -80,7 +80,8 @@ function ProtectedRoute({
   const [, setLocation] = useLocation();
   const isMember = user?.loginType === "employee";
   const isMDO = user?.loginType === "mdo";
-  const isSalesman = hasRole("Salesman");
+  // Check for both "Salesman" and "Sales Man" (with space) role variations
+  const isSalesman = hasRole("Salesman") || hasRole("Sales Man");
 
   useEffect(() => {
     if (isMDOOnly && isMember) {

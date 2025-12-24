@@ -245,7 +245,8 @@ export default function Dashboard() {
     },
   ];
 
-  const isSalesman = hasRole("Salesman");
+  // Check for both "Salesman" and "Sales Man" (with space) role variations
+  const isSalesman = hasRole("Salesman") || hasRole("Sales Man");
   
   const quickActions = isEmployee ? [
     // Members only see Sales Staff if they have Salesman role (Work Log/Attendance is hidden)
