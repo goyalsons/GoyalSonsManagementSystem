@@ -187,10 +187,8 @@ function AuthenticatedRoutes() {
           
           <Route path="/sales" component={SalesPage} />
           <Route path="/sales/unit/:unitName" component={SalesUnitPage} />
-          {/* Sales Staff route - SM designation or MDO only */}
-          <Route path="/sales-staff">
-            {() => <ProtectedRoute component={SalesStaffPage} isSMDesignationOnly={true} />}
-          </Route>
+          {/* Sales Staff route - accessible to all members and MDO */}
+          <Route path="/sales-staff" component={SalesStaffPage} />
           
           {isMDO && <Route path="/settings" component={SettingsPage} />}
           <Route path="/admin/routing" component={ApiRoutingPage} />
