@@ -625,6 +625,28 @@ export default function MainLayout({ children }: MainLayoutProps) {
     const path = location;
     if (path === "/") return "Dashboard";
     const segment = path.split("/").filter(Boolean)[0];
+    
+    // Map specific routes to custom titles
+    const titleMap: Record<string, string> = {
+      attendance: "Work log",
+      tasks: "Tasks",
+      claims: "Claims",
+      announcements: "Announcements",
+      targets: "Targets",
+      users: "Users",
+      employees: "Members",
+      settings: "Settings",
+      training: "Training",
+      sales: "Sales",
+      admin: "Admin",
+      roles: "Roles",
+      integrations: "Integrations",
+    };
+    
+    if (segment && titleMap[segment.toLowerCase()]) {
+      return titleMap[segment.toLowerCase()];
+    }
+    
     return segment ? segment.charAt(0).toUpperCase() + segment.slice(1).replace(/-/g, " ") : "Dashboard";
   };
 
