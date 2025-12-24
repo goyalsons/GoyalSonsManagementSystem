@@ -33,12 +33,13 @@ interface AppLayoutProps {
 export default function AppLayout({ children }: AppLayoutProps) {
   const [location] = useLocation();
   const [isMobileOpen, setIsMobileOpen] = useState(false);
-
+  // Note: This component appears unused but kept for consistency
+  // Training is MDO-only, so it's hidden from members
   const navigation = [
     { name: "Dashboard", href: "/", icon: LayoutDashboard },
     { name: "Employees", href: "/employees", icon: Users },
     { name: "Attendance", href: "/attendance", icon: CalendarCheck },
-    { name: "Training", href: "/training", icon: GraduationCap },
+    // Training removed - MDO only feature
   ];
 
   const SidebarContent = () => (

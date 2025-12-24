@@ -146,8 +146,8 @@ const navItems: NavItem[] = [
 
 const adminItems: NavItem[] = [];
 
-// Mobile bottom navigation items
-const mobileNavItems = [
+// Mobile bottom navigation items (base list - will be filtered by role)
+const baseMobileNavItems = [
   { href: "/", icon: Home, label: "Home" },
   { href: "/attendance", icon: CalendarCheck, label: "Work Log" },
   { href: "/targets/my", icon: Target, label: "Targets" },
@@ -410,7 +410,21 @@ const SidebarNav = React.memo(function SidebarNav({
 // Mobile Bottom Navigation Component
 function MobileBottomNav({ location }: { location: string }) {
   const [showMore, setShowMore] = useState(false);
-  const { user } = useAuth();
+  const { user, isEmployeeLogin } = useAuth();
+  const isEmployee = isEmployeeLogin();
+  const isMDO = user?.loginType === "mdo";
+  
+  // Filter mobile nav items based on role - hide Targets and Tasks from members
+  const mobileNavItems = useMemo(() => {
+    if (isEmployee) {
+      // Members only see Home and Work Log
+      return baseMobileNavItems.filter(item => 
+        item.href === "/" || item.href === "/attendance"
+      );
+    }
+    // MDO sees all items
+    return baseMobileNavItems;
+  }, [isEmployee]);
   
   return (
     <>
@@ -434,25 +448,30 @@ function MobileBottomNav({ location }: { location: string }) {
             </div>
           </div>
           <div className="p-2 max-h-[50vh] overflow-y-auto">
-            <Link href="/claims/my" onClick={() => setShowMore(false)}>
-              <div className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 touch-manipulation">
-                <FileText className="h-5 w-5 text-muted-foreground" />
-                <span className="text-slate-700 dark:text-slate-300">My Claims</span>
-              </div>
-            </Link>
-            <Link href="/announcements/my" onClick={() => setShowMore(false)}>
-              <div className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 touch-manipulation">
-                <Megaphone className="h-5 w-5 text-muted-foreground" />
-                <span className="text-slate-700 dark:text-slate-300">Announcements</span>
-              </div>
-            </Link>
-            <Link href="/training" onClick={() => setShowMore(false)}>
-              <div className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 touch-manipulation">
-                <GraduationCap className="h-5 w-5 text-muted-foreground" />
-                <span className="text-slate-700 dark:text-slate-300">Training</span>
-              </div>
-            </Link>
-            {user?.loginType === "mdo" && (
+            {/* Hide Claims, Announcements, Training from members - MDO only */}
+            {isMDO && (
+              <>
+                <Link href="/claims/my" onClick={() => setShowMore(false)}>
+                  <div className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 touch-manipulation">
+                    <FileText className="h-5 w-5 text-muted-foreground" />
+                    <span className="text-slate-700 dark:text-slate-300">My Claims</span>
+                  </div>
+                </Link>
+                <Link href="/announcements/my" onClick={() => setShowMore(false)}>
+                  <div className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 touch-manipulation">
+                    <Megaphone className="h-5 w-5 text-muted-foreground" />
+                    <span className="text-slate-700 dark:text-slate-300">Announcements</span>
+                  </div>
+                </Link>
+                <Link href="/training" onClick={() => setShowMore(false)}>
+                  <div className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 touch-manipulation">
+                    <GraduationCap className="h-5 w-5 text-muted-foreground" />
+                    <span className="text-slate-700 dark:text-slate-300">Training</span>
+                  </div>
+                </Link>
+              </>
+            )}
+            {isMDO && (
             <Link href="/settings" onClick={() => setShowMore(false)}>
                 <div className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 touch-manipulation">
                 <Settings className="h-5 w-5 text-muted-foreground" />
@@ -547,8 +566,11 @@ export default function MainLayout({ children }: MainLayoutProps) {
     const isEmployee = isEmployeeLogin();
     const isMDO = user?.loginType === "mdo";
     
-    // Items employees should always see (for their own data)
-    const employeeAllowedItems = ["Dashboard", "Work Log", "Targets & Goals", "Tasks", "Claims", "Announcements", "Training", "Sales Staff"];
+    // Items members/employees should see (restricted list - no Targets, Tasks, Claims, Announcements, Training)
+    const employeeAllowedItems = ["Dashboard", "Work Log", "Sales Staff"];
+    
+    // Items that are MDO-only (hidden from members)
+    const mdoOnlyItems = ["Targets & Goals", "Tasks", "Claims", "Announcements", "Training"];
     
     return navItems
       .filter(item => {
@@ -557,8 +579,13 @@ export default function MainLayout({ children }: MainLayoutProps) {
           return false;
         }
 
+        // Hide MDO-only items from members
+        if (isEmployee && mdoOnlyItems.includes(item.label)) {
+          return false;
+        }
+
         if (isEmployee) {
-          // Employees see only specific items regardless of policies
+          // Members see only specific items regardless of policies
           return employeeAllowedItems.includes(item.label);
         }
         
@@ -579,34 +606,9 @@ export default function MainLayout({ children }: MainLayoutProps) {
           return { ...item, subItems: item.subItems.filter(sub => sub.label !== "Task History") };
         }
         
-        // For employees: filter subItems to show only their personal items
-        if (isEmployee) {
-          const filteredSubItems = item.subItems.filter(sub => {
-            if (item.label === "Targets & Goals") {
-              // Employees only see My Targets
-              return sub.label === "My Targets";
-            }
-            if (item.label === "Tasks") {
-              return sub.label === "My Tasks";
-            }
-            if (item.label === "Claims") {
-              return sub.label === "My Claims";
-            }
-            if (item.label === "Announcements") {
-              return sub.label === "My Announcements";
-            }
-            if (item.label === "Work Log") {
-              // Employees see My Work Log and Task History (for their own history)
-              return sub.label === "My Work Log" || sub.label === "Task History";
-            }
-            return true;
-          });
-          return { ...item, subItems: filteredSubItems };
-        }
-        
         return item;
       });
-  }, [hasPolicy, isEmployeeLogin]);
+  }, [hasPolicy, isEmployeeLogin, user]);
   
   const visibleAdminItems = useMemo(() => {
     if (isEmployeeLogin()) return [];

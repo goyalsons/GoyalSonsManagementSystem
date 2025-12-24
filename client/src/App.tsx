@@ -1,5 +1,5 @@
 import { Switch, Route, useLocation } from "wouter";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -66,6 +66,33 @@ function FullPageLoader() {
   );
 }
 
+// Route guard component to redirect members away from restricted routes
+function ProtectedRoute({ 
+  component: Component, 
+  isMDOOnly = false 
+}: { 
+  component: React.ComponentType<any>; 
+  isMDOOnly?: boolean;
+}) {
+  const { user } = useAuth();
+  const [, setLocation] = useLocation();
+  const isMember = user?.loginType === "employee";
+
+  useEffect(() => {
+    if (isMDOOnly && isMember) {
+      // Redirect members trying to access MDO-only routes to dashboard
+      setLocation("/");
+    }
+  }, [isMDOOnly, isMember, setLocation]);
+
+  // Don't render component for members accessing MDO-only routes
+  if (isMDOOnly && isMember) {
+    return null;
+  }
+
+  return <Component />;
+}
+
 function AuthenticatedRoutes() {
   const { user } = useAuth();
   const isMDO = user?.loginType === "mdo";
@@ -86,22 +113,42 @@ function AuthenticatedRoutes() {
           <Route path="/employees" component={EmployeesPage} />
           <Route path="/employees/create" component={CreateEmployeePage} />
           
-          <Route path="/targets/my" component={MyTargetsPage} />
-          <Route path="/targets/team" component={TeamTargetsPage} />
+          {/* MDO-only routes - redirect members */}
+          <Route path="/targets/my">
+            {() => <ProtectedRoute component={MyTargetsPage} isMDOOnly={true} />}
+          </Route>
+          <Route path="/targets/team">
+            {() => <ProtectedRoute component={TeamTargetsPage} isMDOOnly={true} />}
+          </Route>
           
           <Route path="/attendance" component={AttendancePage} />
           <Route path="/attendance/today" component={TodayAttendancePage} />
           <Route path="/attendance/fill" component={FillAttendancePage} />
           <Route path="/attendance/history" component={AttendanceHistoryPage} />
           
-          <Route path="/tasks/my" component={MyTasksPage} />
-          <Route path="/tasks/team" component={TeamTasksPage} />
+          {/* MDO-only routes - redirect members */}
+          <Route path="/tasks/my">
+            {() => <ProtectedRoute component={MyTasksPage} isMDOOnly={true} />}
+          </Route>
+          <Route path="/tasks/team">
+            {() => <ProtectedRoute component={TeamTasksPage} isMDOOnly={true} />}
+          </Route>
           
-          <Route path="/claims/my" component={MyClaimsPage} />
-          <Route path="/claims/team" component={TeamClaimsPage} />
+          {/* MDO-only routes - redirect members */}
+          <Route path="/claims/my">
+            {() => <ProtectedRoute component={MyClaimsPage} isMDOOnly={true} />}
+          </Route>
+          <Route path="/claims/team">
+            {() => <ProtectedRoute component={TeamClaimsPage} isMDOOnly={true} />}
+          </Route>
           
-          <Route path="/announcements/my" component={MyAnnouncementsPage} />
-          <Route path="/announcements/team" component={TeamAnnouncementsPage} />
+          {/* MDO-only routes - redirect members */}
+          <Route path="/announcements/my">
+            {() => <ProtectedRoute component={MyAnnouncementsPage} isMDOOnly={true} />}
+          </Route>
+          <Route path="/announcements/team">
+            {() => <ProtectedRoute component={TeamAnnouncementsPage} isMDOOnly={true} />}
+          </Route>
           
           <Route path="/integrations/fetched-data" component={FetchedDataPage} />
           
@@ -113,7 +160,10 @@ function AuthenticatedRoutes() {
           <Route path="/admin/routing" component={ApiRoutingPage} />
           <Route path="/admin/master-settings" component={MasterSettingsPage} />
           
-          <Route path="/training" component={TrainingPage} />
+          {/* MDO-only route - redirect members */}
+          <Route path="/training">
+            {() => <ProtectedRoute component={TrainingPage} isMDOOnly={true} />}
+          </Route>
           <Route component={NotFound} />
         </Switch>
       </Suspense>

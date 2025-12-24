@@ -246,11 +246,11 @@ export default function Dashboard() {
   ];
 
   const quickActions = isEmployee ? [
-    { icon: CheckSquare, label: "My Tasks", href: "/tasks/my", color: "text-amber-600" },
-    { icon: Target, label: "My Targets", href: "/targets/my", color: "text-emerald-600" },
-    { icon: FileText, label: "My Claims", href: "/claims/my", color: "text-purple-600" },
+    // Members only see Attendance and Sales Staff (no Targets, Tasks, Claims)
     { icon: Calendar, label: "Attendance", href: "/attendance", color: "text-blue-600" },
+    { icon: TrendingUp, label: "Sales Staff", href: "/sales-staff", color: "text-indigo-600" },
   ] : [
+    // MDO users see all actions
     { icon: Users, label: "Members", href: "/employees", color: "text-blue-600" },
     { icon: CheckSquare, label: "My Tasks", href: "/tasks/my", color: "text-amber-600" },
     { icon: Target, label: "Targets", href: "/targets/my", color: "text-emerald-600" },
