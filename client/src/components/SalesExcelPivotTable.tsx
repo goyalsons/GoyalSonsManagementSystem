@@ -254,8 +254,23 @@ export default function SalesExcelPivotTable({
   const [selectedDate, setSelectedDate] = useState<string>("all");
 
   // Filter data by selected salesman and date
+  // For members: also filter to December 1-24, 2025 date range
   const filteredData = useMemo(() => {
     let result = data;
+    
+    // For members: filter to December 1-24, 2025 date range
+    if (!showSalesmanFilter) {
+      const decStart = new Date(2025, 11, 1); // December 1, 2025
+      decStart.setHours(0, 0, 0, 0);
+      const decEnd = new Date(2025, 11, 24); // December 24, 2025
+      decEnd.setHours(23, 59, 59, 999);
+      
+      result = result.filter((row) => {
+        const rowDate = parseDate(row.dat);
+        if (!rowDate) return false;
+        return rowDate >= decStart && rowDate <= decEnd;
+      });
+    }
     
     // Filter by salesman
     if (selectedSmno !== "all") {
@@ -268,7 +283,7 @@ export default function SalesExcelPivotTable({
     }
     
     return result;
-  }, [data, selectedSmno, selectedDate]);
+  }, [data, selectedSmno, selectedDate, showSalesmanFilter]);
 
   // Get selected salesman info
   const selectedSalesmanInfo = useMemo(() => {
