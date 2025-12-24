@@ -3488,109 +3488,141 @@ export async function registerRoutes(
     }
   }
 
-  // Helper function to read data from PostgreSQL
+  // Helper function to read data from PostgreSQL with timeout
   async function getBillSummaryFromDB(): Promise<any[]> {
-    const records = await prisma.salesStaffSummary.findMany({
-      orderBy: { updatedAt: 'desc' },
-    });
+    const DB_TIMEOUT_MS = 10000; // 10 seconds timeout for DB operations
     
-    // Convert back to the format expected by the frontend
-    return records.map((r) => ({
-      dat: r.dat,
-      DAT: r.dat,
-      UNIT: r.unit || '',
-      unit: r.unit || '',
-      SMNO: r.smno,
-      smno: r.smno,
-      SM: r.sm || '',
-      sm: r.sm || '',
-      divi: r.divi || '',
-      DIVI: r.divi || '',
-      BTYPE: r.btype || '',
-      btype: r.btype || '',
-      QTY: r.qty.toString(),
-      qty: r.qty.toString(),
-      NetSale: r.netSale.toString(),
-      NETSALE: r.netSale.toString(),
-      netSale: r.netSale.toString(),
-      updon: r.updon,
-    }));
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error('Database query timed out after 10 seconds'));
+      }, DB_TIMEOUT_MS);
+    });
+
+    try {
+      const records = await Promise.race([
+        prisma.salesStaffSummary.findMany({
+          orderBy: { updatedAt: 'desc' },
+        }),
+        timeoutPromise,
+      ]);
+      
+      // Convert back to the format expected by the frontend
+      return records.map((r) => ({
+        dat: r.dat,
+        DAT: r.dat,
+        UNIT: r.unit || '',
+        unit: r.unit || '',
+        SMNO: r.smno,
+        smno: r.smno,
+        SM: r.sm || '',
+        sm: r.sm || '',
+        divi: r.divi || '',
+        DIVI: r.divi || '',
+        BTYPE: r.btype || '',
+        btype: r.btype || '',
+        QTY: r.qty.toString(),
+        qty: r.qty.toString(),
+        NetSale: r.netSale.toString(),
+        NETSALE: r.netSale.toString(),
+        netSale: r.netSale.toString(),
+        updon: r.updon,
+      }));
+    } catch (error: any) {
+      console.error('[Sales Staff Summary] Error reading from database:', error);
+      throw error;
+    }
   }
 
   async function fetchBillSummaryFromAPI(): Promise<any[]> {
-    // New vendor API for bill summary: dat, UNIT, SMNO, SM, divi, BTYPE, QTY, NetSale, updon
-    const sqlQuery = `SELECT TO_CHAR(a.BILLDATE, 'DD-MON-YYYY') dat,a.UNIT,a.SMNO,a.SM,Case When a.DIV in ('BOYS','GIRLS','INFANTS') then 'KIDS' else a.DIV end divi,a.BTYPE,round(SUM(A.QTY),0) QTY,round(Sum(a.SAL),0) NetSale , SYSDATE updon
+    try {
+      // New vendor API for bill summary: dat, UNIT, SMNO, SM, divi, BTYPE, QTY, NetSale, updon
+      const sqlQuery = `SELECT TO_CHAR(a.BILLDATE, 'DD-MON-YYYY') dat,a.UNIT,a.SMNO,a.SM,Case When a.DIV in ('BOYS','GIRLS','INFANTS') then 'KIDS' else a.DIV end divi,a.BTYPE,round(SUM(A.QTY),0) QTY,round(Sum(a.SAL),0) NetSale , SYSDATE updon
 FROM GSMT.SM_MONTHLY_BILLSUMMARY a
 WHERE trunc(A.BILLDATE,'mon') >= TRUNC(ADD_MONTHS(SYSDATE,-1),'mon') and a.DIV <> 'NON-INVENTORY'
 Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV in ('BOYS','GIRLS','INFANTS') then 'KIDS' else a.DIV end,a.BTYPE`;
-    const encodedSql = encodeURIComponent(sqlQuery);
-    const apiPath = `/gsweb_v3/webform2.aspx?sql=${encodedSql}&TYP=sql&key=ank2024`;
+      const encodedSql = encodeURIComponent(sqlQuery);
+      const apiPath = `/gsweb_v3/webform2.aspx?sql=${encodedSql}&TYP=sql&key=ank2024`;
 
-    const options = {
-      method: 'GET' as const,
-      hostname: 'vendor.goyalsons.com',
-      port: 99,
-      path: apiPath,
-      headers: {
-        'User-Agent': 'PostmanRuntime/7.43.4',
-        'Accept': '*/*',
-      },
-      rejectUnauthorized: false,
-      maxRedirects: 20
-    };
+      const options = {
+        method: 'GET' as const,
+        hostname: 'vendor.goyalsons.com',
+        port: 99,
+        path: apiPath,
+        headers: {
+          'User-Agent': 'PostmanRuntime/7.43.4',
+          'Accept': '*/*',
+        },
+        rejectUnauthorized: false,
+        maxRedirects: 20
+      };
 
-    const responseText = await new Promise<string>((resolve, reject) => {
-      const timeoutId = setTimeout(() => {
-        reject(new Error(`Bill summary request timed out after ${SALES_API_TIMEOUT_MS / 1000} seconds`));
-      }, SALES_API_TIMEOUT_MS);
-
-      const request = https.https.request(options, (response: any) => {
-        const chunks: Buffer[] = [];
-        response.on('data', (chunk: Buffer) => chunks.push(chunk));
-        response.on('end', () => {
-          clearTimeout(timeoutId);
-          const body = Buffer.concat(chunks).toString();
-          if (response.statusCode !== 200) {
-            reject(new Error(`Bill summary API returned status ${response.statusCode}`));
-            return;
+      const responseText = await new Promise<string>((resolve, reject) => {
+        let request: any = null;
+        const timeoutId = setTimeout(() => {
+          if (request) {
+            request.destroy();
           }
-          resolve(body);
+          reject(new Error(`Bill summary request timed out after ${SALES_API_TIMEOUT_MS / 1000} seconds`));
+        }, SALES_API_TIMEOUT_MS);
+
+        request = https.https.request(options, (response: any) => {
+          const chunks: Buffer[] = [];
+          response.on('data', (chunk: Buffer) => chunks.push(chunk));
+          response.on('end', () => {
+            clearTimeout(timeoutId);
+            const body = Buffer.concat(chunks).toString();
+            if (response.statusCode !== 200) {
+              reject(new Error(`Bill summary API returned status ${response.statusCode}: ${body.substring(0, 200)}`));
+              return;
+            }
+            resolve(body);
+          });
+          response.on('error', (error: Error) => {
+            clearTimeout(timeoutId);
+            reject(new Error(`API response error: ${error.message}`));
+          });
         });
-        response.on('error', (error: Error) => {
+        request.on('error', (error: Error) => {
           clearTimeout(timeoutId);
-          reject(error);
+          reject(new Error(`API request error: ${error.message}. Check network connectivity to vendor.goyalsons.com:99`));
         });
+        request.end();
       });
-      request.on('error', (error: Error) => {
-        clearTimeout(timeoutId);
-        reject(error);
-      });
-      request.end();
-    });
 
-    let records: any[] = [];
-    const looksLikeCsv = !responseText.trim().startsWith('{') && 
-                        !responseText.trim().startsWith('[') && 
-                        responseText.trim().split('\n')[0]?.includes(',');
+      let records: any[] = [];
+      const looksLikeCsv = !responseText.trim().startsWith('{') && 
+                          !responseText.trim().startsWith('[') && 
+                          responseText.trim().split('\n')[0]?.includes(',');
 
-    if (looksLikeCsv) {
-      const lines = responseText.trim().split("\n");
-      const csvHeaders = lines[0].split(",").map(h => h.trim().replace(/^"|"$/g, ''));
-      for (let i = 1; i < lines.length; i++) {
-        const values = lines[i].split(",").map(v => v.trim().replace(/^"|"$/g, ''));
-        const record: Record<string, any> = {};
-        csvHeaders.forEach((header, idx) => {
-          record[header] = values[idx] || '';
-        });
-        records.push(record);
+      if (looksLikeCsv) {
+        const lines = responseText.trim().split("\n");
+        if (lines.length === 0) {
+          throw new Error('API returned empty CSV response');
+        }
+        const csvHeaders = lines[0].split(",").map(h => h.trim().replace(/^"|"$/g, ''));
+        for (let i = 1; i < lines.length; i++) {
+          const values = lines[i].split(",").map(v => v.trim().replace(/^"|"$/g, ''));
+          const record: Record<string, any> = {};
+          csvHeaders.forEach((header, idx) => {
+            record[header] = values[idx] || '';
+          });
+          records.push(record);
+        }
+      } else {
+        try {
+          const data = JSON.parse(responseText);
+          records = Array.isArray(data) ? data : (data.data || data.records || []);
+        } catch (parseError) {
+          throw new Error(`Failed to parse API response: ${responseText.substring(0, 200)}`);
+        }
       }
-    } else {
-      const data = JSON.parse(responseText);
-      records = Array.isArray(data) ? data : (data.data || data.records || []);
+      
+      console.log(`[Bill Summary API] Fetched ${records.length} records`);
+      return records;
+    } catch (error: any) {
+      console.error('[Bill Summary API] Error fetching data:', error);
+      throw new Error(`Failed to fetch bill summary from API: ${error.message}`);
     }
-    
-    console.log(`[Bill Summary API] Fetched ${records.length} records`);
-    return records;
   }
 
   // Parse date like "10-NOV-2025" to Date object
@@ -3643,20 +3675,61 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
 
       // Read from PostgreSQL instead of cache
       let data: any[] = [];
+      let dataSource = 'database';
+      
       try {
         data = await getBillSummaryFromDB();
         
         // If database is empty, fetch from API and store
         if (data.length === 0) {
           console.log('[Sales Staff Summary] Database empty, fetching initial data from API...');
-          const records = await fetchBillSummaryFromAPI();
-          await storeBillSummaryInDB(records);
-          data = await getBillSummaryFromDB();
+          try {
+            const records = await fetchBillSummaryFromAPI();
+            if (records.length > 0) {
+              await storeBillSummaryInDB(records);
+              data = await getBillSummaryFromDB();
+              dataSource = 'api-then-db';
+            } else {
+              console.warn('[Sales Staff Summary] API returned empty data');
+              // Return empty data structure instead of error
+              data = [];
+            }
+          } catch (apiError: any) {
+            console.error('[Sales Staff Summary] Failed to fetch from API:', apiError);
+            // Return error response instead of hanging
+            return res.status(503).json({
+              success: false,
+              message: `Database is empty and unable to fetch from API: ${apiError.message}. Please use the Refresh button to try again.`,
+              error: apiError.message,
+              dataSource: 'none',
+            });
+          }
         }
-      } catch (dbError) {
-        console.error('[Sales Staff Summary] Error reading from DB, falling back to API:', dbError);
-        // Fallback to API if DB read fails
-        data = await fetchBillSummaryFromAPI();
+      } catch (dbError: any) {
+        console.error('[Sales Staff Summary] Error reading from DB:', dbError);
+        // Try to fallback to API, but with proper error handling
+        try {
+          console.log('[Sales Staff Summary] Attempting API fallback...');
+          data = await fetchBillSummaryFromAPI();
+          dataSource = 'api-fallback';
+          // Try to store for next time, but don't fail if it doesn't work
+          try {
+            await storeBillSummaryInDB(data);
+          } catch (storeError) {
+            console.warn('[Sales Staff Summary] Failed to store API data, but continuing with response:', storeError);
+          }
+        } catch (apiError: any) {
+          console.error('[Sales Staff Summary] Both DB and API failed:', apiError);
+          return res.status(503).json({
+            success: false,
+            message: `Unable to load sales data. Database error: ${dbError.message}. API error: ${apiError.message}. Please try refreshing.`,
+            error: {
+              database: dbError.message,
+              api: apiError.message,
+            },
+            dataSource: 'none',
+          });
+        }
       }
 
       // Filter by employee if employee login

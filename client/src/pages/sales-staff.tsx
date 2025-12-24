@@ -348,7 +348,7 @@ export default function SalesStaffPage() {
     }
   }, [isEmployee, employeeCardNo]);
 
-  const { data, isLoading, isError } = useQuery<SummaryData>({
+  const { data, isLoading, isError, error } = useQuery<SummaryData>({
     queryKey: ["/api/sales/staff/summary", selectedSmno],
     queryFn: async () => {
       const params = new URLSearchParams();
@@ -356,9 +356,15 @@ export default function SalesStaffPage() {
       const res = await fetch(`/api/sales/staff/summary?${params}`, {
         headers: { Authorization: `Bearer ${localStorage.getItem("gms_token")}` },
       });
-      return res.json();
+      const result = await res.json();
+      if (!res.ok || result.success === false) {
+        throw new Error(result.message || `HTTP ${res.status}: Failed to load sales data`);
+      }
+      return result;
     },
     staleTime: 5 * 60 * 1000,
+    retry: 1,
+    retryDelay: 2000,
   });
 
   // Fetch pivot data from real API
@@ -468,13 +474,25 @@ export default function SalesStaffPage() {
   }
 
   if (isError || data?.success === false) {
+    const errorMessage = error instanceof Error 
+      ? error.message 
+      : (data?.success === false ? (data as any).message : "Sales staff data is temporarily unavailable");
+    
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <Card className="max-w-md border-red-200 bg-red-50">
           <CardContent className="pt-6 text-center">
             <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
             <h3 className="font-semibold text-lg text-slate-800 mb-2">Unable to Load Data</h3>
-            <p className="text-slate-600">Sales staff data is temporarily unavailable. Please try again later.</p>
+            <p className="text-slate-600 mb-4">{errorMessage}</p>
+            <Button
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white"
+            >
+              <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`} />
+              {isRefreshing ? "Refreshing..." : "Try Refresh"}
+            </Button>
           </CardContent>
         </Card>
       </div>
