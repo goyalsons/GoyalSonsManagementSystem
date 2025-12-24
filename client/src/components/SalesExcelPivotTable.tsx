@@ -61,6 +61,12 @@ function formatQty(value: number): string {
   return value.toLocaleString("en-IN");
 }
 
+function formatBrandType(btype: string): string {
+  if (btype === "N") return "InHouse";
+  if (btype === "Y") return "SOR";
+  return btype; // Fallback for any other value
+}
+
 function parseDate(dateStr: string): Date | null {
   if (!dateStr) return null;
   
@@ -506,7 +512,7 @@ export default function SalesExcelPivotTable({
                       return (
                         <tr key={`${divi}-${btype}`} className="hover:bg-slate-50">
                           <td className="border border-slate-300 px-4 py-1.5 pl-10 text-slate-600">
-                            {btype}
+                            {formatBrandType(btype)}
                           </td>
                           {units.map((unit) => {
                             const cell = unitCells.get(unit) || { qty: 0, netsale: 0 };
