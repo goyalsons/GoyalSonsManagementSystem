@@ -3884,14 +3884,13 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
             Unknown: "Unknown",
           };
 
-          tableRows = Object.entries(byBrand)
-            .map(([key, vals]) => ({
-              brandType: brandLabels[key] || key,
-              quantity: vals.quantity,
-              netAmount: vals.netAmount,
-            }))
-            .sort((a, b) => a.brandType.localeCompare(b.brandType));
-        }
+        tableRows = Object.entries(byBrand)
+          .map(([key, vals]) => ({
+            brandType: brandLabels[key] || key,
+            quantity: vals.quantity,
+            netAmount: vals.netAmount,
+          }))
+          .sort((a, b) => a.brandType.localeCompare(b.brandType));
       }
 
       // Calculate MTD date range: 1st of current month to today
