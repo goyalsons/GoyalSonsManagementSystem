@@ -1,6 +1,6 @@
 import type React from "react";
 import { useState, useMemo, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -12,7 +12,7 @@ import { useAuth } from "@/lib/auth-context";
 import { 
   Search, TrendingUp, TrendingDown, Calendar, 
   User, BarChart3, Store, Hash, Loader2,
-  AlertCircle, Table2, Users
+  AlertCircle, Table2, Users, RefreshCw
 } from "lucide-react";
 import { format } from "date-fns";
 import SalesExcelPivotTable, { type SalesDataRow } from "@/components/SalesExcelPivotTable";
@@ -332,11 +332,13 @@ export default function SalesStaffPage() {
   const { user, isEmployeeLogin } = useAuth();
   const isEmployee = isEmployeeLogin();
   const employeeCardNo = user?.employeeCardNo;
+  const queryClient = useQueryClient();
 
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedSmno, setSelectedSmno] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<string>("staff");
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Auto-load employee's own data
   useEffect(() => {
@@ -409,6 +411,37 @@ export default function SalesStaffPage() {
     }
   };
 
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      const res = await fetch("/api/sales/staff/summary/refresh", {
+        method: "POST",
+        headers: { 
+          Authorization: `Bearer ${localStorage.getItem("gms_token")}` 
+        },
+      });
+      const result = await res.json();
+      
+      if (result.success) {
+        // Invalidate and refetch the summary data
+        await queryClient.invalidateQueries({ 
+          queryKey: ["/api/sales/staff/summary"] 
+        });
+        // Also invalidate pivot data
+        await queryClient.invalidateQueries({ 
+          queryKey: ["/api/sales/pivot"] 
+        });
+      } else {
+        throw new Error(result.message || "Refresh failed");
+      }
+    } catch (error: any) {
+      console.error("Refresh error:", error);
+      alert(`Failed to refresh: ${error.message}`);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
   // Get selected card details
   const effectiveSelected = selectedSmno || data?.selectedSmno || null;
   const selectedCard = data?.cards?.find((c) => c.smno === effectiveSelected) || null;
@@ -466,6 +499,14 @@ export default function SalesStaffPage() {
             }
           </p>
         </div>
+        <Button
+          onClick={handleRefresh}
+          disabled={isRefreshing}
+          className="bg-indigo-600 hover:bg-indigo-700 text-white"
+        >
+          <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`} />
+          {isRefreshing ? "Refreshing..." : "Refresh Data"}
+        </Button>
       </div>
 
       {/* Tabs for Staff View / Pivot View */}

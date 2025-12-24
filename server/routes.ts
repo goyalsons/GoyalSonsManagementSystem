@@ -3451,9 +3451,71 @@ export async function registerRoutes(
 
   // ==================== SALES STAFF BILL SUMMARY API ====================
   
-  // Separate cache for bill summary data (5 minute TTL)
-  let billSummaryCache: { data: any[]; timestamp: number } | null = null;
-  const BILL_SUMMARY_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+  // Helper function to store data in PostgreSQL
+  async function storeBillSummaryInDB(records: any[]): Promise<void> {
+    try {
+      // Clear old data (optional: you might want to keep historical data)
+      // For now, we'll replace all data on refresh
+      await prisma.salesStaffSummary.deleteMany({});
+      
+      // Insert new records
+      const dataToInsert = records.map((r) => ({
+        dat: r.dat || r.DAT || '',
+        unit: r.UNIT || r.unit || null,
+        smno: r.SMNO || r.smno || '',
+        sm: r.SM || r.sm || null,
+        divi: r.divi || r.DIVI || null,
+        btype: r.BTYPE || r.btype || null,
+        qty: parseInt(r.QTY || r.qty || '0', 10) || 0,
+        netSale: parseFloat(r.NetSale || r.NETSALE || r.netSale || '0') || 0,
+        updon: r.updon ? new Date(r.updon) : null,
+      }));
+
+      // Batch insert in chunks of 1000
+      const chunkSize = 1000;
+      for (let i = 0; i < dataToInsert.length; i += chunkSize) {
+        const chunk = dataToInsert.slice(i, i + chunkSize);
+        await prisma.salesStaffSummary.createMany({
+          data: chunk,
+          skipDuplicates: true,
+        });
+      }
+      
+      console.log(`[Sales Staff Summary] Stored ${records.length} records in PostgreSQL`);
+    } catch (error) {
+      console.error('[Sales Staff Summary] Error storing data in DB:', error);
+      throw error;
+    }
+  }
+
+  // Helper function to read data from PostgreSQL
+  async function getBillSummaryFromDB(): Promise<any[]> {
+    const records = await prisma.salesStaffSummary.findMany({
+      orderBy: { updatedAt: 'desc' },
+    });
+    
+    // Convert back to the format expected by the frontend
+    return records.map((r) => ({
+      dat: r.dat,
+      DAT: r.dat,
+      UNIT: r.unit || '',
+      unit: r.unit || '',
+      SMNO: r.smno,
+      smno: r.smno,
+      SM: r.sm || '',
+      sm: r.sm || '',
+      divi: r.divi || '',
+      DIVI: r.divi || '',
+      BTYPE: r.btype || '',
+      btype: r.btype || '',
+      QTY: r.qty.toString(),
+      qty: r.qty.toString(),
+      NetSale: r.netSale.toString(),
+      NETSALE: r.netSale.toString(),
+      netSale: r.netSale.toString(),
+      updon: r.updon,
+    }));
+  }
 
   async function fetchBillSummaryFromAPI(): Promise<any[]> {
     // New vendor API for bill summary: dat, UNIT, SMNO, SM, divi, BTYPE, QTY, NetSale, updon
@@ -3547,6 +3609,31 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
     return new Date(year, month, day);
   }
 
+  // Refresh endpoint - fetches from API and stores in DB
+  app.post("/api/sales/staff/summary/refresh", requireAuth, async (req, res) => {
+    try {
+      console.log('[Sales Staff Summary] Refresh requested by user:', req.user!.id);
+      
+      // Fetch fresh data from API
+      const records = await fetchBillSummaryFromAPI();
+      
+      // Store in PostgreSQL
+      await storeBillSummaryInDB(records);
+      
+      res.json({
+        success: true,
+        message: `Successfully refreshed ${records.length} records`,
+        recordCount: records.length,
+      });
+    } catch (error: any) {
+      console.error("Sales staff summary refresh error:", error);
+      res.status(500).json({ 
+        success: false, 
+        message: error.message || "Failed to refresh data" 
+      });
+    }
+  });
+
   // Sales Staff Summary (cards + month/brand breakdown)
   app.get("/api/sales/staff/summary", requireAuth, async (req, res) => {
     try {
@@ -3554,15 +3641,23 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
       const employeeCardNo = req.user!.employeeCardNo;
       const requestedSmno = typeof req.query.smno === "string" ? req.query.smno : null;
 
-      // Fetch fresh data or use cache
-      const now = Date.now();
-      if (!billSummaryCache || now - billSummaryCache.timestamp > BILL_SUMMARY_CACHE_TTL) {
-        console.log('[Sales Staff Summary] Fetching fresh bill summary data...');
-        const records = await fetchBillSummaryFromAPI();
-        billSummaryCache = { data: records, timestamp: now };
+      // Read from PostgreSQL instead of cache
+      let data: any[] = [];
+      try {
+        data = await getBillSummaryFromDB();
+        
+        // If database is empty, fetch from API and store
+        if (data.length === 0) {
+          console.log('[Sales Staff Summary] Database empty, fetching initial data from API...');
+          const records = await fetchBillSummaryFromAPI();
+          await storeBillSummaryInDB(records);
+          data = await getBillSummaryFromDB();
+        }
+      } catch (dbError) {
+        console.error('[Sales Staff Summary] Error reading from DB, falling back to API:', dbError);
+        // Fallback to API if DB read fails
+        data = await fetchBillSummaryFromAPI();
       }
-
-      let data = [...billSummaryCache.data];
 
       // Filter by employee if employee login
       if (isEmployeeLogin && employeeCardNo) {

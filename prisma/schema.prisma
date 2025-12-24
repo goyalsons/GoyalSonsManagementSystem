@@ -360,3 +360,23 @@ model SmsLog {
   @@index([status])
   @@index([apiMessageId])
 }
+
+model SalesStaffSummary {
+  id          String   @id @default(uuid())
+  dat         String   // Date string like "10-NOV-2025"
+  unit        String?
+  smno        String   // Salesman number
+  sm          String?  // Salesman name
+  divi        String?  // Division
+  btype       String?  // Brand type (N=INH, Y=SOR)
+  qty         Int      @default(0)
+  netSale     Float    @default(0)
+  updon       DateTime? // Update timestamp from source
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([smno])
+  @@index([dat])
+  @@index([unit])
+  @@index([updatedAt])
+}
