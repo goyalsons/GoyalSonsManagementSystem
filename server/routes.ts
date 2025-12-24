@@ -4084,11 +4084,7 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
         }
       }
 
-      // Filter by employee if employee login
-      if (isEmployeeLogin && employeeCardNo) {
-        data = data.filter((r) => r.SMNO === employeeCardNo);
-      }
-
+      // All members can see all sales data - no filtering by employee
       // NO MTD FILTERING for pivot table - show all historical data
       // This allows users to see trends across multiple months
 
