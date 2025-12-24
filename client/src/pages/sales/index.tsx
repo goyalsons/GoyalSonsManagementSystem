@@ -34,7 +34,7 @@ interface DashboardData {
 }
 
 const CHART_COLORS = ['#10b981', '#6366f1', '#f59e0b', '#ef4444', '#8b5cf6'];
-const GLASS_STYLE = "backdrop-blur-xl bg-white/70 border border-white/20 shadow-xl";
+const GLASS_STYLE = "backdrop-blur-xl bg-card/70 border border-border shadow-xl";
 
 function formatCurrency(value: number) {
   if (Math.abs(value) >= 10000000) {
@@ -54,18 +54,18 @@ function KPICard({ title, value, icon: Icon, color, trend, isCurrency = true }: 
     >
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-sm text-grey_olive font-medium">{title}</p>
-          <p className={`text-2xl font-bold ${color}`}>
+          <p className="text-sm text-muted-foreground font-medium">{title}</p>
+          <p className={`text-2xl font-bold ${color} dark:text-opacity-90`}>
             {typeof value === 'number' ? (isCurrency ? formatCurrency(value) : value.toLocaleString()) : value}
           </p>
           {trend !== undefined && (
-            <div className={`flex items-center gap-1 text-xs mt-1 ${trend >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+            <div className={`flex items-center gap-1 text-xs mt-1 ${trend >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
               {trend >= 0 ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
               {Math.abs(trend).toFixed(1)}%
             </div>
           )}
         </div>
-        <div className={`h-14 w-14 rounded-2xl bg-gradient-to-br ${color.includes('green') ? 'from-green-100 to-emerald-100' : color.includes('blue') ? 'from-blue-100 to-indigo-100' : color.includes('purple') ? 'from-purple-100 to-violet-100' : 'from-amber-100 to-orange-100'} flex items-center justify-center`}>
+        <div className={`h-14 w-14 rounded-2xl bg-gradient-to-br ${color.includes('green') ? 'from-green-100 to-emerald-100 dark:from-green-500/20 dark:to-emerald-500/20' : color.includes('blue') ? 'from-blue-100 to-indigo-100 dark:from-blue-500/20 dark:to-indigo-500/20' : color.includes('purple') ? 'from-purple-100 to-violet-100 dark:from-purple-500/20 dark:to-violet-500/20' : 'from-amber-100 to-orange-100 dark:from-amber-500/20 dark:to-orange-500/20'} flex items-center justify-center`}>
           <Icon className={`h-7 w-7 ${color}`} />
         </div>
       </div>
@@ -86,28 +86,28 @@ function UnitCard({ unit, onClick }: { unit: DashboardData['units'][0]; onClick:
     >
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-taupe/20 to-grey_olive/20 flex items-center justify-center">
-            <Store className="h-5 w-5 text-taupe" />
+          <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-primary/20 to-primary/10 flex items-center justify-center">
+            <Store className="h-5 w-5 text-primary" />
           </div>
           <div>
-            <h3 className="font-semibold text-taupe">{unit.name}</h3>
-            <p className="text-xs text-grey_olive">{unit.staffCount} staff · {unit.departmentCount} depts</p>
+            <h3 className="font-semibold text-foreground">{unit.name}</h3>
+            <p className="text-xs text-muted-foreground">{unit.staffCount} staff · {unit.departmentCount} depts</p>
           </div>
         </div>
-        <ChevronRight className="h-5 w-5 text-grey_olive group-hover:text-taupe transition-colors" />
+        <ChevronRight className="h-5 w-5 text-muted-foreground group-hover:text-foreground transition-colors" />
       </div>
       <div className="space-y-2">
         <div className="flex justify-between items-center">
-          <span className="text-sm text-grey_olive">Total Sale</span>
-          <span className="font-bold text-green-700">{formatCurrency(unit.totalSale)}</span>
+          <span className="text-sm text-muted-foreground">Total Sale</span>
+          <span className="font-bold text-green-700 dark:text-green-400">{formatCurrency(unit.totalSale)}</span>
         </div>
-        <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+        <div className="h-2 bg-muted rounded-full overflow-hidden">
           <div 
             className="h-full bg-gradient-to-r from-emerald-400 to-green-500 rounded-full transition-all"
             style={{ width: `${inhousePercent}%` }}
           />
         </div>
-        <div className="flex justify-between text-xs text-grey_olive">
+        <div className="flex justify-between text-xs text-muted-foreground">
           <span>In-House: {inhousePercent.toFixed(0)}%</span>
           <span>{formatCurrency(unit.inhouseSale)}</span>
         </div>
@@ -150,23 +150,25 @@ export default function SalesPage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-parchment to-silver/30">
-        <div className="text-grey_olive">Loading...</div>
+      <div className="flex items-center justify-center min-h-screen bg-background">
+        <div className="text-muted-foreground animate-pulse">Loading sales data...</div>
       </div>
     );
   }
 
   return (
-    <div className="p-6 space-y-6 bg-gradient-to-br from-parchment to-silver/30 min-h-screen">
+    <div className="p-4 sm:p-6 space-y-6 bg-background min-h-screen">
       <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-taupe">Sales Dashboard</h1>
-          <p className="text-grey_olive">Executive overview of sales performance</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Sales Dashboard</h1>
+          <p className="text-muted-foreground text-sm sm:text-base">Executive overview of sales performance</p>
         </div>
         <Select value={selectedMonth || "all"} onValueChange={(v) => setSelectedMonth(v === "all" ? "" : v)}>
-          <SelectTrigger className={`w-[180px] ${GLASS_STYLE}`}>
+          <SelectTrigger className={`w-full sm:w-[180px] ${GLASS_STYLE}`}>
+            <div className="flex items-center">
             <Calendar className="h-4 w-4 mr-2" />
             <SelectValue placeholder="All Months" />
+            </div>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Months</SelectItem>
@@ -199,7 +201,7 @@ export default function SalesPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.2 }} className="lg:col-span-2">
           <Card className={GLASS_STYLE}>
-            <CardHeader><CardTitle className="text-taupe">Units Overview</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="text-foreground">Units Overview</CardTitle></CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {dashboardData?.units?.map((unit) => (
@@ -212,7 +214,7 @@ export default function SalesPage() {
 
         <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.3 }} className="space-y-6">
           <Card className={GLASS_STYLE}>
-            <CardHeader><CardTitle className="text-taupe text-base">Sale Distribution</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="text-foreground text-base">Sale Distribution</CardTitle></CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={180}>
                 <PieChart>
@@ -227,7 +229,7 @@ export default function SalesPage() {
           </Card>
 
           <Card className={GLASS_STYLE}>
-            <CardHeader><CardTitle className="text-taupe text-base">Top 5 Performers</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="text-foreground text-base">Top 5 Performers</CardTitle></CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={180}>
                 <BarChart data={dashboardData?.topStaff || []} layout="vertical">
@@ -244,7 +246,7 @@ export default function SalesPage() {
 
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}>
         <Card className={GLASS_STYLE}>
-          <CardHeader><CardTitle className="text-taupe">Monthly Trend</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-foreground">Monthly Trend</CardTitle></CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={250}>
               <LineChart data={dashboardData?.trendData || []}>

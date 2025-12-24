@@ -1,4 +1,5 @@
 import { prisma } from "./lib/prisma";
+import { clearTodayAttendanceCache, clearAttendanceCache } from "./bigquery-service";
 
 const syncTimers: Map<string, NodeJS.Timeout> = new Map();
 
@@ -148,6 +149,10 @@ async function syncApiSource(routeId: string): Promise<void> {
         
         const duration = Math.round((Date.now() - startTime.getTime()) / 1000);
         console.log(`[Auto-Sync] [${route.name}] Attendance sync complete: ${imported} imported, ${failed} failed, ${result.skipped} skipped (no matching employee) in ${duration}s`);
+
+        // Clear attendance caches to ensure fresh data is served
+        clearTodayAttendanceCache();
+        clearAttendanceCache();
 
         await prisma.dataImportLog.update({
           where: { id: importLog.id },

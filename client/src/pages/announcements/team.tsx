@@ -130,15 +130,15 @@ export default function TeamAnnouncementsPage() {
   const canCreateAnnouncements = hasPolicy("announcements.create");
 
   const priorityColors = {
-    normal: "bg-slate-100 text-slate-700",
-    important: "bg-amber-100 text-amber-700",
-    urgent: "bg-rose-100 text-rose-700"
+    normal: "bg-muted text-foreground",
+    important: "bg-amber-500/10 text-amber-700 dark:text-amber-400",
+    urgent: "bg-rose-500/10 text-rose-700 dark:text-rose-400"
   };
 
   const statusColors = {
-    draft: "bg-slate-100 text-slate-600",
-    published: "bg-emerald-100 text-emerald-700",
-    archived: "bg-gray-100 text-gray-600"
+    draft: "bg-muted text-muted-foreground",
+    published: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
+    archived: "bg-muted text-muted-foreground"
   };
 
   return (
@@ -173,30 +173,30 @@ export default function TeamAnnouncementsPage() {
 
       <div className="grid gap-4 md:grid-cols-4 mb-6">
         <Card>
-          <CardContent className="pt-6">
-            <div className="text-2xl font-bold">{displayAnnouncements.length}</div>
-            <p className="text-xs text-muted-foreground">Total</p>
+          <CardContent className="pt-6 text-center sm:text-left">
+            <div className="text-2xl font-bold text-foreground">{displayAnnouncements.length}</div>
+            <p className="text-xs text-muted-foreground">Total Announcements</p>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="pt-6">
-            <div className="text-2xl font-bold text-emerald-600">
+          <CardContent className="pt-6 text-center sm:text-left">
+            <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
               {displayAnnouncements.filter(a => a.status === "published").length}
             </div>
             <p className="text-xs text-muted-foreground">Published</p>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="pt-6">
-            <div className="text-2xl font-bold text-slate-600">
+          <CardContent className="pt-6 text-center sm:text-left">
+            <div className="text-2xl font-bold text-muted-foreground">
               {displayAnnouncements.filter(a => a.status === "draft").length}
             </div>
             <p className="text-xs text-muted-foreground">Drafts</p>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="pt-6">
-            <div className="text-2xl font-bold text-rose-600">
+          <CardContent className="pt-6 text-center sm:text-left">
+            <div className="text-2xl font-bold text-rose-600 dark:text-rose-400">
               {displayAnnouncements.filter(a => a.priority === "urgent").length}
             </div>
             <p className="text-xs text-muted-foreground">Urgent</p>

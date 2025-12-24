@@ -116,15 +116,15 @@ export default function TeamTasksPage() {
   const canAssignTasks = hasPolicy("tasks.create");
 
   const priorityColors = {
-    high: "bg-rose-50 text-rose-700 border-rose-200",
-    medium: "bg-amber-50 text-amber-700 border-amber-200",
-    low: "bg-slate-50 text-slate-700 border-slate-200"
+    high: "bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/20",
+    medium: "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20",
+    low: "bg-muted text-foreground border-border"
   };
 
   const statusColors = {
-    pending: "bg-slate-100 text-slate-700",
-    in_progress: "bg-blue-100 text-blue-700",
-    completed: "bg-emerald-100 text-emerald-700"
+    pending: "bg-muted text-muted-foreground",
+    in_progress: "bg-blue-500/10 text-blue-700 dark:text-blue-400",
+    completed: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
   };
 
   return (
@@ -144,32 +144,32 @@ export default function TeamTasksPage() {
         )}
       </div>
 
-      <div className="grid gap-4 md:grid-cols-4 mb-6">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-6">
         <Card>
-          <CardContent className="pt-6">
-            <div className="text-2xl font-bold">{displayTasks.length}</div>
+          <CardContent className="pt-6 text-center sm:text-left">
+            <div className="text-2xl font-bold text-foreground">{displayTasks.length}</div>
             <p className="text-xs text-muted-foreground">Total Tasks</p>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="pt-6">
-            <div className="text-2xl font-bold text-slate-600">
+          <CardContent className="pt-6 text-center sm:text-left">
+            <div className="text-2xl font-bold text-muted-foreground">
               {displayTasks.filter(t => t.status === "pending").length}
             </div>
             <p className="text-xs text-muted-foreground">Pending</p>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="pt-6">
-            <div className="text-2xl font-bold text-blue-600">
+          <CardContent className="pt-6 text-center sm:text-left">
+            <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
               {displayTasks.filter(t => t.status === "in_progress").length}
             </div>
             <p className="text-xs text-muted-foreground">In Progress</p>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="pt-6">
-            <div className="text-2xl font-bold text-emerald-600">
+          <CardContent className="pt-6 text-center sm:text-left">
+            <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
               {displayTasks.filter(t => t.status === "completed").length}
             </div>
             <p className="text-xs text-muted-foreground">Completed</p>

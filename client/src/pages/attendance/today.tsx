@@ -40,6 +40,7 @@ import {
   designationsApi,
   TodayAttendanceRecord,
 } from "@/lib/api";
+import { ImagePreview } from "@/components/ui/image-preview";
 
 export default function TodayAttendancePage() {
   const [search, setSearch] = useState("");
@@ -114,8 +115,8 @@ export default function TodayAttendancePage() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-taupe">Today's Work Log</h1>
-          <p className="text-grey_olive mt-1 flex items-center gap-2">
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">Today's Work Log</h1>
+          <p className="text-muted-foreground mt-1 flex items-center gap-2">
             <Calendar className="h-4 w-4" />
             {attendanceData?.date ? formatDate(attendanceData.date) : "Loading..."}
           </p>
@@ -132,66 +133,66 @@ export default function TodayAttendancePage() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="border-parchment bg-white shadow-sm">
+        <Card className="border-border bg-card shadow-sm">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-grey_olive">Total Employees</p>
-                <p className="text-3xl font-bold text-taupe">{attendanceData?.summary?.total || 0}</p>
+                <p className="text-sm text-muted-foreground">Total Employees</p>
+                <p className="text-3xl font-bold text-foreground">{attendanceData?.summary?.total || 0}</p>
               </div>
-              <div className="h-12 w-12 rounded-xl bg-parchment flex items-center justify-center">
-                <Users className="h-6 w-6 text-taupe" />
+              <div className="h-12 w-12 rounded-xl bg-muted flex items-center justify-center">
+                <Users className="h-6 w-6 text-foreground" />
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="border-parchment bg-white shadow-sm">
+        <Card className="border-border bg-card shadow-sm">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-grey_olive">Present</p>
-                <p className="text-3xl font-bold text-emerald-600">{attendanceData?.summary?.present || 0}</p>
+                <p className="text-sm text-muted-foreground">Present</p>
+                <p className="text-3xl font-bold text-emerald-600 dark:text-emerald-400">{attendanceData?.summary?.present || 0}</p>
               </div>
-              <div className="h-12 w-12 rounded-xl bg-emerald-50 flex items-center justify-center">
-                <UserCheck className="h-6 w-6 text-emerald-600" />
+              <div className="h-12 w-12 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+                <UserCheck className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="border-parchment bg-white shadow-sm">
+        <Card className="border-border bg-card shadow-sm">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-grey_olive">Absent</p>
-                <p className="text-3xl font-bold text-rose-600">{attendanceData?.summary?.absent || 0}</p>
+                <p className="text-sm text-muted-foreground">Absent</p>
+                <p className="text-3xl font-bold text-rose-600 dark:text-rose-400">{attendanceData?.summary?.absent || 0}</p>
               </div>
-              <div className="h-12 w-12 rounded-xl bg-rose-50 flex items-center justify-center">
-                <UserX className="h-6 w-6 text-rose-600" />
+              <div className="h-12 w-12 rounded-xl bg-rose-500/10 flex items-center justify-center">
+                <UserX className="h-6 w-6 text-rose-600 dark:text-rose-400" />
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="border-parchment bg-white shadow-sm">
+        <Card className="border-border bg-card shadow-sm">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-grey_olive">Attendance Rate</p>
-                <p className="text-3xl font-bold text-taupe">{attendanceData?.summary?.attendanceRate || 0}%</p>
+                <p className="text-sm text-muted-foreground">Attendance Rate</p>
+                <p className="text-3xl font-bold text-foreground">{attendanceData?.summary?.attendanceRate || 0}%</p>
               </div>
-              <div className="h-12 w-12 rounded-xl bg-parchment flex items-center justify-center">
-                <Percent className="h-6 w-6 text-taupe" />
+              <div className="h-12 w-12 rounded-xl bg-muted flex items-center justify-center">
+                <Percent className="h-6 w-6 text-foreground" />
               </div>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      <Card className="border-parchment bg-white shadow-sm">
+      <Card className="border-border bg-card shadow-sm">
         <CardHeader className="pb-4">
-          <CardTitle className="text-base font-medium flex items-center gap-2">
+          <CardTitle className="text-base font-medium flex items-center gap-2 text-foreground">
             <Filter className="h-4 w-4" /> Filters
           </CardTitle>
         </CardHeader>
@@ -205,7 +206,7 @@ export default function TodayAttendancePage() {
             />
 
             <Select value={unitId || "all"} onValueChange={(val) => setUnitId(val === "all" ? "" : val)}>
-              <SelectTrigger>
+              <SelectTrigger className="bg-background">
                 <SelectValue placeholder="All Units" />
               </SelectTrigger>
               <SelectContent>
@@ -219,7 +220,7 @@ export default function TodayAttendancePage() {
             </Select>
 
             <Select value={departmentId || "all"} onValueChange={(val) => setDepartmentId(val === "all" ? "" : val)}>
-              <SelectTrigger>
+              <SelectTrigger className="bg-background">
                 <SelectValue placeholder="All Departments" />
               </SelectTrigger>
               <SelectContent>
@@ -233,7 +234,7 @@ export default function TodayAttendancePage() {
             </Select>
 
             <Select value={designationId || "all"} onValueChange={(val) => setDesignationId(val === "all" ? "" : val)}>
-              <SelectTrigger>
+              <SelectTrigger className="bg-background">
                 <SelectValue placeholder="All Designations" />
               </SelectTrigger>
               <SelectContent>
@@ -247,7 +248,7 @@ export default function TodayAttendancePage() {
             </Select>
 
             <Select value={statusFilter || "all"} onValueChange={(val) => setStatusFilter(val === "all" ? "" : val)}>
-              <SelectTrigger>
+              <SelectTrigger className="bg-background">
                 <SelectValue placeholder="All Status" />
               </SelectTrigger>
               <SelectContent>
@@ -260,21 +261,20 @@ export default function TodayAttendancePage() {
         </CardContent>
       </Card>
 
-      <Card className="border-parchment bg-white shadow-sm overflow-hidden">
+      <Card className="border-border bg-card shadow-sm overflow-hidden">
         <CardContent className="p-0">
-          <div className="max-h-[600px] overflow-auto">
             <Table>
               <TableHeader className="sticky top-0 z-10">
-                <TableRow className="bg-parchment">
-                  <TableHead className="w-16 bg-parchment">#</TableHead>
-                  <TableHead className="bg-parchment">Employee</TableHead>
-                  <TableHead className="bg-parchment">Emp Code</TableHead>
-                  <TableHead className="bg-parchment">Phone</TableHead>
-                  <TableHead className="bg-parchment">Unit</TableHead>
-                  <TableHead className="bg-parchment">Department</TableHead>
-                  <TableHead className="text-center bg-parchment">Status</TableHead>
-                  <TableHead className="bg-parchment">In Time</TableHead>
-                  <TableHead className="bg-parchment">Out Time</TableHead>
+              <TableRow className="bg-muted">
+                <TableHead className="w-16 bg-muted">#</TableHead>
+                <TableHead className="bg-muted">Employee</TableHead>
+                <TableHead className="bg-muted">Emp Code</TableHead>
+                <TableHead className="bg-muted">Phone</TableHead>
+                <TableHead className="bg-muted">Unit</TableHead>
+                <TableHead className="bg-muted">Department</TableHead>
+                <TableHead className="text-center bg-muted">Status</TableHead>
+                <TableHead className="bg-muted">In Time</TableHead>
+                <TableHead className="bg-muted">Out Time</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -282,8 +282,8 @@ export default function TodayAttendancePage() {
                   <TableRow>
                     <TableCell colSpan={9} className="text-center py-12">
                       <div className="flex flex-col items-center gap-2">
-                        <RefreshCw className="h-6 w-6 animate-spin text-grey_olive" />
-                        <span className="text-grey_olive">Loading work log data...</span>
+                        <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+                        <span className="text-muted-foreground">Loading work log data...</span>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -291,57 +291,58 @@ export default function TodayAttendancePage() {
                   <TableRow>
                     <TableCell colSpan={9} className="text-center py-12">
                       <div className="flex flex-col items-center gap-2">
-                        <Users className="h-8 w-8 text-grey_olive" />
-                        <span className="text-grey_olive">No work log records found</span>
+                        <Users className="h-8 w-8 text-muted-foreground" />
+                        <span className="text-muted-foreground">No work log records found</span>
                       </div>
                     </TableCell>
                   </TableRow>
                 ) : (
                   filteredData.map((record: TodayAttendanceRecord, index: number) => (
-                    <TableRow key={record.id} className="hover:bg-parchment/30 transition-colors">
-                      <TableCell className="font-mono text-grey_olive">
+                    <TableRow key={record.id} className="hover:bg-muted/30 transition-colors">
+                      <TableCell className="font-mono text-muted-foreground">
                         {index + 1}
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-3">
                           {record.profileImageUrl ? (
-                            <img 
+                            <ImagePreview 
                               src={record.profileImageUrl} 
                               alt={record.firstName}
-                              className="h-10 w-10 rounded-full object-cover border-2 border-parchment"
+                              className="h-10 w-10 rounded-full object-cover border-2 border-border"
+                              previewSize={240}
                             />
                           ) : (
-                            <div className="h-10 w-10 rounded-full bg-powder_blush flex items-center justify-center text-taupe font-medium">
+                            <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-medium">
                               {getInitials(record.firstName, record.lastName)}
                             </div>
                           )}
                           <div>
-                            <p className="font-medium text-taupe">
+                            <p className="font-medium text-foreground">
                               {record.firstName} {record.lastName || ""}
                             </p>
                             {record.designation && (
-                              <p className="text-xs text-grey_olive">{record.designation.name}</p>
+                              <p className="text-xs text-muted-foreground">{record.designation.name}</p>
                             )}
                           </div>
                         </div>
                       </TableCell>
                       <TableCell>
-                        <span className="font-mono text-sm bg-parchment px-2 py-1 rounded">
+                        <span className="font-mono text-sm bg-muted px-2 py-1 rounded text-foreground">
                           {record.cardNumber || "-"}
                         </span>
                       </TableCell>
-                      <TableCell className="text-grey_olive">
+                      <TableCell className="text-muted-foreground">
                         {record.phone || "-"}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="text-foreground">
                         {record.unit ? (
                           <div className="flex items-center gap-1.5">
-                            <Building2 className="h-3.5 w-3.5 text-grey_olive" />
+                            <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
                             <span className="text-sm">{record.unit.name}</span>
                           </div>
                         ) : "-"}
                       </TableCell>
-                      <TableCell className="text-sm">
+                      <TableCell className="text-sm text-foreground">
                         {record.department?.name || "-"}
                       </TableCell>
                       <TableCell className="text-center">
@@ -349,8 +350,8 @@ export default function TodayAttendancePage() {
                           variant="outline"
                           className={`font-medium ${
                             record.status === "present" 
-                              ? "bg-emerald-50 text-emerald-700 border-emerald-200" 
-                              : "bg-rose-50 text-rose-700 border-rose-200"
+                              ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20" 
+                              : "bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/20"
                           }`}
                         >
                           {record.status === "present" ? "Present" : "Absent"}
@@ -358,22 +359,22 @@ export default function TodayAttendancePage() {
                       </TableCell>
                       <TableCell>
                         {record.checkInAt ? (
-                          <div className="flex items-center gap-1.5 text-sm">
-                            <Clock className="h-3.5 w-3.5 text-emerald-600" />
+                          <div className="flex items-center gap-1.5 text-sm text-foreground">
+                            <Clock className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
                             <span className="font-mono">{formatTime(record.checkInAt)}</span>
                           </div>
                         ) : (
-                          <span className="text-grey_olive">-</span>
+                          <span className="text-muted-foreground">-</span>
                         )}
                       </TableCell>
                       <TableCell>
                         {record.checkOutAt ? (
-                          <div className="flex items-center gap-1.5 text-sm">
-                            <Clock className="h-3.5 w-3.5 text-rose-600" />
+                          <div className="flex items-center gap-1.5 text-sm text-foreground">
+                            <Clock className="h-3.5 w-3.5 text-rose-600 dark:text-rose-400" />
                             <span className="font-mono">{formatTime(record.checkOutAt)}</span>
                           </div>
                         ) : (
-                          <span className="text-grey_olive">-</span>
+                          <span className="text-muted-foreground">-</span>
                         )}
                       </TableCell>
                     </TableRow>
@@ -381,11 +382,10 @@ export default function TodayAttendancePage() {
                 )}
               </TableBody>
             </Table>
-          </div>
 
           {filteredData.length > 0 && (
-            <div className="px-6 py-3 border-t border-parchment bg-parchment/30">
-              <p className="text-sm text-grey_olive">
+            <div className="px-6 py-3 border-t border-border bg-muted/30">
+              <p className="text-sm text-muted-foreground">
                 Showing {filteredData.length} of {attendanceData?.pagination?.total || filteredData.length} employees
               </p>
             </div>

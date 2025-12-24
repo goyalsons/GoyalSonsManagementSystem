@@ -5,6 +5,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
+import { ThemeProvider } from "@/lib/theme-context";
 import MainLayout from "@/components/MainLayout";
 
 // Lazy load all page components
@@ -22,6 +23,7 @@ const UsersListPage = lazy(() => import("@/pages/users/index"));
 const CreateUserPage = lazy(() => import("@/pages/users/create"));
 const RolesPage = lazy(() => import("@/pages/roles/index"));
 const EditRolePage = lazy(() => import("@/pages/roles/[id]"));
+const AssignManagerPage = lazy(() => import("@/pages/roles/manager/assign"));
 const EmployeesPage = lazy(() => import("@/pages/employees/index"));
 const CreateEmployeePage = lazy(() => import("@/pages/employees/create"));
 const SettingsPage = lazy(() => import("@/pages/settings"));
@@ -65,6 +67,9 @@ function FullPageLoader() {
 }
 
 function AuthenticatedRoutes() {
+  const { user } = useAuth();
+  const isMDO = user?.loginType === "mdo";
+
   return (
     <MainLayout>
       <Suspense fallback={<PageLoader />}>
@@ -76,6 +81,7 @@ function AuthenticatedRoutes() {
           <Route path="/users/create" component={CreateUserPage} />
           <Route path="/roles" component={RolesPage} />
           <Route path="/roles/:id" component={EditRolePage} />
+          <Route path="/roles/manager/assign" component={AssignManagerPage} />
           
           <Route path="/employees" component={EmployeesPage} />
           <Route path="/employees/create" component={CreateEmployeePage} />
@@ -103,7 +109,7 @@ function AuthenticatedRoutes() {
           <Route path="/sales/unit/:unitName" component={SalesUnitPage} />
           <Route path="/sales-staff" component={SalesStaffPage} />
           
-          <Route path="/settings" component={SettingsPage} />
+          {isMDO && <Route path="/settings" component={SettingsPage} />}
           <Route path="/admin/routing" component={ApiRoutingPage} />
           <Route path="/admin/master-settings" component={MasterSettingsPage} />
           
@@ -167,10 +173,12 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
+        <ThemeProvider>
         <TooltipProvider>
           <Toaster />
           <Router />
         </TooltipProvider>
+        </ThemeProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

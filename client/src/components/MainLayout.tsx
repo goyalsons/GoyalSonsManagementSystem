@@ -2,6 +2,7 @@ import React, { useState, useCallback, useMemo, useRef, useEffect } from "react"
 import { useLocation, Link } from "wouter";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
+import { useTheme } from "@/lib/theme-context";
 import {
   LayoutDashboard,
   Users,
@@ -31,7 +32,9 @@ import {
   BarChart3,
   Home,
   MoreHorizontal,
-  X
+  X,
+  Sun,
+  Moon
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
@@ -379,7 +382,11 @@ const SidebarNav = React.memo(function SidebarNav({
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-xs sm:text-sm font-medium text-sidebar-foreground truncate">{user.name}</p>
-              <p className="text-[10px] sm:text-xs text-sidebar-foreground/60 truncate">{user.email}</p>
+              <p className="text-[10px] sm:text-xs text-sidebar-foreground/60 truncate">
+                {user.loginType === "employee" && user.employeeCardNo 
+                  ? user.employeeCardNo 
+                  : user.email}
+              </p>
             </div>
             {user.isSuperAdmin && (
               <Shield className="h-3 w-3 sm:h-4 sm:w-4 text-amber-400 shrink-0" />
@@ -403,6 +410,7 @@ const SidebarNav = React.memo(function SidebarNav({
 // Mobile Bottom Navigation Component
 function MobileBottomNav({ location }: { location: string }) {
   const [showMore, setShowMore] = useState(false);
+  const { user } = useAuth();
   
   return (
     <>
@@ -416,10 +424,10 @@ function MobileBottomNav({ location }: { location: string }) {
       
       {/* More menu sheet */}
       {showMore && (
-        <div className="fixed bottom-[calc(4rem+env(safe-area-inset-bottom))] left-0 right-0 bg-white rounded-t-2xl shadow-lg z-50 md:hidden animate-slide-up">
-          <div className="p-4 border-b">
+        <div className="fixed bottom-[calc(4rem+env(safe-area-inset-bottom))] left-0 right-0 bg-white dark:bg-slate-900 rounded-t-2xl shadow-lg z-50 md:hidden animate-slide-up border-t border-slate-200 dark:border-slate-800">
+          <div className="p-4 border-b border-slate-200 dark:border-slate-800">
             <div className="flex items-center justify-between">
-              <h3 className="font-semibold">More Options</h3>
+              <h3 className="font-semibold text-slate-900 dark:text-slate-100">More Options</h3>
               <Button variant="ghost" size="icon" onClick={() => setShowMore(false)} className="h-8 w-8">
                 <X className="h-4 w-4" />
               </Button>
@@ -427,35 +435,37 @@ function MobileBottomNav({ location }: { location: string }) {
           </div>
           <div className="p-2 max-h-[50vh] overflow-y-auto">
             <Link href="/claims/my" onClick={() => setShowMore(false)}>
-              <div className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-100 touch-manipulation">
+              <div className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 touch-manipulation">
                 <FileText className="h-5 w-5 text-muted-foreground" />
-                <span>My Claims</span>
+                <span className="text-slate-700 dark:text-slate-300">My Claims</span>
               </div>
             </Link>
             <Link href="/announcements/my" onClick={() => setShowMore(false)}>
-              <div className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-100 touch-manipulation">
+              <div className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 touch-manipulation">
                 <Megaphone className="h-5 w-5 text-muted-foreground" />
-                <span>Announcements</span>
+                <span className="text-slate-700 dark:text-slate-300">Announcements</span>
               </div>
             </Link>
             <Link href="/training" onClick={() => setShowMore(false)}>
-              <div className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-100 touch-manipulation">
+              <div className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 touch-manipulation">
                 <GraduationCap className="h-5 w-5 text-muted-foreground" />
-                <span>Training</span>
+                <span className="text-slate-700 dark:text-slate-300">Training</span>
               </div>
             </Link>
+            {user?.loginType === "mdo" && (
             <Link href="/settings" onClick={() => setShowMore(false)}>
-              <div className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-100 touch-manipulation">
+                <div className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 touch-manipulation">
                 <Settings className="h-5 w-5 text-muted-foreground" />
-                <span>Settings</span>
+                  <span className="text-slate-700 dark:text-slate-300">Settings</span>
               </div>
             </Link>
+            )}
           </div>
         </div>
       )}
       
       {/* Bottom navigation bar */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-40 md:hidden safe-area-bottom">
+      <nav className="fixed bottom-0 left-0 right-0 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 z-40 md:hidden safe-area-bottom">
         <div className="flex items-center justify-around h-16 px-2">
           {mobileNavItems.map((item) => {
             const isActive = location === item.href || (item.href !== "/" && location.startsWith(item.href));
@@ -515,6 +525,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
     return initial;
   });
   const { user, logout, hasPolicy, isEmployeeLogin } = useAuth();
+  const { theme, toggleTheme } = useTheme();
 
   const toggleMenu = useCallback((label: string) => {
     setOpenMenus(prev => {
@@ -534,12 +545,18 @@ export default function MainLayout({ children }: MainLayoutProps) {
 
   const visibleNavItems = useMemo(() => {
     const isEmployee = isEmployeeLogin();
+    const isMDO = user?.loginType === "mdo";
     
     // Items employees should always see (for their own data)
-    const employeeAllowedItems = ["Dashboard", "Work Log", "Targets & Goals", "Tasks", "Claims", "Announcements", "Training", "Settings", "Sales Staff"];
+    const employeeAllowedItems = ["Dashboard", "Work Log", "Targets & Goals", "Tasks", "Claims", "Announcements", "Training", "Sales Staff"];
     
     return navItems
       .filter(item => {
+        // Settings is ONLY for MDO
+        if (item.label === "Settings" && !isMDO) {
+          return false;
+        }
+
         if (isEmployee) {
           // Employees see only specific items regardless of policies
           return employeeAllowedItems.includes(item.label);
@@ -612,7 +629,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
   };
 
   return (
-    <div className="flex min-h-screen min-h-[100dvh] w-full bg-slate-50">
+    <div className="flex min-h-screen min-h-[100dvh] w-full bg-slate-50 dark:bg-slate-950">
       {/* Desktop sidebar - large screens */}
       <div className="hidden lg:flex lg:w-72 lg:flex-col lg:fixed lg:inset-y-0 z-50">
         <SidebarNav
@@ -642,9 +659,9 @@ export default function MainLayout({ children }: MainLayoutProps) {
       </div>
 
       {/* Main content area */}
-      <div className="flex-1 md:pl-64 lg:pl-72 pb-20 md:pb-0">
+      <div className="flex-1 md:pl-64 lg:pl-72 pb-20 md:pb-0 min-w-0">
         {/* Header */}
-        <header className="sticky top-0 z-40 flex h-14 sm:h-16 items-center gap-2 sm:gap-4 border-b border-slate-200 bg-white/95 backdrop-blur-sm px-3 sm:px-4 md:px-6 shadow-sm">
+        <header className="sticky top-0 z-40 flex h-14 sm:h-16 items-center gap-2 sm:gap-4 border-b border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm px-3 sm:px-4 md:px-6 shadow-sm">
           {/* Mobile menu button */}
           <Sheet open={isMobileOpen} onOpenChange={setIsMobileOpen}>
             <SheetTrigger asChild>
@@ -673,7 +690,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
           </Sheet>
 
           <div className="flex-1 flex items-center gap-2 sm:gap-4 min-w-0">
-            <h1 className="text-base sm:text-lg font-semibold md:hidden truncate">{getPageTitle()}</h1>
+            <h1 className="text-base sm:text-lg font-semibold md:hidden truncate text-slate-900 dark:text-slate-100">{getPageTitle()}</h1>
             
             {/* Search - hidden on mobile */}
             <div className="hidden sm:flex max-w-md flex-1">
@@ -689,6 +706,21 @@ export default function MainLayout({ children }: MainLayoutProps) {
           </div>
 
           <div className="flex items-center gap-1 sm:gap-2">
+            {/* Theme Toggle */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="rounded-xl h-9 w-9"
+              onClick={toggleTheme}
+            >
+              {theme === "light" ? (
+                <Moon className="h-5 w-5 text-muted-foreground" />
+              ) : (
+                <Sun className="h-5 w-5 text-muted-foreground" />
+              )}
+              <span className="sr-only">Toggle theme</span>
+            </Button>
+
             {/* Notifications - hidden on mobile */}
             <Button variant="ghost" size="icon" className="relative rounded-xl hidden sm:flex h-9 w-9">
               <Bell className="h-5 w-5 text-muted-foreground" />
@@ -707,23 +739,29 @@ export default function MainLayout({ children }: MainLayoutProps) {
                   <ChevronDown className="h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground hidden sm:block" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56 rounded-xl">
+              <DropdownMenuContent align="end" className="w-56 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
                 <DropdownMenuLabel className="font-normal">
                   <div className="flex flex-col space-y-1">
-                    <p className="text-sm font-medium truncate">{user?.name}</p>
-                    <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
+                    <p className="text-sm font-medium truncate text-slate-900 dark:text-slate-100">{user?.name}</p>
+                    <p className="text-xs text-muted-foreground truncate">
+                      {user?.loginType === "employee" && user?.employeeCardNo 
+                        ? user.employeeCardNo 
+                        : user?.email}
+                    </p>
                   </div>
                 </DropdownMenuLabel>
-                <DropdownMenuSeparator />
+                <DropdownMenuSeparator className="bg-slate-200 dark:bg-slate-800" />
+                {user?.loginType === "mdo" && (
                 <Link href="/settings">
-                  <DropdownMenuItem className="cursor-pointer rounded-lg touch-manipulation">
+                    <DropdownMenuItem className="cursor-pointer rounded-lg touch-manipulation hover:bg-slate-100 dark:hover:bg-slate-800">
                     <Settings className="h-4 w-4 mr-2" />
                     Settings
                   </DropdownMenuItem>
                 </Link>
-                <DropdownMenuSeparator />
+                )}
+                <DropdownMenuSeparator className="bg-slate-200 dark:bg-slate-800" />
                 <DropdownMenuItem 
-                  className="cursor-pointer text-destructive focus:text-destructive rounded-lg touch-manipulation"
+                  className="cursor-pointer text-destructive focus:text-destructive rounded-lg touch-manipulation hover:bg-destructive/10 dark:hover:bg-destructive/20"
                   onClick={handleSignOut}
                 >
                   <LogOut className="h-4 w-4 mr-2" />

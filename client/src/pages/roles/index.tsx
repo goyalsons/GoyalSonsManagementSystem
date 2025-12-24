@@ -1,4 +1,4 @@
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -13,6 +13,14 @@ import { mockRoles } from "@/lib/mock-users";
 import { Badge } from "@/components/ui/badge";
 
 export default function RolesPage() {
+  const [, setLocation] = useLocation();
+
+  const handleRoleCardClick = (roleName: string) => {
+    if (roleName === "Manager") {
+      setLocation("/roles/manager/assign");
+    }
+  };
+
   return (
     <>
       <div className="flex items-center gap-4 mb-6">
@@ -31,7 +39,11 @@ export default function RolesPage() {
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
         {mockRoles.map((role) => (
-          <Card key={role.id} className="flex flex-col">
+          <Card 
+            key={role.id} 
+            className={`flex flex-col ${role.name === "Manager" ? "cursor-pointer hover:shadow-lg transition-shadow" : ""}`}
+            onClick={() => handleRoleCardClick(role.name)}
+          >
             <CardHeader>
               <div className="flex items-center justify-between mb-2">
                 <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
@@ -57,12 +69,19 @@ export default function RolesPage() {
               </div>
             </CardContent>
             <CardFooter className="border-t pt-4 bg-muted/20">
-              <Link href={`/roles/${role.id}`} className="w-full">
+              {role.name === "Manager" ? (
                 <Button variant="outline" className="w-full gap-2">
                   <Edit className="h-3 w-3" />
-                  Edit Permissions
+                  Assign Manager
                 </Button>
-              </Link>
+              ) : (
+                <Link href={`/roles/${role.id}`} className="w-full">
+                  <Button variant="outline" className="w-full gap-2">
+                    <Edit className="h-3 w-3" />
+                    Edit Permissions
+                  </Button>
+                </Link>
+              )}
             </CardFooter>
           </Card>
         ))}

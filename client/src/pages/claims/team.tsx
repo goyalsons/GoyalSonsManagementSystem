@@ -121,16 +121,16 @@ export default function TeamClaimsPage() {
   };
 
   const statusColors = {
-    pending: "bg-amber-50 text-amber-700 border-amber-200",
-    approved: "bg-emerald-50 text-emerald-700 border-emerald-200",
-    rejected: "bg-rose-50 text-rose-700 border-rose-200"
+    pending: "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20",
+    approved: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20",
+    rejected: "bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/20"
   };
 
   const categoryColors: Record<string, string> = {
-    Travel: "bg-blue-100 text-blue-700",
-    Office: "bg-purple-100 text-purple-700",
-    Events: "bg-pink-100 text-pink-700",
-    IT: "bg-cyan-100 text-cyan-700"
+    Travel: "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/20",
+    Office: "bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-500/20",
+    Events: "bg-pink-500/10 text-pink-700 dark:text-pink-400 border-pink-500/20",
+    IT: "bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 border-cyan-500/20"
   };
 
   return (
@@ -156,33 +156,33 @@ export default function TeamClaimsPage() {
         </Select>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-4 mb-6">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-6">
         <Card className="border-l-4 border-l-amber-500">
-          <CardContent className="pt-6">
-            <div className="text-2xl font-bold text-amber-600">{pendingCount}</div>
+          <CardContent className="pt-6 text-center sm:text-left">
+            <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">{pendingCount}</div>
             <p className="text-xs text-muted-foreground">Pending Review</p>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-1">
+          <CardContent className="pt-6 text-center sm:text-left">
+            <div className="flex items-center justify-center sm:justify-start gap-1">
               <IndianRupee className="h-4 w-4 text-muted-foreground" />
-              <div className="text-2xl font-bold">{totalPending.toLocaleString()}</div>
+              <div className="text-2xl font-bold text-foreground">{totalPending.toLocaleString()}</div>
             </div>
             <p className="text-xs text-muted-foreground">Pending Amount</p>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="pt-6">
-            <div className="text-2xl font-bold text-emerald-600">
+          <CardContent className="pt-6 text-center sm:text-left">
+            <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
               {displayClaims.filter(c => c.status === "approved").length}
             </div>
             <p className="text-xs text-muted-foreground">Approved</p>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="pt-6">
-            <div className="text-2xl font-bold text-rose-600">
+          <CardContent className="pt-6 text-center sm:text-left">
+            <div className="text-2xl font-bold text-rose-600 dark:text-rose-400">
               {displayClaims.filter(c => c.status === "rejected").length}
             </div>
             <p className="text-xs text-muted-foreground">Rejected</p>

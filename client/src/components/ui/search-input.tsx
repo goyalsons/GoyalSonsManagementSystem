@@ -15,47 +15,50 @@ interface SearchInputProps {
 
 const searchInputStyles = `
   .gradient-search-container {
-    height: 50px;
+    height: 40px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    background: linear-gradient(to bottom, rgb(227, 213, 255), rgb(255, 231, 231));
-    border-radius: 30px;
+    background: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 12px;
     overflow: hidden;
     cursor: pointer;
-    box-shadow: 2px 2px 10px rgba(0, 0, 0, 0.075);
-    padding: 0 5px;
-    min-width: 200px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    padding: 0 4px;
+    width: 100%;
   }
 
   .gradient-search-input {
     flex: 1;
-    height: 40px;
+    height: 32px;
     border: none;
     outline: none;
-    caret-color: rgb(255, 81, 0);
-    background-color: rgb(255, 255, 255);
-    border-radius: 30px;
-    padding-left: 15px;
+    caret-color: var(--primary);
+    background-color: transparent;
+    border-radius: 8px;
+    padding-left: 12px;
     padding-right: 10px;
-    letter-spacing: 0.8px;
-    color: rgb(19, 19, 19);
-    font-size: 13.4px;
+    letter-spacing: 0.4px;
+    color: var(--foreground);
+    font-size: 14px;
+    width: 100%;
   }
 
   .gradient-search-input::placeholder {
-    color: #999;
+    color: var(--muted-foreground);
+    opacity: 0.7;
   }
 
   .gradient-search-button {
-    height: 36px;
-    padding: 0 16px;
+    height: 32px;
+    padding: 0 12px;
     margin-left: 4px;
     border: none;
-    border-radius: 30px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    font-size: 12px;
+    border-radius: 8px;
+    background: var(--primary);
+    color: var(--primary-foreground);
+    font-size: 13px;
     font-weight: 500;
     cursor: pointer;
     transition: all 0.2s ease;
@@ -63,8 +66,7 @@ const searchInputStyles = `
   }
 
   .gradient-search-button:hover {
-    transform: scale(1.02);
-    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
+    opacity: 0.9;
   }
 
   .gradient-search-button:active {

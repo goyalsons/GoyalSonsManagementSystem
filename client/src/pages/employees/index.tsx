@@ -51,6 +51,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
+import { ImagePreview } from "@/components/ui/image-preview";
 
 interface Employee {
   id: string;
@@ -166,9 +167,9 @@ export default function EmployeesPage() {
   const getStatusStyle = (employee: Employee) => {
     const isActive = getEmployeeActiveStatus(employee);
     if (isActive) {
-      return "bg-emerald-50 text-emerald-700 border-emerald-200";
+      return "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20";
     }
-    return "bg-red-50 text-red-700 border-red-200";
+    return "bg-red-50 text-red-700 border-red-200 dark:bg-red-500/10 dark:text-red-400 dark:border-red-500/20";
   };
 
   const getInitials = (firstName: string, lastName?: string | null) => {
@@ -261,7 +262,7 @@ export default function EmployeesPage() {
               />
               <Button
                 size="sm"
-                className="absolute right-1 top-1/2 -translate-y-1/2 h-7 px-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs"
+                className="absolute right-1 top-1/2 -translate-y-1/2 h-7 px-3 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-xs"
                 onClick={() => setDebouncedSearch(searchTerm)}
               >
                 Search
@@ -340,7 +341,6 @@ export default function EmployeesPage() {
           </div>
         </div>
 
-        <div className="max-h-[600px] overflow-auto">
           <Table>
             <TableHeader className="sticky top-0 z-10">
               <TableRow className="bg-muted">
@@ -364,10 +364,16 @@ export default function EmployeesPage() {
                     <TableCell>
                       <div className="flex items-center gap-3">
                         {employee.profileImageUrl ? (
-                          <img 
+                        <ImagePreview
                             src={employee.profileImageUrl} 
-                            alt={employee.firstName}
-                            className="h-10 w-10 rounded-full object-cover border-2 border-muted"
+                          alt={`${employee.firstName} ${employee.lastName || ''}`}
+                          className="h-10 w-10 rounded-full object-cover border-2 border-muted hover:border-primary transition-colors"
+                          previewSize={240}
+                          fallback={
+                            <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center text-muted-foreground font-medium">
+                              {getInitials(employee.firstName, employee.lastName)}
+                            </div>
+                          }
                           />
                         ) : (
                           <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center text-muted-foreground font-medium">
@@ -456,7 +462,6 @@ export default function EmployeesPage() {
               )}
             </TableBody>
           </Table>
-        </div>
 
         {employees.length > 0 && (
           <div className="px-4 py-3 border-t border-border bg-muted/30">

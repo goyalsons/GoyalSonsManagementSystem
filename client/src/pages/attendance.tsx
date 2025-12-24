@@ -59,13 +59,13 @@ export default function AttendancePage() {
             </p>
           </div>
 
-          <Card className="border-0 shadow-xl overflow-hidden relative bg-slate-900 text-white">
+          <Card className="border-0 shadow-xl overflow-hidden relative bg-slate-900 dark:bg-slate-950 text-white">
             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-purple-500" />
             <CardHeader className="text-center pb-4 pt-8">
               <CardTitle className="text-5xl font-mono font-light tracking-wider">
                 {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </CardTitle>
-              <CardDescription className="text-sm uppercase tracking-widest font-medium text-slate-400">
+              <CardDescription className="text-sm uppercase tracking-widest font-medium text-slate-400 dark:text-slate-500">
                 {currentTime.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}
               </CardDescription>
             </CardHeader>
@@ -76,8 +76,8 @@ export default function AttendancePage() {
                   size="lg" 
                   className={`h-56 w-56 rounded-full flex flex-col items-center justify-center gap-3 text-xl border-8 transition-all transform duration-300 shadow-2xl ${
                     isCheckedIn 
-                      ? "bg-rose-600 hover:bg-rose-700 border-rose-800 hover:scale-105" 
-                      : "bg-emerald-600 hover:bg-emerald-700 border-emerald-800 hover:scale-105"
+                      ? "bg-rose-600 hover:bg-rose-700 border-rose-800 dark:border-rose-900 hover:scale-105" 
+                      : "bg-emerald-600 hover:bg-emerald-700 border-emerald-800 dark:border-emerald-900 hover:scale-105"
                   }`}
                   onClick={isCheckedIn ? handleCheckOut : handleCheckIn}
                   disabled={isLoading}
@@ -100,7 +100,7 @@ export default function AttendancePage() {
 
               <div className="flex items-center gap-2 text-sm font-medium bg-white/5 py-2 px-4 rounded-full backdrop-blur-sm border border-white/10">
                 {locationStatus === "idle" && (
-                  <span className="text-slate-400 flex items-center gap-2">
+                  <span className="text-slate-400 dark:text-slate-500 flex items-center gap-2">
                     <MapPin className="h-4 w-4" /> Location required
                   </span>
                 )}
@@ -161,28 +161,28 @@ export default function AttendancePage() {
                <div key={i} className="bg-card rounded-lg border border-border p-4 flex flex-col sm:flex-row items-start sm:items-center gap-4 justify-between hover:shadow-md transition-all">
                  <div className="flex items-center gap-4">
                    <div className={`h-12 w-12 rounded-full flex items-center justify-center border ${
-                     record.status === "Present" ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
-                     record.status === "Late" ? "bg-amber-50 text-amber-600 border-amber-100" :
-                     "bg-slate-50 text-slate-400 border-slate-100"
+                     record.status === "Present" ? "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-100 dark:border-emerald-500/20" :
+                     record.status === "Late" ? "bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-100 dark:border-amber-500/20" :
+                     "bg-muted text-muted-foreground border-border"
                    }`}>
                      <Calendar className="h-5 w-5" />
                    </div>
                    <div>
-                     <p className="font-medium text-base">{record.date}</p>
+                     <p className="font-medium text-base text-foreground">{record.date}</p>
                      <p className="text-xs text-muted-foreground flex gap-2 mt-1">
-                        <span className="bg-secondary/50 px-1.5 py-0.5 rounded text-secondary-foreground">In: {record.checkIn}</span>
-                        <span className="bg-secondary/50 px-1.5 py-0.5 rounded text-secondary-foreground">Out: {record.checkOut}</span>
+                        <span className="bg-secondary px-1.5 py-0.5 rounded text-secondary-foreground">In: {record.checkIn}</span>
+                        <span className="bg-secondary px-1.5 py-0.5 rounded text-secondary-foreground">Out: {record.checkOut}</span>
                      </p>
                    </div>
                  </div>
                  <div className="flex items-center gap-4 w-full sm:w-auto justify-between sm:justify-end pl-16 sm:pl-0">
                     <div className="text-right">
                       <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Duration</p>
-                      <p className="font-mono font-medium text-sm">{record.hours}</p>
+                      <p className="font-mono font-medium text-sm text-foreground">{record.hours}</p>
                     </div>
                     <Badge variant="outline" className={`w-20 justify-center ${
-                      record.status === "Present" ? "border-emerald-200 text-emerald-700 bg-emerald-50" :
-                      record.status === "Late" ? "border-amber-200 text-amber-700 bg-amber-50" :
+                      record.status === "Present" ? "border-emerald-200 dark:border-emerald-500/20 text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10" :
+                      record.status === "Late" ? "border-amber-200 dark:border-amber-500/20 text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10" :
                       "bg-secondary text-muted-foreground"
                     }`}>
                       {record.status}

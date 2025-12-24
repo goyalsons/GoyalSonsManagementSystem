@@ -64,24 +64,24 @@ function StatCard({
   loading?: boolean;
 }) {
   return (
-    <Card className="bg-white border-slate-200 hover:shadow-lg transition-all duration-300 hover:-translate-y-0.5">
+    <Card className="bg-card border-border hover:shadow-lg transition-all duration-300 hover:-translate-y-0.5">
       <CardContent className="p-6">
         <div className="flex items-start justify-between">
           <div className="space-y-2">
-            <p className="text-sm font-medium text-slate-500">{title}</p>
+            <p className="text-sm font-medium text-muted-foreground">{title}</p>
             {loading ? (
               <Skeleton className="h-8 w-20" />
             ) : (
-              <p className="text-3xl font-bold text-slate-900">{value}</p>
+              <p className="text-3xl font-bold text-foreground">{value}</p>
             )}
             <div className="flex items-center gap-2">
               {trend && (
-                <span className="flex items-center text-xs font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
+                <span className="flex items-center text-xs font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2 py-0.5 rounded-full">
                   <TrendingUp className="h-3 w-3 mr-0.5" />
                   {trend}
                 </span>
               )}
-              <p className="text-xs text-slate-400">{subtitle}</p>
+              <p className="text-xs text-muted-foreground">{subtitle}</p>
             </div>
           </div>
           <div className={`h-12 w-12 rounded-xl ${iconBg} flex items-center justify-center shrink-0`}>
@@ -139,11 +139,11 @@ export default function Dashboard() {
   }
 
   const roleColors: Record<string, string> = {
-    CEO: "bg-amber-100 text-amber-700",
-    Management: "bg-blue-100 text-blue-700",
-    HR: "bg-emerald-100 text-emerald-700",
-    Finance: "bg-purple-100 text-purple-700",
-    Employee: "bg-slate-100 text-slate-700",
+    CEO: "bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400",
+    Management: "bg-blue-100 text-blue-700 dark:bg-blue-500/10 dark:text-blue-400",
+    HR: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400",
+    Finance: "bg-purple-100 text-purple-700 dark:bg-purple-500/10 dark:text-purple-400",
+    Employee: "bg-slate-100 text-slate-700 dark:bg-slate-500/10 dark:text-slate-400",
   };
 
   const getHonorific = () => {
@@ -163,11 +163,11 @@ export default function Dashboard() {
 
   const getInitialsColor = (index: number) => {
     const colors = [
-      "bg-blue-100 text-blue-700",
-      "bg-purple-100 text-purple-700",
-      "bg-emerald-100 text-emerald-700",
-      "bg-amber-100 text-amber-700",
-      "bg-pink-100 text-pink-700",
+      "bg-blue-100 text-blue-700 dark:bg-blue-500/10 dark:text-blue-400",
+      "bg-purple-100 text-purple-700 dark:bg-purple-500/10 dark:text-purple-400",
+      "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400",
+      "bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400",
+      "bg-pink-100 text-pink-700 dark:bg-pink-500/10 dark:text-pink-400",
     ];
     return colors[index % colors.length];
   };
@@ -178,32 +178,32 @@ export default function Dashboard() {
       value: stats?.todayAttendance || "Pending",
       subtitle: "Today's status",
       icon: CheckCircle2,
-      iconBg: "bg-emerald-100",
-      iconColor: "text-emerald-600",
+      iconBg: "bg-emerald-100 dark:bg-emerald-500/10",
+      iconColor: "text-emerald-600 dark:text-emerald-400",
     },
     {
       title: "My Pending Tasks",
       value: stats?.myPendingTasks || 0,
       subtitle: "Requires your attention",
       icon: CheckSquare,
-      iconBg: "bg-amber-100",
-      iconColor: "text-amber-600",
+      iconBg: "bg-amber-100 dark:bg-amber-500/10",
+      iconColor: "text-amber-600 dark:text-amber-400",
     },
     {
       title: "My Targets",
       value: stats?.myTargets || 0,
       subtitle: "Active targets",
       icon: Target,
-      iconBg: "bg-purple-100",
-      iconColor: "text-purple-600",
+      iconBg: "bg-purple-100 dark:bg-purple-500/10",
+      iconColor: "text-purple-600 dark:text-purple-400",
     },
     {
       title: "My Claims",
       value: stats?.myClaims || 0,
       subtitle: "Pending claims",
       icon: FileText,
-      iconBg: "bg-blue-100",
-      iconColor: "text-blue-600",
+      iconBg: "bg-blue-100 dark:bg-blue-500/10",
+      iconColor: "text-blue-600 dark:text-blue-400",
     },
   ] : [
     {
@@ -211,16 +211,16 @@ export default function Dashboard() {
       value: stats?.employees?.toLocaleString() || 0,
       subtitle: "In your org scope",
       icon: Users,
-      iconBg: "bg-blue-100",
-      iconColor: "text-blue-600",
+      iconBg: "bg-blue-100 dark:bg-blue-500/10",
+      iconColor: "text-blue-600 dark:text-blue-400",
     },
     {
       title: "Attendance Today",
       value: stats?.todayAttendance?.toLocaleString() || 0,
       subtitle: `${stats?.attendanceRate || 0}% attendance rate`,
       icon: CheckCircle2,
-      iconBg: "bg-emerald-100",
-      iconColor: "text-emerald-600",
+      iconBg: "bg-emerald-100 dark:bg-emerald-500/10",
+      iconColor: "text-emerald-600 dark:text-emerald-400",
       trend: stats?.attendanceRate ? `${stats.attendanceRate}%` : null,
     },
     {
@@ -228,16 +228,16 @@ export default function Dashboard() {
       value: stats?.myPendingTasks || 0,
       subtitle: "Requires your attention",
       icon: CheckSquare,
-      iconBg: "bg-amber-100",
-      iconColor: "text-amber-600",
+      iconBg: "bg-amber-100 dark:bg-amber-500/10",
+      iconColor: "text-amber-600 dark:text-amber-400",
     },
     {
       title: "Departments",
       value: user.accessibleOrgUnitIds.length,
       subtitle: "Accessible to you",
       icon: Building2,
-      iconBg: "bg-purple-100",
-      iconColor: "text-purple-600",
+      iconBg: "bg-purple-100 dark:bg-purple-500/10",
+      iconColor: "text-purple-600 dark:text-purple-400",
     },
   ];
 
@@ -258,23 +258,23 @@ export default function Dashboard() {
       <AnimatedCard delay={0}>
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">
+            <h1 className="text-2xl font-bold text-foreground">
               Good {new Date().getHours() < 12 ? "morning" : new Date().getHours() < 18 ? "afternoon" : "evening"}, {getHonorific()} {getDisplayName()}
             </h1>
-            <p className="text-slate-500 mt-1">Here's what's happening with your organization today.</p>
+            <p className="text-muted-foreground mt-1">Here's what's happening with your organization today.</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             {user.roles.map((role) => (
               <span 
                 key={role.id} 
-                className={`px-3 py-1.5 rounded-full text-xs font-medium ${roleColors[role.name] || "bg-slate-100 text-slate-700"}`}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium ${roleColors[role.name] || "bg-muted text-foreground"}`}
               >
                 {role.name}
               </span>
             ))}
-            <div className="hidden lg:flex items-center gap-3 px-4 py-2 rounded-lg bg-white border border-slate-200 shadow-sm">
-              <Calendar className="h-4 w-4 text-slate-400" />
-              <span className="text-sm text-slate-600">
+            <div className="hidden lg:flex items-center gap-3 px-4 py-2 rounded-lg bg-card border border-border shadow-sm">
+              <Calendar className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm text-foreground">
                 {currentTime.toLocaleDateString("en-US", { 
                   weekday: "short",
                   month: "short", 
@@ -282,9 +282,9 @@ export default function Dashboard() {
                   year: "numeric" 
                 })}
               </span>
-              <div className="w-px h-4 bg-slate-200"></div>
-              <Clock className="h-4 w-4 text-slate-400" />
-              <span className="text-sm font-medium text-slate-700 tabular-nums">
+              <div className="w-px h-4 bg-border"></div>
+              <Clock className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm font-medium text-foreground tabular-nums">
                 {currentTime.toLocaleTimeString("en-US", { 
                   hour: "2-digit", 
                   minute: "2-digit",
@@ -298,13 +298,13 @@ export default function Dashboard() {
 
       {user.isSuperAdmin && (
         <AnimatedCard delay={100}>
-          <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-3">
-            <div className="h-10 w-10 rounded-lg bg-amber-100 flex items-center justify-center">
-              <Shield className="h-5 w-5 text-amber-600" />
+          <div className="p-4 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 rounded-xl flex items-center gap-3">
+            <div className="h-10 w-10 rounded-lg bg-amber-100 dark:bg-amber-500/20 flex items-center justify-center">
+              <Shield className="h-5 w-5 text-amber-600 dark:text-amber-400" />
             </div>
             <div>
-              <p className="text-sm font-medium text-amber-900">Super Admin Access</p>
-              <p className="text-xs text-amber-700">You have full access to all organization data</p>
+              <p className="text-sm font-medium text-amber-900 dark:text-amber-100">Super Admin Access</p>
+              <p className="text-xs text-amber-700 dark:text-amber-300">You have full access to all organization data</p>
             </div>
           </div>
         </AnimatedCard>
@@ -320,12 +320,12 @@ export default function Dashboard() {
 
       <div className="grid gap-6 lg:grid-cols-3">
         <AnimatedCard delay={400} className="lg:col-span-2">
-          <Card className="bg-white border-slate-200">
+          <Card className="bg-card border-border">
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-lg font-semibold text-slate-900">Recent Check-ins</CardTitle>
+                <CardTitle className="text-lg font-semibold text-foreground">Recent Check-ins</CardTitle>
                 <Link href="/attendance/today">
-                  <Button variant="ghost" size="sm" className="text-blue-600 hover:text-blue-700 hover:bg-blue-50">
+                  <Button variant="ghost" size="sm" className="text-primary hover:text-primary/80 hover:bg-primary/10">
                     View All
                     <ArrowRight className="h-4 w-4 ml-1" />
                   </Button>
@@ -349,31 +349,31 @@ export default function Dashboard() {
               ) : recentCheckins && recentCheckins.length > 0 ? (
                 <div className="space-y-3">
                   {recentCheckins.slice(0, 5).map((checkin: any, i: number) => (
-                    <div key={i} className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-50 transition-colors">
+                    <div key={i} className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted transition-colors">
                       <div className={`h-10 w-10 rounded-full ${getInitialsColor(i)} flex items-center justify-center text-sm font-medium`}>
                         {checkin.employee?.firstName?.charAt(0) || "?"}{checkin.employee?.lastName?.charAt(0) || ""}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-slate-900 truncate">
+                        <p className="text-sm font-medium text-foreground truncate">
                           {checkin.employee?.firstName} {checkin.employee?.lastName}
                         </p>
-                        <p className="text-xs text-slate-500 truncate">
+                        <p className="text-xs text-muted-foreground truncate">
                           {checkin.employee?.department?.name || "No Department"}
                         </p>
                       </div>
                       <div className="text-right">
-                        <p className="text-sm font-medium text-emerald-600">
+                        <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">
                           {checkin.checkIn ? new Date(checkin.checkIn).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) : "--:--"}
                         </p>
-                        <p className="text-xs text-slate-400">Check-in</p>
+                        <p className="text-xs text-muted-foreground">Check-in</p>
                       </div>
                     </div>
                   ))}
                 </div>
               ) : (
                 <div className="text-center py-8">
-                  <Activity className="h-12 w-12 text-slate-300 mx-auto mb-3" />
-                  <p className="text-slate-500">No check-ins today</p>
+                  <Activity className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
+                  <p className="text-muted-foreground">No check-ins today</p>
                 </div>
               )}
             </CardContent>
@@ -381,17 +381,17 @@ export default function Dashboard() {
         </AnimatedCard>
 
         <AnimatedCard delay={450}>
-          <Card className="bg-white border-slate-200 h-full">
+          <Card className="bg-card border-border h-full">
             <CardHeader className="pb-2">
-              <CardTitle className="text-lg font-semibold text-slate-900">Quick Actions</CardTitle>
+              <CardTitle className="text-lg font-semibold text-foreground">Quick Actions</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 gap-3">
                 {quickActions.map((action, i) => (
                   <Link key={i} href={action.href}>
-                    <div className="p-4 rounded-xl border border-slate-200 hover:border-blue-200 hover:bg-blue-50/50 transition-all cursor-pointer group">
+                    <div className="p-4 rounded-xl border border-border hover:border-primary/50 hover:bg-primary/5 transition-all cursor-pointer group">
                       <action.icon className={`h-6 w-6 ${action.color} mb-2 group-hover:scale-110 transition-transform`} />
-                      <p className="text-sm font-medium text-slate-700">{action.label}</p>
+                      <p className="text-sm font-medium text-foreground">{action.label}</p>
                     </div>
                   </Link>
                 ))}
@@ -403,23 +403,23 @@ export default function Dashboard() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <AnimatedCard delay={500}>
-          <Card className="bg-white border-slate-200">
+          <Card className="bg-card border-border">
             <CardHeader className="pb-2">
-              <CardTitle className="text-lg font-semibold text-slate-900">Your Permissions</CardTitle>
+              <CardTitle className="text-lg font-semibold text-foreground">Your Permissions</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {user.policies.slice(0, 9).map((policy, i) => (
                   <div 
                     key={i}
-                    className="px-3 py-2 rounded-lg bg-slate-50 border border-slate-200"
+                    className="px-3 py-2 rounded-lg bg-muted border border-border"
                   >
-                    <p className="text-xs font-medium text-slate-600 truncate">{policy.key}</p>
+                    <p className="text-xs font-medium text-muted-foreground truncate">{policy.key}</p>
                   </div>
                 ))}
                 {user.policies.length > 9 && (
-                  <div className="px-3 py-2 rounded-lg bg-blue-50 border border-blue-200">
-                    <p className="text-xs font-medium text-blue-600">+{user.policies.length - 9} more</p>
+                  <div className="px-3 py-2 rounded-lg bg-primary/10 border border-primary/20">
+                    <p className="text-xs font-medium text-primary">+{user.policies.length - 9} more</p>
                   </div>
                 )}
               </div>
@@ -428,26 +428,26 @@ export default function Dashboard() {
         </AnimatedCard>
 
         <AnimatedCard delay={550}>
-          <Card className="bg-white border-slate-200">
+          <Card className="bg-card border-border">
             <CardHeader className="pb-2">
-              <CardTitle className="text-lg font-semibold text-slate-900">System Status</CardTitle>
+              <CardTitle className="text-lg font-semibold text-foreground">System Status</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                <div className="flex items-center justify-between p-3 rounded-lg bg-emerald-50 border border-emerald-200">
+                <div className="flex items-center justify-between p-3 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20">
                   <div className="flex items-center gap-2">
                     <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></div>
-                    <span className="text-sm font-medium text-emerald-700">All Systems Operational</span>
+                    <span className="text-sm font-medium text-emerald-700 dark:text-emerald-400">All Systems Operational</span>
                   </div>
-                  <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                  <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                 </div>
-                <div className="flex items-center justify-between p-3 rounded-lg bg-slate-50 border border-slate-200">
-                  <span className="text-sm text-slate-600">Last Sync</span>
-                  <span className="text-sm font-medium text-slate-900">Just now</span>
+                <div className="flex items-center justify-between p-3 rounded-lg bg-muted border border-border">
+                  <span className="text-sm text-muted-foreground">Last Sync</span>
+                  <span className="text-sm font-medium text-foreground">Just now</span>
                 </div>
-                <div className="flex items-center justify-between p-3 rounded-lg bg-slate-50 border border-slate-200">
-                  <span className="text-sm text-slate-600">Active Users</span>
-                  <span className="text-sm font-medium text-slate-900">{stats?.activeUsers || 1}</span>
+                <div className="flex items-center justify-between p-3 rounded-lg bg-muted border border-border">
+                  <span className="text-sm text-muted-foreground">Active Users</span>
+                  <span className="text-sm font-medium text-foreground">{stats?.activeUsers || 1}</span>
                 </div>
               </div>
             </CardContent>

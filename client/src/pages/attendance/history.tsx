@@ -138,9 +138,9 @@ function getStatusStyle(status: string): StatusStyle {
     return { bgColor: "#f97316", dots: [{ color: "#3b82f6", count: 1 }] };
   }
   
-  // MISS PENDING - White with special "today" indicator (using gray dot)
+  // MISS PENDING - Semantic background with special "today" indicator
   if (s === "MISS PENDING" || s === "MISS PEND") {
-    return { bgColor: "#ffffff", dots: [{ color: "#9ca3af", count: 1 }] };
+    return { bgColor: "var(--muted)", dots: [{ color: "#9ca3af", count: 1 }] };
   }
   
   // LEAVE - Blue, NO dots
@@ -177,7 +177,7 @@ function getStatusStyle(status: string): StatusStyle {
   }
   
   // Unknown status - Gray
-  return { bgColor: "#9ca3af", dots: [] };
+  return { bgColor: "var(--muted)", dots: [] };
 }
 
 /**
@@ -319,8 +319,8 @@ export default function AttendanceHistoryPage() {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-taupe">Task History</h1>
-          <p className="text-grey_olive">View member work log records from BigQuery</p>
+          <h1 className="text-2xl font-bold text-foreground">Task History</h1>
+          <p className="text-muted-foreground">View member work log records from BigQuery</p>
         </div>
 
         <Card className="border-amber-200 bg-amber-50">
@@ -341,26 +341,26 @@ export default function AttendanceHistoryPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-taupe">
+        <h1 className="text-2xl font-bold text-foreground">
           {isEmployee ? "My Work Log History" : "Task History"}
         </h1>
-        <p className="text-grey_olive">
+        <p className="text-muted-foreground">
           {isEmployee ? "View your work log records" : "View member work log records by card number"}
         </p>
       </div>
 
       {/* Search Card - Only show for MDO users, employees auto-load their own data */}
       {!isEmployee && (
-        <Card className="border-parchment bg-white shadow-sm">
+        <Card className="border-border bg-card shadow-sm">
           <CardHeader className="pb-4">
-            <CardTitle className="text-base font-medium flex items-center gap-2">
+            <CardTitle className="text-base font-medium flex items-center gap-2 text-foreground">
               <Search className="h-4 w-4" /> Search Member
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex flex-col sm:flex-row gap-4">
               <div className="flex-1">
-                <Label htmlFor="cardNo" className="text-sm text-grey_olive">Card Number</Label>
+                <Label htmlFor="cardNo" className="text-sm text-muted-foreground">Card Number</Label>
                 <div className="relative mt-1">
                   <Input
                     id="cardNo"
@@ -370,11 +370,11 @@ export default function AttendanceHistoryPage() {
                     onKeyDown={(e) => {
                       if (e.key === "Enter") handleSearch();
                     }}
-                    className="pr-24"
+                    className="pr-24 bg-background"
                   />
                   <Button
                     size="sm"
-                    className="absolute right-1 top-1/2 -translate-y-1/2 h-8 px-4 bg-blue-600 hover:bg-blue-700"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 h-8 px-4 bg-primary hover:bg-primary/90 text-primary-foreground"
                     onClick={handleSearch}
                     disabled={!cardNo.trim()}
                   >
@@ -385,10 +385,10 @@ export default function AttendanceHistoryPage() {
               </div>
 
               <div className="flex gap-2">
-                <div>
-                  <Label className="text-sm text-grey_olive">Month</Label>
+                <div className="flex-1 sm:flex-none">
+                  <Label className="text-sm text-muted-foreground">Month</Label>
                   <Select value={String(selectedMonth)} onValueChange={(v) => setSelectedMonth(Number(v))}>
-                    <SelectTrigger className="w-32 mt-1">
+                    <SelectTrigger className="w-full sm:w-32 mt-1 bg-background">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -401,10 +401,10 @@ export default function AttendanceHistoryPage() {
                   </Select>
                 </div>
 
-                <div>
-                  <Label className="text-sm text-grey_olive">Year</Label>
+                <div className="flex-1 sm:flex-none">
+                  <Label className="text-sm text-muted-foreground">Year</Label>
                   <Select value={String(selectedYear)} onValueChange={(v) => setSelectedYear(Number(v))}>
-                    <SelectTrigger className="w-24 mt-1">
+                    <SelectTrigger className="w-full sm:w-24 mt-1 bg-background">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -424,13 +424,13 @@ export default function AttendanceHistoryPage() {
 
       {/* Month/Year selector for employees - simplified */}
       {isEmployee && (
-        <Card className="border-parchment bg-white shadow-sm">
+        <Card className="border-border bg-card shadow-sm">
           <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-grey_olive font-medium">Select Period</span>
-              <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <span className="text-sm text-muted-foreground font-medium">Select Period</span>
+              <div className="flex gap-2 w-full sm:w-auto">
                 <Select value={String(selectedMonth)} onValueChange={(v) => setSelectedMonth(Number(v))}>
-                  <SelectTrigger className="w-32">
+                  <SelectTrigger className="flex-1 sm:w-32 bg-background">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -442,7 +442,7 @@ export default function AttendanceHistoryPage() {
                   </SelectContent>
                 </Select>
                 <Select value={String(selectedYear)} onValueChange={(v) => setSelectedYear(Number(v))}>
-                  <SelectTrigger className="w-24">
+                  <SelectTrigger className="flex-1 sm:w-24 bg-background">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -462,20 +462,20 @@ export default function AttendanceHistoryPage() {
       {searchCardNo && (
         <>
           {data?.records?.[0] && (
-            <Card className="border-parchment bg-white shadow-sm">
+            <Card className="border-border bg-card shadow-sm">
               <CardContent className="p-4">
-                <div className="flex flex-wrap items-center gap-6 text-sm">
+                <div className="flex flex-wrap items-center gap-x-8 gap-y-2 text-sm">
                   <div>
-                    <span className="text-grey_olive">Member:</span>
-                    <span className="ml-2 font-medium text-taupe">{data.records[0].Name}</span>
+                    <span className="text-muted-foreground">Member:</span>
+                    <span className="ml-2 font-medium text-foreground">{data.records[0].Name}</span>
                   </div>
                   <div>
-                    <span className="text-grey_olive">Card No:</span>
-                    <span className="ml-2 font-medium text-taupe">{data.records[0].card_no}</span>
+                    <span className="text-muted-foreground">Card No:</span>
+                    <span className="ml-2 font-medium text-foreground">{data.records[0].card_no}</span>
                   </div>
                   <div>
-                    <span className="text-grey_olive">Policy:</span>
-                    <span className="ml-2 font-medium text-taupe">{data.records[0].POLICY_NAME}</span>
+                    <span className="text-muted-foreground">Policy:</span>
+                    <span className="ml-2 font-medium text-foreground">{data.records[0].POLICY_NAME}</span>
                   </div>
                 </div>
               </CardContent>
@@ -486,66 +486,66 @@ export default function AttendanceHistoryPage() {
             const summary = calculateSummary(data.records);
             const totalAbsent = summary.absent + summary.doubleAbsent;
             return (
-              <div className="grid grid-cols-4 gap-3">
-                <Card className="border-gray-200 bg-gray-50">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <Card className="border-border bg-muted/50">
                   <CardContent className="p-3 text-center">
-                    <div className="text-2xl font-bold text-gray-700">{summary.total}</div>
-                    <div className="text-xs text-gray-500">Total Task</div>
+                    <div className="text-2xl font-bold text-foreground">{summary.total}</div>
+                    <div className="text-xs text-muted-foreground">Total Task</div>
                   </CardContent>
                 </Card>
-                <Card style={{ backgroundColor: "#10b981", borderColor: "#10b981" }}>
+                <Card className="border-emerald-500/20 bg-emerald-500/10">
                   <CardContent className="p-3 text-center">
-                    <div className="text-2xl font-bold text-white">{summary.present}</div>
-                    <div className="text-xs text-white/80">Completed</div>
+                    <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{summary.present}</div>
+                    <div className="text-xs text-emerald-600/80 dark:text-emerald-400/80">Completed</div>
                   </CardContent>
                 </Card>
-                <Card style={{ backgroundColor: "#ef4444", borderColor: "#ef4444" }}>
+                <Card className="border-rose-500/20 bg-rose-500/10">
                   <CardContent className="p-3 text-center">
-                    <div className="text-2xl font-bold text-white">{totalAbsent}</div>
-                    <div className="text-xs text-white/80">Not Completed</div>
+                    <div className="text-2xl font-bold text-rose-600 dark:text-rose-400">{totalAbsent}</div>
+                    <div className="text-xs text-rose-600/80 dark:text-rose-400/80">Not Completed</div>
                   </CardContent>
                 </Card>
-                <Card style={{ backgroundColor: "#eab308", borderColor: "#eab308" }}>
+                <Card className="border-amber-500/20 bg-amber-500/10">
                   <CardContent className="p-3 text-center">
-                    <div className="text-2xl font-bold text-white">{summary.halfDay}</div>
-                    <div className="text-xs text-white/80">Half Completed</div>
+                    <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">{summary.halfDay}</div>
+                    <div className="text-xs text-amber-600/80 dark:text-amber-400/80">Half Completed</div>
                   </CardContent>
                 </Card>
               </div>
             );
           })()}
 
-          <Card className="border-parchment bg-white shadow-sm">
-            <CardHeader className="pb-4">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base font-medium flex items-center gap-2">
+          <Card className="border-border bg-card shadow-sm">
+            <CardHeader className="pb-4 px-4 sm:px-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <CardTitle className="text-base font-medium flex items-center gap-2 text-foreground">
                   <Calendar className="h-4 w-4" /> Calendar View
                 </CardTitle>
-                <div className="flex items-center gap-2">
-                  <Button variant="outline" size="icon" onClick={handlePrevMonth}>
+                <div className="flex items-center justify-between sm:justify-end gap-2">
+                  <Button variant="outline" size="icon" onClick={handlePrevMonth} className="h-8 w-8">
                     <ChevronLeft className="h-4 w-4" />
                   </Button>
-                  <span className="font-medium text-taupe min-w-32 text-center">
+                  <span className="font-medium text-foreground min-w-[120px] text-center text-sm">
                     {MONTHS[selectedMonth]} {selectedYear}
                   </span>
-                  <Button variant="outline" size="icon" onClick={handleNextMonth}>
+                  <Button variant="outline" size="icon" onClick={handleNextMonth} className="h-8 w-8">
                     <ChevronRight className="h-4 w-4" />
                   </Button>
                 </div>
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="px-2 sm:px-6">
               {isLoading ? (
                 <div className="flex items-center justify-center h-64">
-                  <Loader2 className="h-8 w-8 animate-spin text-grey_olive" />
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                 </div>
               ) : error ? (
-                <div className="flex items-center justify-center h-64 text-red-500">
+                <div className="flex items-center justify-center h-64 text-rose-500">
                   <AlertCircle className="h-5 w-5 mr-2" />
                   {(error as Error).message}
                 </div>
               ) : data?.records?.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-64 text-grey_olive">
+                <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
                   <AlertCircle className="h-8 w-8 mb-2 opacity-50" />
                   <p className="text-lg font-medium">No work log data for {MONTHS[selectedMonth]} {selectedYear}</p>
                   <p className="text-sm">Try selecting a different month</p>
@@ -553,53 +553,53 @@ export default function AttendanceHistoryPage() {
               ) : (
                 <div className="grid grid-cols-7 gap-1">
                   {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
-                    <div key={day} className="text-center text-sm font-medium text-grey_olive py-2">
+                    <div key={day} className="text-center text-xs font-semibold text-muted-foreground py-2 uppercase tracking-tighter">
                       {day}
                     </div>
                   ))}
 
                   {calendarGrid.map((cell, index) => {
                     if (cell.day === null) {
-                      return <div key={index} className="h-14" />;
+                      return <div key={index} className="aspect-square sm:h-14" />;
                     }
 
                     if (cell.isFuture) {
                       return (
-                        <div key={index} className="h-14 border rounded-lg flex items-center justify-center bg-gray-100 opacity-50">
-                          <span className="text-base font-semibold text-gray-400">{cell.day}</span>
+                        <div key={index} className="aspect-square sm:h-14 border border-border/50 rounded-lg flex items-center justify-center bg-muted opacity-30">
+                          <span className="text-sm sm:text-base font-semibold text-muted-foreground">{cell.day}</span>
                         </div>
                       );
                     }
 
                     if (!cell.record) {
                       return (
-                        <div key={index} className="h-14 border rounded-lg flex items-center justify-center bg-gray-50">
-                          <span className="text-base font-semibold text-gray-400">{cell.day}</span>
+                        <div key={index} className="aspect-square sm:h-14 border border-border/50 rounded-lg flex items-center justify-center bg-muted/20">
+                          <span className="text-sm sm:text-base font-semibold text-muted-foreground">{cell.day}</span>
                         </div>
                       );
                     }
 
                     const style = getStatusStyle(cell.record.STATUS);
-                    const isLightBg = style.bgColor === "#ffffff" || style.bgColor === "#f5f5f4";
-                    const hasDots = style.dots.length > 0;
+                    const isMuted = style.bgColor.includes("var(--muted)");
+                    const isWhite = style.bgColor.toLowerCase() === "#ffffff";
                     
                     return (
                       <div
                         key={index}
-                        className="h-14 border rounded-lg flex flex-col items-center justify-center cursor-pointer hover:shadow-md hover:scale-105 transition-all relative"
+                        className="aspect-square sm:h-14 border border-border/50 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all relative overflow-hidden"
                         style={{ backgroundColor: style.bgColor }}
                         onClick={() => openDetails(cell.record!)}
                       >
-                        <span className={`text-base font-semibold ${isLightBg ? 'text-gray-700' : 'text-white'}`}>
+                        <span className={`text-sm sm:text-base font-bold ${(isWhite || isMuted) ? 'text-foreground' : 'text-white shadow-sm'}`}>
                           {cell.day}
                         </span>
-                        {hasDots && (
-                          <div className="absolute bottom-1 left-0 right-0 flex justify-center gap-0.5">
+                        {style.dots.length > 0 && (
+                          <div className="absolute bottom-1 left-0 right-0 flex justify-center gap-0.5 px-0.5">
                             {style.dots.flatMap((dot, dotIndex) =>
                               Array.from({ length: dot.count }, (_, i) => (
                                 <div
                                   key={`${dotIndex}-${i}`}
-                                  className="w-2 h-2 rounded-full"
+                                  className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full ring-1 ring-black/5"
                                   style={{ backgroundColor: dot.color }}
                                 />
                               ))
@@ -612,62 +612,62 @@ export default function AttendanceHistoryPage() {
                 </div>
               )}
 
-              <div className="mt-6 flex flex-wrap gap-4 text-xs border-t pt-4">
+              <div className="mt-8 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 text-[10px] sm:text-xs border-t border-border pt-6">
                 <div className="flex items-center gap-2">
-                  <div className="w-5 h-5 rounded flex items-center justify-center" style={{ backgroundColor: "#10b981" }}>
-                    <span className="text-white text-[10px] font-bold">1</span>
+                  <div className="w-4 h-4 rounded shadow-sm flex items-center justify-center" style={{ backgroundColor: "#10b981" }}>
+                    <span className="text-white text-[8px] font-bold">1</span>
                   </div>
-                  <span>Completed</span>
+                  <span className="text-muted-foreground">Completed</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-5 h-5 rounded relative flex items-center justify-center" style={{ backgroundColor: "#10b981" }}>
-                    <span className="text-white text-[10px] font-bold">1</span>
-                    <div className="absolute bottom-0 w-1.5 h-1.5 rounded-full bg-white" />
+                  <div className="w-4 h-4 rounded shadow-sm relative flex items-center justify-center" style={{ backgroundColor: "#10b981" }}>
+                    <span className="text-white text-[8px] font-bold">1</span>
+                    <div className="absolute bottom-0 w-1 h-1 rounded-full bg-white" />
                   </div>
-                  <span>Completed Late</span>
+                  <span className="text-muted-foreground">Late</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-5 h-5 rounded relative flex items-center justify-center" style={{ backgroundColor: "#10b981" }}>
-                    <span className="text-white text-[10px] font-bold">1</span>
-                    <div className="absolute bottom-0 w-1.5 h-1.5 rounded-full bg-blue-500" />
+                  <div className="w-4 h-4 rounded shadow-sm relative flex items-center justify-center" style={{ backgroundColor: "#10b981" }}>
+                    <span className="text-white text-[8px] font-bold">1</span>
+                    <div className="absolute bottom-0 w-1 h-1 rounded-full bg-blue-500" />
                   </div>
-                  <span>Early</span>
+                  <span className="text-muted-foreground">Early</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-5 h-5 rounded flex items-center justify-center" style={{ backgroundColor: "#ef4444" }}>
-                    <span className="text-white text-[10px] font-bold">1</span>
+                  <div className="w-4 h-4 rounded shadow-sm flex items-center justify-center" style={{ backgroundColor: "#ef4444" }}>
+                    <span className="text-white text-[8px] font-bold">1</span>
                   </div>
-                  <span>Not Completed</span>
+                  <span className="text-muted-foreground">Not Comp.</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-5 h-5 rounded relative flex items-center justify-center" style={{ backgroundColor: "#ef4444" }}>
-                    <span className="text-white text-[10px] font-bold">1</span>
+                  <div className="w-4 h-4 rounded shadow-sm relative flex items-center justify-center" style={{ backgroundColor: "#ef4444" }}>
+                    <span className="text-white text-[8px] font-bold">1</span>
                     <div className="absolute bottom-0 flex gap-0.5">
-                      <div className="w-1.5 h-1.5 rounded-full bg-black" />
-                      <div className="w-1.5 h-1.5 rounded-full bg-black" />
+                      <div className="w-1 h-1 rounded-full bg-black" />
+                      <div className="w-1 h-1 rounded-full bg-black" />
                     </div>
                   </div>
-                  <span>Double Not Completed</span>
+                  <span className="text-muted-foreground">Dbl Not Comp.</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-5 h-5 rounded flex items-center justify-center" style={{ backgroundColor: "#eab308" }}>
-                    <span className="text-white text-[10px] font-bold">1</span>
+                  <div className="w-4 h-4 rounded shadow-sm flex items-center justify-center" style={{ backgroundColor: "#eab308" }}>
+                    <span className="text-white text-[8px] font-bold">1</span>
                   </div>
-                  <span>Half Completed</span>
+                  <span className="text-muted-foreground">Half Comp.</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-5 h-5 rounded relative flex items-center justify-center" style={{ backgroundColor: "#f97316" }}>
-                    <span className="text-white text-[10px] font-bold">1</span>
-                    <div className="absolute bottom-0 w-1.5 h-1.5 rounded-full bg-blue-500" />
+                  <div className="w-4 h-4 rounded shadow-sm relative flex items-center justify-center" style={{ backgroundColor: "#f97316" }}>
+                    <span className="text-white text-[8px] font-bold">1</span>
+                    <div className="absolute bottom-0 w-1 h-1 rounded-full bg-blue-500" />
                   </div>
-                  <span>Miss</span>
+                  <span className="text-muted-foreground">Miss</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-5 h-5 rounded relative flex items-center justify-center" style={{ backgroundColor: "#ffffff", border: "1px solid #e5e7eb" }}>
-                    <span className="text-gray-700 text-[10px] font-bold">1</span>
-                    <div className="absolute bottom-0 w-1.5 h-1.5 rounded-full bg-gray-400" />
+                  <div className="w-4 h-4 rounded shadow-sm relative flex items-center justify-center bg-white border border-border">
+                    <span className="text-slate-900 text-[8px] font-bold">1</span>
+                    <div className="absolute bottom-0 w-1 h-1 rounded-full bg-slate-400" />
                   </div>
-                  <span>Miss Pending</span>
+                  <span className="text-muted-foreground">Miss Pend.</span>
                 </div>
               </div>
             </CardContent>
@@ -676,24 +676,25 @@ export default function AttendanceHistoryPage() {
       )}
 
       <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md bg-card border-border">
           <DialogHeader>
-            <DialogTitle>Work Log Details</DialogTitle>
+            <DialogTitle className="text-foreground">Work Log Details</DialogTitle>
           </DialogHeader>
           {selectedRecord && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
-                  <span className="text-grey_olive">Date:</span>
-                  <div className="font-medium">{selectedRecord.dt}</div>
+                  <span className="text-muted-foreground">Date:</span>
+                  <div className="font-medium text-foreground">{selectedRecord.dt}</div>
                 </div>
                 <div>
-                  <span className="text-grey_olive">Status:</span>
+                  <span className="text-muted-foreground">Status:</span>
                   <div>
                     <Badge 
+                      className="border-none shadow-sm"
                       style={{ 
                         backgroundColor: getStatusStyle(selectedRecord.STATUS).bgColor,
-                        color: getStatusStyle(selectedRecord.STATUS).bgColor === "#ffffff" ? "#374151" : "#ffffff"
+                        color: getStatusStyle(selectedRecord.STATUS).bgColor.toLowerCase() === "#ffffff" ? "#374151" : "#ffffff"
                       }}
                     >
                       {selectedRecord.STATUS}
@@ -701,30 +702,30 @@ export default function AttendanceHistoryPage() {
                   </div>
                 </div>
                 <div>
-                  <span className="text-grey_olive">Time In:</span>
-                  <div className="font-medium">{selectedRecord.result_t_in || selectedRecord.t_in || "-"}</div>
+                  <span className="text-muted-foreground">Time In:</span>
+                  <div className="font-medium text-foreground">{selectedRecord.result_t_in || selectedRecord.t_in || "-"}</div>
                 </div>
                 <div>
-                  <span className="text-grey_olive">Time Out:</span>
-                  <div className="font-medium">{selectedRecord.result_t_out || selectedRecord.t_out || "-"}</div>
+                  <span className="text-muted-foreground">Time Out:</span>
+                  <div className="font-medium text-foreground">{selectedRecord.result_t_out || selectedRecord.t_out || "-"}</div>
                 </div>
                 <div className="col-span-2">
-                  <span className="text-grey_olive">Remarks:</span>
-                  <div className="font-medium text-sm">{selectedRecord.status_remarks || "-"}</div>
+                  <span className="text-muted-foreground">Remarks:</span>
+                  <div className="font-medium text-sm text-foreground">{selectedRecord.status_remarks || "-"}</div>
                 </div>
                 {selectedRecord.CORRECTION_REASON && (
                   <div className="col-span-2">
-                    <span className="text-grey_olive">Correction Reason:</span>
-                    <div className="font-medium text-sm">{selectedRecord.CORRECTION_REASON}</div>
+                    <span className="text-muted-foreground">Correction Reason:</span>
+                    <div className="font-medium text-sm text-foreground">{selectedRecord.CORRECTION_REASON}</div>
                   </div>
                 )}
                 <div>
-                  <span className="text-grey_olive">Branch:</span>
-                  <div className="font-medium">{selectedRecord.branch_code}</div>
+                  <span className="text-muted-foreground">Branch:</span>
+                  <div className="font-medium text-foreground">{selectedRecord.branch_code}</div>
                 </div>
                 <div>
-                  <span className="text-grey_olive">Entry Type:</span>
-                  <div className="font-medium">{selectedRecord.entry_type || "-"}</div>
+                  <span className="text-muted-foreground">Entry Type:</span>
+                  <div className="font-medium text-foreground">{selectedRecord.entry_type || "-"}</div>
                 </div>
               </div>
             </div>

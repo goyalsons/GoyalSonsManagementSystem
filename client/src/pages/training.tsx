@@ -125,8 +125,8 @@ export default function TrainingPage() {
 
                 <h3 className="mt-8">Downloadable Resources</h3>
                 <div className="not-prose grid sm:grid-cols-2 gap-4 mt-4">
-                  <Button variant="outline" className="h-auto py-4 justify-start gap-4 border-slate-200 hover:border-primary/50 hover:bg-slate-50 transition-all">
-                    <div className="h-10 w-10 bg-rose-100 text-rose-600 rounded-lg flex items-center justify-center shrink-0">
+                  <Button variant="outline" className="h-auto py-4 justify-start gap-4 border-border hover:border-primary/50 hover:bg-muted transition-all">
+                    <div className="h-10 w-10 bg-rose-500/10 text-rose-600 dark:text-rose-400 rounded-lg flex items-center justify-center shrink-0">
                       <FileText className="h-5 w-5" />
                     </div>
                     <div className="text-left overflow-hidden">
@@ -135,8 +135,8 @@ export default function TrainingPage() {
                     </div>
                     <Download className="ml-auto h-4 w-4 text-muted-foreground" />
                   </Button>
-                  <Button variant="outline" className="h-auto py-4 justify-start gap-4 border-slate-200 hover:border-primary/50 hover:bg-slate-50 transition-all">
-                    <div className="h-10 w-10 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center shrink-0">
+                  <Button variant="outline" className="h-auto py-4 justify-start gap-4 border-border hover:border-primary/50 hover:bg-muted transition-all">
+                    <div className="h-10 w-10 bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-lg flex items-center justify-center shrink-0">
                       <FileText className="h-5 w-5" />
                     </div>
                     <div className="text-left overflow-hidden">

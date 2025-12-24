@@ -265,3 +265,44 @@ export const designationsApi = {
     return apiGet<Designation[]>(`/designations${queryString ? `?${queryString}` : ""}`);
   },
 };
+
+export interface EmployeeByCardResponse {
+  success: boolean;
+  data?: {
+    id: string;
+    firstName: string;
+    lastName: string | null;
+    cardNumber: string | null;
+    designation: { id: string; name: string; code: string } | null;
+    orgUnit: { id: string; name: string; code: string } | null;
+    department: { id: string; name: string; code: string } | null;
+    status: string;
+  };
+  message?: string;
+}
+
+export interface AssignManagerRequest {
+  cardNumber: string;
+  orgUnitId: string;
+  departmentIds: string[];
+}
+
+export interface AssignManagerResponse {
+  success: boolean;
+  message?: string;
+  data?: {
+    managerCardNumber: string;
+    managerName: string;
+    orgUnit: string;
+    departments: string[];
+    assignmentIds: string[];
+  };
+}
+
+export const managerApi = {
+  getEmployeeByCard: (cardNumber: string) => 
+    apiGet<EmployeeByCardResponse>(`/employees/by-card/${encodeURIComponent(cardNumber)}`),
+  
+  assignManager: (data: AssignManagerRequest) => 
+    apiPost<AssignManagerResponse>("/manager/assign", data),
+};

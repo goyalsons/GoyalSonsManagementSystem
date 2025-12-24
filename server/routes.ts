@@ -21,7 +21,7 @@ import {
 } from "./lib/auth-middleware";
 import { getUserAuthInfo, getAccessibleOrgUnitIds } from "./lib/authorization";
 import { getDepartmentName, getDesignationName, refreshSyncSchedules, triggerManualSync } from "./auto-sync";
-import { getEmployeeAttendance, isBigQueryConfigured } from "./bigquery-service";
+import { getEmployeeAttendance, isBigQueryConfigured, getTodayAttendanceFromBigQuery, parseTimeToDateTime, normalizeCardNumber, getTodayDateIST, clearTodayAttendanceCache } from "./bigquery-service";
 import { sendOtpSms } from "./sms-service";
 import multer from "multer";
 import fs from "fs";
@@ -690,6 +690,7 @@ export async function registerRoutes(
   });
 
   // Today's attendance with present/absent status for all employees
+  // Priority: 1. Local Prisma DB (real-time synced), 2. BigQuery (historical/backup)
   app.get("/api/attendance/today", requireAuth, requirePolicy("attendance.view"), async (req, res) => {
     try {
       const accessibleOrgUnitIds = req.user!.accessibleOrgUnitIds;
@@ -711,13 +712,14 @@ export async function registerRoutes(
         employeeWhere.designationId = designationId;
       }
 
-      // Get today's date range
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
+      // Get today's date in IST timezone
+      const todayIST = getTodayDateIST();
+      const todayStart = new Date(todayIST + 'T00:00:00+05:30');
+      const todayEnd = new Date(todayIST + 'T23:59:59+05:30');
+      
+      console.log(`[Attendance Today] Date: ${todayIST}, Range: ${todayStart.toISOString()} to ${todayEnd.toISOString()}`);
 
-      // Get all employees with their today's attendance
+      // Get all employees with their LOCAL attendance for today
       const employees = await prisma.employee.findMany({
         where: employeeWhere,
         include: {
@@ -727,20 +729,118 @@ export async function registerRoutes(
           attendance: {
             where: {
               date: {
-                gte: today,
-                lt: tomorrow,
+                gte: todayStart,
+                lte: todayEnd,
               },
             },
             take: 1,
+            orderBy: { createdAt: 'desc' },
           },
         },
         orderBy: { firstName: "asc" },
       });
 
-      // Transform data to include present/absent status
+      // Build local attendance map by employee ID for quick lookup
+      const localAttendanceByEmpId = new Map<string, any>();
+      let localPresentCount = 0;
+      employees.forEach(emp => {
+        if (emp.attendance && emp.attendance.length > 0) {
+          localAttendanceByEmpId.set(emp.id, emp.attendance[0]);
+          localPresentCount++;
+        }
+      });
+      console.log(`[Attendance Today] Local DB: ${localPresentCount} employees with attendance records`);
+
+      // Fetch BigQuery attendance as FALLBACK/SUPPLEMENT
+      let bigQueryAttendance: Map<string, any> = new Map();
+      if (isBigQueryConfigured()) {
+        try {
+          bigQueryAttendance = await getTodayAttendanceFromBigQuery();
+          console.log(`[Attendance Today] BigQuery returned ${bigQueryAttendance.size} records`);
+          
+          // Debug: Show sample employee card numbers for matching comparison
+          if (employees.length > 0) {
+            const sampleEmps = employees.slice(0, 3);
+            sampleEmps.forEach(emp => {
+              const normalized = normalizeCardNumber(emp.cardNumber);
+              const bqMatch = bigQueryAttendance.get(normalized);
+              console.log(`[Attendance Today] Employee "${emp.firstName}" cardNumber="${emp.cardNumber}" -> normalized="${normalized}" -> BigQuery match: ${bqMatch ? 'YES' : 'NO'}`);
+            });
+          }
+        } catch (bqError) {
+          console.error("[Attendance Today] BigQuery error:", bqError);
+        }
+      }
+
+      // Transform data - PRIORITY: Local DB first, then BigQuery
       const attendanceData = employees.map(emp => {
-        const todayAttendance = emp.attendance[0];
-        const isPresent = !!todayAttendance;
+        const localRecord = localAttendanceByEmpId.get(emp.id);
+        const normalizedCardNo = normalizeCardNumber(emp.cardNumber);
+        const bqRecord = normalizedCardNo ? bigQueryAttendance.get(normalizedCardNo) : null;
+        
+        // Determine status - Local DB takes priority
+        let status = "absent";
+        let checkInAt: Date | string | null = null;
+        let checkOutAt: Date | string | null = null;
+        let attendanceStatus: string | null = null;
+        let dataSource: string = "none";
+        
+        // PRIORITY 1: Local Prisma attendance (real-time synced data)
+        if (localRecord) {
+          status = localRecord.status === "present" || localRecord.checkInAt ? "present" : "absent";
+          checkInAt = localRecord.checkInAt;
+          checkOutAt = localRecord.checkOutAt;
+          attendanceStatus = localRecord.status;
+          dataSource = "local";
+        }
+        // PRIORITY 2: BigQuery attendance (historical/backup)
+        else if (bqRecord) {
+          // IMPORTANT: t_in is actual check-in time, result_t_in is often default shift time
+          // Only t_in/t_out indicate real punches
+          const actualTimeIn = bqRecord.t_in; // NOT result_t_in (that's default shift time)
+          const actualTimeOut = bqRecord.t_out; // NOT result_t_out
+          
+          // Check for valid ACTUAL punch time (not null, not empty, not "null" string)
+          const hasActualPunchIn = actualTimeIn && actualTimeIn !== "null" && String(actualTimeIn).trim() !== "";
+          const hasActualPunchOut = actualTimeOut && actualTimeOut !== "null" && String(actualTimeOut).trim() !== "";
+          
+          // For display, use actual times if available, otherwise result times
+          if (hasActualPunchIn) {
+            checkInAt = parseTimeToDateTime(actualTimeIn);
+          } else if (bqRecord.result_t_in) {
+            // result_t_in might be shift time, only show if status indicates presence
+            const resultTimeIn = typeof bqRecord.result_t_in === 'object' ? bqRecord.result_t_in.value : bqRecord.result_t_in;
+            // Don't use "05:30:00" default - it's just shift start
+            if (resultTimeIn && resultTimeIn !== "05:30:00") {
+              checkInAt = parseTimeToDateTime(resultTimeIn);
+            }
+          }
+          
+          if (hasActualPunchOut) {
+            checkOutAt = parseTimeToDateTime(actualTimeOut);
+          } else if (bqRecord.result_t_out) {
+            const resultTimeOut = typeof bqRecord.result_t_out === 'object' ? bqRecord.result_t_out.value : bqRecord.result_t_out;
+            if (resultTimeOut && resultTimeOut !== "05:30:00") {
+              checkOutAt = parseTimeToDateTime(resultTimeOut);
+            }
+          }
+          
+          // Determine presence based on:
+          // 1. P flag = 1 (explicit present from BigQuery processing)
+          // 2. STATUS explicitly says PRESENT
+          // 3. Has ACTUAL punch-in time (t_in, not result_t_in)
+          // 4. STATUS is "MISS PENDING" with actual punch times (pending verification)
+          const statusUpper = (bqRecord.STATUS || "").toUpperCase();
+          const isPresent = 
+            bqRecord.P === 1 || 
+            statusUpper.includes("PRESENT") ||
+            statusUpper === "P" ||
+            hasActualPunchIn; // Real punch-in = employee is present
+          
+          status = isPresent ? "present" : "absent";
+          attendanceStatus = bqRecord.STATUS;
+          dataSource = "bigquery";
+        }
         
         return {
           id: emp.id,
@@ -752,11 +852,17 @@ export async function registerRoutes(
           unit: emp.orgUnit,
           department: emp.department,
           designation: emp.designation,
-          status: isPresent ? "present" : "absent",
-          checkInAt: todayAttendance?.checkInAt || null,
-          checkOutAt: todayAttendance?.checkOutAt || null,
-          attendanceStatus: todayAttendance?.status || null,
-          meta: todayAttendance?.meta || null,
+          status,
+          checkInAt: checkInAt instanceof Date ? checkInAt.toISOString() : checkInAt,
+          checkOutAt: checkOutAt instanceof Date ? checkOutAt.toISOString() : checkOutAt,
+          attendanceStatus,
+          dataSource, // Debug: shows where data came from
+          bigQueryStatus: bqRecord?.STATUS || null,
+          meta: bqRecord ? {
+            branch_code: bqRecord.branch_code,
+            entry_type: bqRecord.entry_type,
+            status_remarks: bqRecord.status_remarks,
+          } : (localRecord?.meta || null),
         };
       });
 
@@ -768,6 +874,8 @@ export async function registerRoutes(
       // Calculate summary
       const presentCount = attendanceData.filter(a => a.status === "present").length;
       const absentCount = attendanceData.filter(a => a.status === "absent").length;
+      
+      console.log(`[Attendance Today] Summary: ${presentCount} present, ${absentCount} absent out of ${attendanceData.length} total`);
 
       // Pagination
       const pageNum = parseInt(page as string) || 1;
@@ -776,7 +884,7 @@ export async function registerRoutes(
       const paginatedData = filteredData.slice(offset, offset + limitNum);
 
       res.json({
-        date: today.toISOString().split("T")[0],
+        date: todayIST,
         summary: {
           total: attendanceData.length,
           present: presentCount,
@@ -1173,7 +1281,7 @@ export async function registerRoutes(
 
   // ==================== SETTINGS API ====================
   
-  app.get("/api/settings", requireAuth, async (req, res) => {
+  app.get("/api/settings", requireAuth, requireMDO, async (req, res) => {
     try {
       let settings = await prisma.userSettings.findUnique({
         where: { userId: req.user!.id },
@@ -1192,7 +1300,7 @@ export async function registerRoutes(
     }
   });
 
-  app.put("/api/settings", requireAuth, async (req, res) => {
+  app.put("/api/settings", requireAuth, requireMDO, async (req, res) => {
     try {
       const { theme, emailNotifications, smsNotifications, loginMethod, timezone, language } = req.body;
 
@@ -1224,7 +1332,7 @@ export async function registerRoutes(
     }
   });
 
-  app.put("/api/settings/profile", requireAuth, async (req, res) => {
+  app.put("/api/settings/profile", requireAuth, requireMDO, async (req, res) => {
     try {
       const { name, phone } = req.body;
 
@@ -1240,7 +1348,7 @@ export async function registerRoutes(
     }
   });
 
-  app.put("/api/settings/password", requireAuth, async (req, res) => {
+  app.put("/api/settings/password", requireAuth, requireMDO, async (req, res) => {
     try {
       const { currentPassword, newPassword } = req.body;
 
@@ -1266,6 +1374,315 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Change password error:", error);
       res.status(500).json({ message: "Failed to change password" });
+    }
+  });
+
+  // ==================== MANAGER ASSIGNMENT API ====================
+  
+  // GET employee by card number
+  app.get("/api/employees/by-card/:cardNumber", requireAuth, requireMDO, async (req, res) => {
+    try {
+      const { cardNumber } = req.params;
+      
+      if (!cardNumber || cardNumber.trim() === "") {
+        return res.status(400).json({ 
+          success: false, 
+          message: "Card number is required" 
+        });
+      }
+
+      const searchCardNumber = cardNumber.trim();
+      const normalizedSearch = normalizeCardNumber(searchCardNumber);
+      
+      console.log(`[Manager Assign] Searching for card number: "${searchCardNumber}", normalized: "${normalizedSearch}"`);
+      
+      // Use the same pattern as employee-lookup endpoint for consistency
+      // Try multiple search strategies for better matching
+      const searchConditions: any[] = [
+        // Strategy 1: Exact match (as string)
+        { cardNumber: searchCardNumber },
+        // Strategy 2: As string conversion (handles number inputs)
+        { cardNumber: searchCardNumber.toString() },
+        // Strategy 3: Try as employee code
+        { employeeCode: searchCardNumber },
+        { employeeCode: normalizedSearch },
+      ];
+      
+      // Strategy 4: Normalized match (removes leading zeros) - only if different
+      if (normalizedSearch !== searchCardNumber) {
+        searchConditions.push({ cardNumber: normalizedSearch });
+      }
+      
+      let employee = await prisma.employee.findFirst({
+        where: {
+          OR: searchConditions,
+        },
+        include: {
+          designation: {
+            select: {
+              id: true,
+              name: true,
+              code: true,
+            },
+          },
+          orgUnit: {
+            select: {
+              id: true,
+              name: true,
+              code: true,
+            },
+          },
+          department: {
+            select: {
+              id: true,
+              name: true,
+              code: true,
+            },
+          },
+        },
+      });
+      
+      if (employee) {
+        console.log(`[Manager Assign] Found employee: ${employee.firstName} ${employee.lastName} (Card: ${employee.cardNumber}, Code: ${employee.employeeCode})`);
+      }
+
+      if (!employee) {
+        // Debug: Check if any employees exist and show sample card numbers
+        const sampleEmployees = await prisma.employee.findMany({
+          take: 10,
+          select: {
+            cardNumber: true,
+            employeeCode: true,
+            firstName: true,
+            lastName: true,
+            status: true,
+          },
+          where: {
+            cardNumber: { not: null },
+          },
+          orderBy: { createdAt: 'desc' },
+        });
+        
+        const totalEmployees = await prisma.employee.count({
+          where: { cardNumber: { not: null } },
+        });
+        
+        console.log(`[Manager Assign] Employee not found. Total employees with card numbers: ${totalEmployees}`);
+        console.log(`[Manager Assign] Sample card numbers in DB:`, 
+          sampleEmployees.map(e => ({ 
+            card: e.cardNumber, 
+            code: e.employeeCode, 
+            name: `${e.firstName} ${e.lastName}`,
+            status: e.status 
+          }))
+        );
+        
+        return res.status(404).json({ 
+          success: false, 
+          message: `Employee not found with card number "${searchCardNumber}". Please verify the card number or check if the employee exists in the system.`,
+          debug: process.env.NODE_ENV === 'development' ? {
+            searched: searchCardNumber,
+            normalized: normalizedSearch,
+            totalEmployeesWithCardNumbers: totalEmployees,
+            sampleCardNumbers: sampleEmployees
+              .map(e => e.cardNumber)
+              .filter(Boolean)
+              .slice(0, 5),
+          } : undefined,
+        });
+      }
+
+      if (employee.status !== "ACTIVE") {
+        return res.status(400).json({ 
+          success: false, 
+          message: "Employee is not active. Only active employees can be assigned as managers." 
+        });
+      }
+
+      res.json({
+        success: true,
+        data: {
+          id: employee.id,
+          firstName: employee.firstName,
+          lastName: employee.lastName,
+          cardNumber: employee.cardNumber,
+          designation: employee.designation,
+          orgUnit: employee.orgUnit,
+          department: employee.department,
+          status: employee.status,
+        },
+      });
+    } catch (error) {
+      console.error("Error fetching employee by card number:", error);
+      res.status(500).json({ 
+        success: false, 
+        message: "Failed to fetch employee details" 
+      });
+    }
+  });
+
+  // POST assign manager
+  app.post("/api/manager/assign", requireAuth, requireMDO, async (req, res) => {
+    try {
+      const { cardNumber, orgUnitId, departmentIds } = req.body;
+
+      // Validation
+      if (!cardNumber || cardNumber.trim() === "") {
+        return res.status(400).json({ 
+          success: false, 
+          message: "Card number is required" 
+        });
+      }
+
+      if (!orgUnitId) {
+        return res.status(400).json({ 
+          success: false, 
+          message: "Unit selection is required" 
+        });
+      }
+
+      if (!departmentIds || !Array.isArray(departmentIds) || departmentIds.length === 0) {
+        return res.status(400).json({ 
+          success: false, 
+          message: "At least one department must be selected" 
+        });
+      }
+
+      // Fetch employee using the same search logic as GET endpoint
+      const searchCardNumber = cardNumber.trim();
+      const normalizedSearch = normalizeCardNumber(searchCardNumber);
+      
+      const searchConditions: any[] = [
+        { cardNumber: searchCardNumber },
+        { cardNumber: searchCardNumber.toString() },
+        { employeeCode: searchCardNumber },
+        { employeeCode: normalizedSearch },
+      ];
+      
+      if (normalizedSearch !== searchCardNumber) {
+        searchConditions.push({ cardNumber: normalizedSearch });
+      }
+      
+      const employee = await prisma.employee.findFirst({
+        where: {
+          OR: searchConditions,
+        },
+        include: {
+          designation: {
+            select: {
+              id: true,
+              name: true,
+              code: true,
+            },
+          },
+        },
+      });
+
+      if (!employee) {
+        return res.status(404).json({ 
+          success: false, 
+          message: `Employee not found with card number "${searchCardNumber}"` 
+        });
+      }
+
+      if (employee.status !== "ACTIVE") {
+        return res.status(400).json({ 
+          success: false, 
+          message: "Only active employees can be assigned as managers" 
+        });
+      }
+
+      // Validate unit exists
+      const orgUnit = await prisma.orgUnit.findUnique({
+        where: { id: orgUnitId },
+      });
+
+      if (!orgUnit) {
+        return res.status(400).json({ 
+          success: false, 
+          message: "Invalid unit selected" 
+        });
+      }
+
+      // Validate departments exist
+      const departments = await prisma.department.findMany({
+        where: { id: { in: departmentIds } },
+      });
+
+      if (departments.length !== departmentIds.length) {
+        return res.status(400).json({ 
+          success: false, 
+          message: "One or more selected departments are invalid" 
+        });
+      }
+
+      // Check for existing active assignments (prevent duplicates)
+      // Check each department individually for existing assignments
+      const existingChecks = await Promise.all(
+        departmentIds.map(async (deptId: string) => {
+          const existing = await prisma.$queryRaw<Array<{ mid: string }>>`
+            SELECT mid FROM emp_manager 
+            WHERE mcardno = ${employee.cardNumber}
+              AND "morgUnitId" = ${orgUnitId}
+              AND "mdepartmentId" = ${deptId}
+              AND mis_extinct = false
+            LIMIT 1
+          `;
+          return { deptId, exists: existing.length > 0 };
+        })
+      );
+
+      const existingAssignments = existingChecks.filter(check => check.exists);
+      if (existingAssignments.length > 0) {
+        const existingDeptNames = departments
+          .filter(d => existingAssignments.some(e => e.deptId === d.id))
+          .map(d => d.name);
+        
+        return res.status(409).json({ 
+          success: false, 
+          message: `Manager assignment already exists for department(s): ${existingDeptNames.join(", ")}` 
+        });
+      }
+
+      // Create manager assignments (one record per department)
+      const assignments: string[] = [];
+      for (const deptId of departmentIds) {
+        const mid = `${employee.cardNumber}_${orgUnitId}_${deptId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        
+        await prisma.$executeRaw`
+          INSERT INTO emp_manager (mid, mcardno, "morgUnitId", "mdepartmentId", "mdesignationId", mis_extinct)
+          VALUES (${mid}, ${employee.cardNumber}, ${orgUnitId}, ${deptId}, ${employee.designationId || null}, false)
+        `;
+
+        assignments.push(mid);
+      }
+
+      res.json({
+        success: true,
+        message: `Manager assigned successfully to ${departments.length} department(s)`,
+        data: {
+          managerCardNumber: employee.cardNumber,
+          managerName: `${employee.firstName} ${employee.lastName || ""}`.trim(),
+          orgUnit: orgUnit.name,
+          departments: departments.map(d => d.name),
+          assignmentIds: assignments,
+        },
+      });
+    } catch (error: any) {
+      console.error("Error assigning manager:", error);
+      
+      // Handle duplicate key constraint
+      if (error.code === "23505" || error.message?.includes("duplicate")) {
+        return res.status(409).json({ 
+          success: false, 
+          message: "Manager assignment already exists" 
+        });
+      }
+
+      res.status(500).json({ 
+        success: false, 
+        message: error.message || "Failed to assign manager" 
+      });
     }
   });
 

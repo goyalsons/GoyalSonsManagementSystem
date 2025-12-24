@@ -129,32 +129,32 @@ export default function TeamTargetsPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-4 mb-6">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-6">
         <Card>
-          <CardContent className="pt-6">
-            <div className="text-2xl font-bold">{displayTargets.length}</div>
+          <CardContent className="pt-6 text-center sm:text-left">
+            <div className="text-2xl font-bold text-foreground">{displayTargets.length}</div>
             <p className="text-xs text-muted-foreground">Total Targets</p>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="pt-6">
-            <div className="text-2xl font-bold text-emerald-600">
+          <CardContent className="pt-6 text-center sm:text-left">
+            <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
               {displayTargets.filter(t => t.status === "Completed").length}
             </div>
             <p className="text-xs text-muted-foreground">Completed</p>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="pt-6">
-            <div className="text-2xl font-bold text-blue-600">
+          <CardContent className="pt-6 text-center sm:text-left">
+            <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
               {displayTargets.filter(t => t.status === "On Track").length}
             </div>
             <p className="text-xs text-muted-foreground">On Track</p>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="pt-6">
-            <div className="text-2xl font-bold text-rose-600">
+          <CardContent className="pt-6 text-center sm:text-left">
+            <div className="text-2xl font-bold text-rose-600 dark:text-rose-400">
               {displayTargets.filter(t => t.status === "At Risk").length}
             </div>
             <p className="text-xs text-muted-foreground">At Risk</p>
@@ -214,9 +214,9 @@ export default function TeamTargetsPage() {
                         <Badge 
                           variant="outline" 
                           className={
-                            target.status === "Completed" ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
-                            target.status === "At Risk" ? "bg-rose-50 text-rose-700 border-rose-200" :
-                            "bg-blue-50 text-blue-700 border-blue-200"
+                            target.status === "Completed" ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20" :
+                            target.status === "At Risk" ? "bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/20" :
+                            "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/20"
                           }
                         >
                           {target.status}
