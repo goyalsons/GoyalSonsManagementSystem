@@ -422,42 +422,6 @@ export default function AttendanceHistoryPage() {
         </Card>
       )}
 
-      {/* Month/Year selector for employees - simplified */}
-      {isEmployee && (
-        <Card className="border-border bg-card shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <span className="text-sm text-muted-foreground font-medium">Select Period</span>
-              <div className="flex gap-2 w-full sm:w-auto">
-                <Select value={String(selectedMonth)} onValueChange={(v) => setSelectedMonth(Number(v))}>
-                  <SelectTrigger className="flex-1 sm:w-32 bg-background">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {MONTHS.map((month, index) => (
-                      <SelectItem key={month} value={String(index)}>
-                        {month}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={String(selectedYear)} onValueChange={(v) => setSelectedYear(Number(v))}>
-                  <SelectTrigger className="flex-1 sm:w-24 bg-background">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {YEARS.map((year) => (
-                      <SelectItem key={year} value={String(year)}>
-                        {year}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
       {searchCardNo && (
         <>
