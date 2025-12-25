@@ -1963,7 +1963,7 @@ export async function registerRoutes(
         cleanPhone = "91" + cleanPhone;
       }
 
-      // Check if there's an existing valid OTP
+      // Check if there's an existing valid OTP (valid for 5 minutes)
       const existingOtp = await prisma.otpCode.findFirst({
         where: {
           phone: cleanPhone,
@@ -1985,7 +1985,7 @@ export async function registerRoutes(
 
       // Generate new OTP
       const otp = generateOtp();
-      const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+      const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes total validity
 
       await prisma.otpCode.create({
         data: {
@@ -2019,6 +2019,77 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Send employee OTP error:", error);
       res.status(500).json({ message: "Failed to send OTP" });
+    }
+  });
+
+  // Resend OTP - sends the same OTP if it's still valid (within 5 minutes)
+  app.post("/api/auth/resend-employee-otp", async (req, res) => {
+    try {
+      const { employeeCode } = req.body;
+
+      if (!employeeCode) {
+        return res.status(400).json({ message: "Employee code is required" });
+      }
+
+      const employee = await prisma.employee.findFirst({
+        where: {
+          OR: [
+            { cardNumber: employeeCode },
+            { cardNumber: employeeCode.toString() },
+          ],
+        },
+      });
+
+      if (!employee) {
+        return res.status(404).json({ message: "Employee not found" });
+      }
+
+      if (!employee.phone) {
+        return res.status(400).json({ message: "No phone number registered for this employee" });
+      }
+
+      let cleanPhone = employee.phone.replace(/\D/g, "");
+      if (cleanPhone.length === 10) {
+        cleanPhone = "91" + cleanPhone;
+      }
+
+      // Check if there's an existing valid OTP (must be within 5 minutes)
+      const existingOtp = await prisma.otpCode.findFirst({
+        where: {
+          phone: cleanPhone,
+          used: false,
+          expiresAt: { gt: new Date() },
+        },
+        orderBy: { createdAt: "desc" },
+      });
+
+      if (!existingOtp) {
+        return res.status(400).json({ message: "No valid OTP found. Please request a new OTP." });
+      }
+
+      // Resend the same OTP
+      const smsResult = await sendOtpSms(cleanPhone, existingOtp.code);
+      
+      if (smsResult.success) {
+        console.log(`[Employee OTP] Resent OTP for ${employee.cardNumber} (${cleanPhone}): ${existingOtp.code}`);
+        const remainingSeconds = Math.floor((existingOtp.expiresAt.getTime() - Date.now()) / 1000);
+        res.json({ 
+          success: true, 
+          message: `OTP resent to ${maskPhone(employee.phone)}`,
+          smsSent: true,
+          remainingSeconds,
+        });
+      } else {
+        console.error(`[Employee OTP] Failed to resend SMS: ${smsResult.error}`);
+        res.json({ 
+          success: false, 
+          message: "Failed to resend OTP. Please try again.",
+          smsSent: false,
+        });
+      }
+    } catch (error) {
+      console.error("Resend employee OTP error:", error);
+      res.status(500).json({ message: "Failed to resend OTP" });
     }
   });
 

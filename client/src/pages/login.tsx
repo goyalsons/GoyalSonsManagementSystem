@@ -25,6 +25,8 @@ export default function LoginPage() {
   const [otp, setOtp] = useState("");
   const [otpSent, setOtpSent] = useState(false);
   const [otpExpiresIn, setOtpExpiresIn] = useState<number | null>(null);
+  const [resendTimer, setResendTimer] = useState<number>(0); // Timer for resend button (2 minutes)
+  const [canResend, setCanResend] = useState(false);
   
   const { login, user } = useAuth();
 
@@ -54,6 +56,22 @@ export default function LoginPage() {
       return () => clearInterval(timer);
     }
   }, [otpExpiresIn]);
+
+  // Resend timer - 2 minutes countdown
+  useEffect(() => {
+    if (otpSent && resendTimer > 0) {
+      const timer = setInterval(() => {
+        setResendTimer((prev) => {
+          if (prev <= 1) {
+            setCanResend(true);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+      return () => clearInterval(timer);
+    }
+  }, [otpSent, resendTimer]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -100,9 +118,16 @@ export default function LoginPage() {
         setOtpSent(true);
         if (otpData.existingOtp) {
           setOtpExpiresIn(otpData.remainingSeconds);
+          // Calculate resend timer: if OTP was sent less than 2 minutes ago, set timer
+          const timeSinceSent = 300 - otpData.remainingSeconds; // 5 min total - remaining = elapsed
+          const resendTimeLeft = Math.max(0, 120 - timeSinceSent); // 2 min - elapsed
+          setResendTimer(resendTimeLeft);
+          setCanResend(resendTimeLeft === 0);
           setSuccess(`OTP already sent. Expires in ${formatTime(otpData.remainingSeconds)}`);
         } else {
-          setOtpExpiresIn(300);
+          setOtpExpiresIn(300); // 5 minutes total validity
+          setResendTimer(120); // 2 minutes before resend button activates
+          setCanResend(false);
           setSuccess(`OTP sent to ${lookupData.maskedPhone}`);
         }
       } else {
@@ -167,11 +192,47 @@ export default function LoginPage() {
     window.location.href = "/api/auth/google";
   };
 
+  const handleResendOtp = async () => {
+    if (!canResend || !employeeCode) return;
+    
+    setIsLoading(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const res = await fetch("/api/auth/resend-employee-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ employeeCode }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        if (data.remainingSeconds) {
+          setOtpExpiresIn(data.remainingSeconds);
+          // Reset resend timer to 2 minutes
+          setResendTimer(120);
+          setCanResend(false);
+        }
+        setSuccess(data.message || "OTP resent successfully");
+      } else {
+        setError(data.message || "Failed to resend OTP");
+      }
+    } catch (err) {
+      setError("Network error. Please try again.");
+    }
+    
+    setIsLoading(false);
+  };
+
   const resetOtpState = () => {
     setOtpSent(false);
     setOtp("");
     setMaskedPhone(null);
     setOtpExpiresIn(null);
+    setResendTimer(0);
+    setCanResend(false);
     setEmployeeCode("");
     setSuccess(null);
     setError(null);
@@ -338,6 +399,30 @@ export default function LoginPage() {
                       </>
                     ) : (
                       "Verify & Sign In"
+                    )}
+                  </Button>
+
+                  {/* Resend OTP Button */}
+                  <Button
+                    type="button"
+                    onClick={handleResendOtp}
+                    disabled={!canResend || isLoading || otpExpiresIn === 0}
+                    className="w-full h-10 bg-white/10 border border-white/20 hover:bg-white/20 text-white font-medium rounded-xl disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Resending...
+                      </>
+                    ) : canResend ? (
+                      <>
+                        <Phone className="mr-2 h-4 w-4" />
+                        Resend OTP
+                      </>
+                    ) : (
+                      <>
+                        Resend OTP in <span className="ml-1 font-semibold text-cyan-400">{formatTime(resendTimer)}</span>
+                      </>
                     )}
                   </Button>
                   
