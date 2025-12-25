@@ -218,6 +218,25 @@ function Router() {
   const [location, setLocation] = useLocation();
   const { user, isLoading, hasRole } = useAuth();
   
+  // Role-based redirect on page load (only for root/dashboard routes)
+  // Check if user has "sales_staff" role and redirect accordingly
+  // IMPORTANT: This hook must be called before any conditional returns
+  useEffect(() => {
+    // Only redirect if user is authenticated and we're on root or dashboard route
+    if (user && !isLoading && (location === "/" || location === "/dashboard")) {
+      const isSalesStaff = hasRole("sales_staff") || hasRole("Sales Staff");
+      
+      if (isSalesStaff) {
+        // Redirect to sales staff page
+        setLocation("/sales-staff");
+      } else if (user.loginType === "employee") {
+        // For other employees, redirect to work log page
+        setLocation("/work-log");
+      }
+      // MDO users can access dashboard normally
+    }
+  }, [location, user, isLoading, hasRole, setLocation]);
+  
   // Always allow these public routes
   if (location === "/login") {
     return (
@@ -257,24 +276,6 @@ function Router() {
       </Suspense>
     );
   }
-  
-  // Role-based redirect on page load (only for root/dashboard routes)
-  // Check if user has "sales_staff" role and redirect accordingly
-  useEffect(() => {
-    // Only redirect if we're on root or dashboard route
-    if (location === "/" || location === "/dashboard") {
-      const isSalesStaff = hasRole("sales_staff") || hasRole("Sales Staff");
-      
-      if (isSalesStaff) {
-        // Redirect to sales staff page
-        setLocation("/sales-staff");
-      } else if (user?.loginType === "employee") {
-        // For other employees, redirect to work log page
-        setLocation("/work-log");
-      }
-      // MDO users can access dashboard normally
-    }
-  }, [location, user, hasRole, setLocation]);
   
   // User is authenticated, show protected routes
   return <AuthenticatedRoutes />;
