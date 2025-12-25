@@ -30,6 +30,7 @@ interface StaffCard {
   lastDate: string | null;
   lastLastDate: string | null;
   totalSale: number;
+  designation: { code: string; name: string } | null;
 }
 
 interface TableRow {
@@ -164,13 +165,18 @@ function StaffCardCompact({
             {card.name.charAt(0).toUpperCase()}
           </div>
           <div>
-            <div className="flex items-center gap-2 mb-0.5">
+            <div className="flex items-center gap-2 mb-0.5 flex-wrap">
               <Badge variant="outline" className="text-[10px] font-mono px-1.5 py-0 h-5 bg-slate-50">
                 <Hash className="h-2.5 w-2.5 mr-0.5" />{card.smno}
               </Badge>
               {card.unit && (
                 <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5 bg-indigo-50 text-indigo-600 border-indigo-200">
                   <Store className="h-2.5 w-2.5 mr-0.5" />{card.unit}
+                </Badge>
+              )}
+              {card.designation && (
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5 bg-purple-50 text-purple-600 border-purple-200">
+                  <User className="h-2.5 w-2.5 mr-0.5" />{card.designation.name}
                 </Badge>
               )}
             </div>
@@ -226,15 +232,23 @@ function DetailTable({
         <div className="h-14 w-14 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-xl">
           {card.name.charAt(0).toUpperCase()}
         </div>
-        <div>
+        <div className="flex-1">
           <h3 className="text-xl font-bold text-slate-800">{card.name}</h3>
-          <div className="flex items-center gap-3 text-sm text-slate-500">
+          <div className="flex items-center gap-3 text-sm text-slate-500 mt-1 flex-wrap">
             <span className="flex items-center gap-1">
               <Hash className="h-3.5 w-3.5" /> {card.smno}
             </span>
             {card.unit && (
               <span className="flex items-center gap-1">
                 <Store className="h-3.5 w-3.5" /> {card.unit}
+              </span>
+            )}
+            {card.designation && (
+              <span className="flex items-center gap-1">
+                <User className="h-3.5 w-3.5" /> {card.designation.name}
+                <Badge variant="outline" className="text-xs px-1.5 py-0 h-4 bg-purple-50 text-purple-600 border-purple-200">
+                  {card.designation.code}
+                </Badge>
               </span>
             )}
           </div>

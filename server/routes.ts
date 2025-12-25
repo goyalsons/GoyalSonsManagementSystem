@@ -3754,6 +3754,44 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
     return date;
   }
 
+  // Helper: Fetch employee designations for SMNOs
+  async function getEmployeeDesignations(smnos: string[]): Promise<Map<string, { code: string; name: string } | null>> {
+    const designationMap = new Map<string, { code: string; name: string } | null>();
+    
+    if (smnos.length === 0) return designationMap;
+    
+    try {
+      const employees = await prisma.employee.findMany({
+        where: {
+          cardNumber: { in: smnos },
+        },
+        select: {
+          cardNumber: true,
+          designation: {
+            select: {
+              code: true,
+              name: true,
+            },
+          },
+        },
+      });
+
+      employees.forEach(emp => {
+        if (emp.cardNumber) {
+          designationMap.set(emp.cardNumber, emp.designation ? {
+            code: emp.designation.code,
+            name: emp.designation.name,
+          } : null);
+        }
+      });
+    } catch (error) {
+      console.error('[Sales Staff] Error fetching designations:', error);
+      // Don't fail the whole request if designation fetch fails
+    }
+    
+    return designationMap;
+  }
+
   // Refresh endpoint - fetches from API and stores in DB
   app.post("/api/sales/staff/summary/refresh", requireAuth, async (req, res) => {
     try {
@@ -3938,6 +3976,16 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
         })
         .sort((a, b) => b.todaySale - a.todaySale);
 
+      // Fetch designations for all SMNOs
+      const uniqueSmnos = cards.map(c => c.smno);
+      const designationMap = await getEmployeeDesignations(uniqueSmnos);
+
+      // Add designation to each card
+      const cardsWithDesignation = cards.map(card => ({
+        ...card,
+        designation: designationMap.get(card.smno) || null,
+      }));
+
       // Determine which staff to show detail for
       // Employees see only their own data, MDO users can see all
       let targetSmno: string | null = requestedSmno;
@@ -4014,7 +4062,7 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
 
       return res.json({
         success: true,
-        cards,
+        cards: cardsWithDesignation, // Use cards with designation
         table: {
           month: tableMonth,
           rows: tableRows,
@@ -4026,6 +4074,7 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
           to: toDate,
         },
         selectedSmno: targetSmno,
+        dataSource, // Include data source for debugging
       });
     } catch (error: any) {
       console.error("Sales staff summary error:", error);
