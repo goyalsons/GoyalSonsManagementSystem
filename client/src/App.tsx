@@ -120,14 +120,21 @@ function ProtectedRoute({
 
 function AuthenticatedRoutes() {
   const { user, hasRole } = useAuth();
+  const [location] = useLocation();
   const isMDO = user?.loginType === "mdo";
+  const isEmployee = user?.loginType === "employee";
 
   return (
     <MainLayout>
       <Suspense fallback={<PageLoader />}>
         <Switch>
-          <Route path="/" component={Dashboard} />
-          <Route path="/dashboard" component={Dashboard} />
+          {/* Hide dashboard for employees temporarily - only show for MDO users */}
+          {!isEmployee && (
+            <>
+              <Route path="/" component={Dashboard} />
+              <Route path="/dashboard" component={Dashboard} />
+            </>
+          )}
           
           <Route path="/users" component={UsersListPage} />
           <Route path="/users/create" component={CreateUserPage} />
@@ -158,6 +165,8 @@ function AuthenticatedRoutes() {
           </Route>
           {/* Task History is accessible to both members and MDO */}
           <Route path="/attendance/history" component={AttendanceHistoryPage} />
+          {/* Work Log route - alias for attendance history */}
+          <Route path="/work-log" component={AttendanceHistoryPage} />
           
           {/* MDO-only routes - redirect members */}
           <Route path="/tasks/my">
@@ -207,7 +216,7 @@ function AuthenticatedRoutes() {
 
 function Router() {
   const [location, setLocation] = useLocation();
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, hasRole } = useAuth();
   
   // Always allow these public routes
   if (location === "/login") {
@@ -248,6 +257,24 @@ function Router() {
       </Suspense>
     );
   }
+  
+  // Role-based redirect on page load (only for root/dashboard routes)
+  // Check if user has "sales_staff" role and redirect accordingly
+  useEffect(() => {
+    // Only redirect if we're on root or dashboard route
+    if (location === "/" || location === "/dashboard") {
+      const isSalesStaff = hasRole("sales_staff") || hasRole("Sales Staff");
+      
+      if (isSalesStaff) {
+        // Redirect to sales staff page
+        setLocation("/sales-staff");
+      } else if (user?.loginType === "employee") {
+        // For other employees, redirect to work log page
+        setLocation("/work-log");
+      }
+      // MDO users can access dashboard normally
+    }
+  }, [location, user, hasRole, setLocation]);
   
   // User is authenticated, show protected routes
   return <AuthenticatedRoutes />;
