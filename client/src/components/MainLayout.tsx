@@ -567,10 +567,10 @@ export default function MainLayout({ children }: MainLayoutProps) {
     const isMDO = user?.loginType === "mdo";
     const isSMDesignation = user?.employee?.designationCode?.toUpperCase() === "SM";
     
-    // Items members/employees should see (restricted list - no Targets, Tasks, Claims, Announcements, Training)
+    // Items members/employees should see (restricted list - no Dashboard, Targets, Tasks, Claims, Announcements, Training)
     // Work Log is partially visible - members see only Task History
     // Sales Staff is visible to all members
-    const employeeAllowedItems = ["Dashboard", "Work Log", "Sales Staff"];
+    const employeeAllowedItems = ["Work Log", "Sales Staff"];
     
     // Items that are MDO-only (hidden from members)
     const mdoOnlyItems = ["Targets & Goals", "Tasks", "Claims", "Announcements", "Training"];
