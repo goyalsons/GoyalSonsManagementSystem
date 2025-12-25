@@ -224,7 +224,16 @@ function Router() {
   useEffect(() => {
     // Only redirect if user is authenticated and we're on root or dashboard route
     if (user && !isLoading && (location === "/" || location === "/dashboard")) {
-      const isSalesStaff = hasRole("sales_staff") || hasRole("Sales Staff");
+      // Check for various sales staff role name variations
+      const userRoles = user.roles || [];
+      const roleNames = userRoles.map((r: any) => (r.name || "").toLowerCase());
+      const isSalesStaff = hasRole("sales_staff") || 
+                          hasRole("Sales Staff") || 
+                          hasRole("Salesman") ||
+                          hasRole("salesman") ||
+                          roleNames.includes("sales_staff") ||
+                          roleNames.includes("sales staff") ||
+                          roleNames.includes("salesman");
       
       if (isSalesStaff) {
         // Redirect to sales staff page

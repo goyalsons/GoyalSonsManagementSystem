@@ -161,7 +161,25 @@ export default function LoginPage() {
 
       if (res.ok) {
         localStorage.setItem("gms_token", data.token);
-        window.location.href = "/";
+        
+        // Check user role and redirect accordingly
+        if (data.user) {
+          const userRoles = data.user.roles || [];
+          const roleNames = userRoles.map((r: any) => r.name?.toLowerCase() || "");
+          const isSalesStaff = roleNames.includes("sales_staff") || 
+                              roleNames.includes("sales staff") ||
+                              roleNames.includes("salesman");
+          
+          if (isSalesStaff) {
+            window.location.href = "/sales-staff";
+          } else if (data.user.loginType === "employee") {
+            window.location.href = "/work-log";
+          } else {
+            window.location.href = "/";
+          }
+        } else {
+          window.location.href = "/";
+        }
       } else {
         setError(data.message || "Invalid or expired OTP");
       }
