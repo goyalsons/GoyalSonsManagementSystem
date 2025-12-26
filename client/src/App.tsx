@@ -41,6 +41,9 @@ const FetchedDataPage = lazy(() => import("@/pages/integrations/fetched-data"));
 const SalesPage = lazy(() => import("@/pages/sales/index"));
 const SalesUnitPage = lazy(() => import("@/pages/sales/unit"));
 const SalesStaffPage = lazy(() => import("@/pages/sales-staff"));
+const AssignedManagerPage = lazy(() => import("@/pages/assigned-manager"));
+const TeamTaskHistoryPage = lazy(() => import("@/pages/manager/team-task-history"));
+const TeamSalesStaffPage = lazy(() => import("@/pages/manager/team-sales-staff"));
 
 // Loading spinner component for Suspense fallback
 function PageLoader() {
@@ -71,23 +74,27 @@ function ProtectedRoute({
   component: Component, 
   isMDOOnly = false,
   isSalesmanOnly = false,
-  isSMDesignationOnly = false
+  isSMDesignationOnly = false,
+  allowManagers = false
 }: { 
   component: React.ComponentType<any>; 
   isMDOOnly?: boolean;
   isSalesmanOnly?: boolean;
   isSMDesignationOnly?: boolean;
+  allowManagers?: boolean; // Allow managers (who are employees) to access
 }) {
-  const { user, hasRole } = useAuth();
+  const { user, hasRole, isManager } = useAuth();
   const [, setLocation] = useLocation();
   const isMember = user?.loginType === "employee";
   const isMDO = user?.loginType === "mdo";
   const isSalesman = hasRole("Salesman");
   const isSMDesignation = user?.employee?.designationCode?.toUpperCase() === "SM";
+  const managerStatus = isManager();
 
   useEffect(() => {
-    if (isMDOOnly && isMember) {
-      // Redirect members trying to access MDO-only routes to dashboard
+    // If allowManagers is true, managers (who are employees) can access
+    if (isMDOOnly && isMember && !(allowManagers && managerStatus)) {
+      // Redirect members trying to access MDO-only routes to dashboard (unless they're managers)
       setLocation("/");
     }
     // For Sales Staff: MDO users can always access, members need Salesman role
@@ -100,10 +107,11 @@ function ProtectedRoute({
       // Redirect members without SM designation trying to access Sales Staff to dashboard
       setLocation("/");
     }
-  }, [isMDOOnly, isSalesmanOnly, isSMDesignationOnly, isMember, isMDO, isSalesman, isSMDesignation, setLocation]);
+  }, [isMDOOnly, isSalesmanOnly, isSMDesignationOnly, isMember, isMDO, isSalesman, isSMDesignation, allowManagers, managerStatus, setLocation]);
 
   // Don't render component for unauthorized access
-  if (isMDOOnly && isMember) {
+  // If allowManagers is true, managers (who are employees) can access
+  if (isMDOOnly && isMember && !(allowManagers && managerStatus)) {
     return null;
   }
   // MDO users can always access Sales Staff, but members need Salesman role
@@ -153,17 +161,17 @@ function AuthenticatedRoutes() {
             {() => <ProtectedRoute component={TeamTargetsPage} isMDOOnly={true} />}
           </Route>
           
-          {/* Work Log routes - MDO only, redirect members */}
+          {/* Work Log routes - MDO only, but managers (who are employees) can also access */}
           <Route path="/attendance">
-            {() => <ProtectedRoute component={AttendancePage} isMDOOnly={true} />}
+            {() => <ProtectedRoute component={AttendancePage} isMDOOnly={true} allowManagers={true} />}
           </Route>
           <Route path="/attendance/today">
-            {() => <ProtectedRoute component={TodayAttendancePage} isMDOOnly={true} />}
+            {() => <ProtectedRoute component={TodayAttendancePage} isMDOOnly={true} allowManagers={true} />}
           </Route>
           <Route path="/attendance/fill">
-            {() => <ProtectedRoute component={FillAttendancePage} isMDOOnly={true} />}
+            {() => <ProtectedRoute component={FillAttendancePage} isMDOOnly={true} allowManagers={true} />}
           </Route>
-          {/* Task History is accessible to both members and MDO */}
+          {/* Task History is accessible to both members and MDO (including managers) */}
           <Route path="/attendance/history" component={AttendanceHistoryPage} />
           {/* Work Log route - alias for attendance history */}
           <Route path="/work-log" component={AttendanceHistoryPage} />
@@ -198,6 +206,11 @@ function AuthenticatedRoutes() {
           <Route path="/sales/unit/:unitName" component={SalesUnitPage} />
           {/* Sales Staff route - accessible to all members and MDO */}
           <Route path="/sales-staff" component={SalesStaffPage} />
+          {/* Assigned Manager route */}
+          <Route path="/assigned-manager" component={AssignedManagerPage} />
+          {/* Manager Team Routes */}
+          <Route path="/manager/team-task-history" component={TeamTaskHistoryPage} />
+          <Route path="/manager/team-sales-staff" component={TeamSalesStaffPage} />
           
           {isMDO && <Route path="/settings" component={SettingsPage} />}
           <Route path="/admin/routing" component={ApiRoutingPage} />

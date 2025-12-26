@@ -18,6 +18,12 @@ declare global {
         loginType: "mdo" | "employee";
         employeeCardNo: string | null;
         employeeId: string | null;
+        isManager?: boolean;
+        managerScopes?: {
+          departmentIds: string[] | null;
+          designationIds: string[] | null;
+          orgUnitIds: string[] | null;
+        } | null;
       };
     }
   }
@@ -134,6 +140,7 @@ export async function loadUserFromSession(req: Request, res: Response, next: Nex
                        (req.session as any)?.userId;
 
   if (!sessionToken) {
+    console.log(`[loadUserFromSession] No session token found`);
     return next();
   }
 
@@ -143,19 +150,38 @@ export async function loadUserFromSession(req: Request, res: Response, next: Nex
       include: { user: { include: { employee: true } } },
     });
 
-    if (session && session.expiresAt > new Date()) {
-      const userInfo = await getUserAuthInfo(session.userId);
-      if (userInfo) {
-        req.user = {
-          ...userInfo,
-          loginType: (session.loginType as "mdo" | "employee") || "mdo",
-          employeeCardNo: session.employeeCardNo || null,
-          employeeId: session.user.employeeId || null,
-        };
-      }
+    if (!session) {
+      console.log(`[loadUserFromSession] ❌ Session not found for token: ${sessionToken.substring(0, 8)}...`);
+      return next();
     }
+
+    if (session.expiresAt <= new Date()) {
+      console.log(`[loadUserFromSession] ❌ Session expired. ExpiresAt: ${session.expiresAt}, Now: ${new Date()}`);
+      return next();
+    }
+
+    const userInfo = await getUserAuthInfo(session.userId);
+    if (!userInfo) {
+      console.log(`[loadUserFromSession] ❌ User info not found for userId: ${session.userId}`);
+      return next();
+    }
+
+    req.user = {
+      ...userInfo,
+      loginType: (session.loginType as "mdo" | "employee") || "mdo",
+      employeeCardNo: session.employeeCardNo || session.user.employee?.cardNumber || null,
+      employeeId: session.user.employeeId || null,
+      isManager: userInfo.isManager || false,
+      managerScopes: userInfo.managerScopes || null,
+    };
+    console.log(`[loadUserFromSession] ✅ User loaded:`, {
+      userId: req.user.id,
+      isManager: req.user.isManager,
+      employeeCardNo: req.user.employeeCardNo,
+      hasManagerScopes: !!req.user.managerScopes,
+    });
   } catch (error) {
-    console.error("Session load error:", error);
+    console.error("[loadUserFromSession] ❌ Session load error:", error);
   }
 
   next();

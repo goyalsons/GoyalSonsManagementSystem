@@ -185,9 +185,56 @@ export async function registerRoutes(
         },
       });
 
+      // Get employee card number if user has employee linked
+      let employeeCardNo = null;
+      if (user.employeeId) {
+        const employee = await prisma.employee.findUnique({
+          where: { id: user.employeeId },
+          select: { cardNumber: true },
+        });
+        employeeCardNo = employee?.cardNumber || null;
+      }
+
+      // Check if user is a manager
+      let isManager = false;
+      let managerScopes = null;
+      if (employeeCardNo) {
+        const managerAssignments = await prisma.$queryRaw<Array<{
+          mid: string;
+          mcardno: string;
+          mdepartmentId: string | null;
+          mdesignationId: string | null;
+          morgUnitId: string | null;
+          mis_extinct: boolean;
+        }>>`
+          SELECT "mid", "mcardno", "mdepartmentId", "mdesignationId", "morgUnitId", "mis_extinct"
+          FROM "emp_manager"
+          WHERE "mcardno" = ${employeeCardNo} AND "mis_extinct" = false
+        `;
+        
+        if (managerAssignments.length > 0) {
+          isManager = true;
+          const departmentIds = Array.from(new Set(managerAssignments.map(m => m.mdepartmentId).filter((id): id is string => id !== null)));
+          const designationIds = Array.from(new Set(managerAssignments.map(m => m.mdesignationId).filter((id): id is string => id !== null)));
+          const orgUnitIds = Array.from(new Set(managerAssignments.map(m => m.morgUnitId).filter((id): id is string => id !== null)));
+          managerScopes = {
+            departmentIds: departmentIds.length > 0 ? departmentIds : null,
+            designationIds: designationIds.length > 0 ? designationIds : null,
+            orgUnitIds: orgUnitIds.length > 0 ? orgUnitIds : null,
+          };
+        }
+      }
+
+      const userWithManager = {
+        ...user,
+        employeeCardNo,
+        isManager,
+        managerScopes,
+      };
+
       res.json({
         token: session.id,
-        user,
+        user: userWithManager,
       });
     } catch (error) {
       console.error("Login error:", error);
@@ -196,7 +243,86 @@ export async function registerRoutes(
   });
 
   app.get("/api/auth/me", requireAuth, async (req, res) => {
-    res.json(req.user);
+    try {
+      const userData = { ...req.user };
+      
+      console.log("[Auth Me] Checking manager status for user:", {
+        userId: req.user!.id,
+        employeeId: req.user!.employeeId,
+        employeeCardNo: req.user!.employeeCardNo,
+      });
+      
+      // Get employee card number from session or from user's employee record
+      let employeeCardNo = req.user!.employeeCardNo;
+      
+      // If not in session, try to get it from the user's employee record
+      if (!employeeCardNo && req.user!.employeeId) {
+        const employee = await prisma.employee.findUnique({
+          where: { id: req.user!.employeeId },
+          select: { cardNumber: true },
+        });
+        if (employee?.cardNumber) {
+          employeeCardNo = employee.cardNumber;
+          (userData as any).employeeCardNo = employeeCardNo;
+        }
+      }
+      
+      // If user has an employee card number, check if they're a manager
+      if (employeeCardNo) {
+        const managerAssignments = await prisma.$queryRaw<Array<{
+          mid: string;
+          mcardno: string;
+          mdepartmentId: string | null;
+          mdesignationId: string | null;
+          morgUnitId: string | null;
+          mis_extinct: boolean;
+        }>>`
+          SELECT "mid", "mcardno", "mdepartmentId", "mdesignationId", "morgUnitId", "mis_extinct"
+          FROM "emp_manager"
+          WHERE "mcardno" = ${employeeCardNo} AND "mis_extinct" = false
+          ORDER BY "mid" DESC
+        `;
+        
+        if (managerAssignments.length > 0) {
+          // Get unique scopes (combine all manager assignments)
+          const departmentIds = Array.from(new Set(managerAssignments.map(m => m.mdepartmentId).filter((id): id is string => id !== null)));
+          const designationIds = Array.from(new Set(managerAssignments.map(m => m.mdesignationId).filter((id): id is string => id !== null)));
+          const orgUnitIds = Array.from(new Set(managerAssignments.map(m => m.morgUnitId).filter((id): id is string => id !== null)));
+          
+          (userData as any).isManager = true;
+          (userData as any).managerScopes = {
+            departmentIds: departmentIds.length > 0 ? departmentIds : null,
+            designationIds: designationIds.length > 0 ? designationIds : null,
+            orgUnitIds: orgUnitIds.length > 0 ? orgUnitIds : null,
+          };
+          
+          console.log("[Auth Me] ✅ User is a manager:", {
+            cardNo: employeeCardNo,
+            assignments: managerAssignments.length,
+            scopes: (userData as any).managerScopes,
+          });
+        } else {
+          (userData as any).isManager = false;
+          (userData as any).managerScopes = null;
+          console.log("[Auth Me] ❌ User is NOT a manager (no assignments found)");
+        }
+      } else {
+        (userData as any).isManager = false;
+        (userData as any).managerScopes = null;
+        console.log("[Auth Me] ❌ User is NOT a manager (no card number)");
+      }
+      
+      console.log("[Auth Me] Returning user data:", {
+        isManager: (userData as any).isManager,
+        employeeCardNo: (userData as any).employeeCardNo,
+      });
+      
+      res.json(userData);
+    } catch (error) {
+      console.error("Auth me error:", error);
+      // Fallback to basic user data if manager check fails
+      res.json(req.user);
+    }
   });
 
   app.post("/api/auth/logout", requireAuth, async (req, res) => {
@@ -406,13 +532,17 @@ export async function registerRoutes(
         where.designationId = designationId;
       }
       
-      // Filter by active/inactive status based on interviewDate
-      // Active = interviewDate is null (employee hasn't exited)
-      // Inactive = interviewDate has a value (employee has exited)
+      // Filter by active/inactive status based on interviewDate AND status field
+      // Active = status: "ACTIVE" AND interviewDate is null (employee hasn't exited)
+      // Inactive = status: "INACTIVE" OR interviewDate has a value (employee has exited)
       if (statusFilter === 'active') {
+        where.status = "ACTIVE";
         where.interviewDate = null;
       } else if (statusFilter === 'inactive') {
-        where.interviewDate = { not: null };
+        where.OR = [
+          { status: "INACTIVE" },
+          { interviewDate: { not: null } },
+        ];
       }
       // If statusFilter is 'all' or not provided, show all employees
       
@@ -927,12 +1057,60 @@ export async function registerRoutes(
       res.set('Expires', '0');
       res.set('Pragma', 'no-cache');
 
+      // STEP 1: Normalize user card once at the top
+      const normalizedUserCard = req.user?.employeeCardNo
+        ? String(req.user.employeeCardNo).trim()
+        : null;
+
+      let isManager = Boolean(req.user?.isManager);
       const isEmployee = req.user!.loginType === "employee";
+      
+      console.log(`[Attendance History] Initial state: isManager=${isManager} (from session), isEmployee=${isEmployee}, normalizedUserCard=${normalizedUserCard}`);
+      
+      // STEP 2: RUN FALLBACK MANAGER CHECK FIRST (before ANY 403)
+      // If isManager is false AND normalizedUserCard exists, check database
+      if (!isManager && normalizedUserCard) {
+        console.log(`[Attendance History] 🔍 Running fallback manager check for card: ${normalizedUserCard}`);
+        try {
+          const managerCheck = await prisma.$queryRaw<Array<{ count: bigint }>>`
+            SELECT COUNT(*)::int as count
+            FROM "emp_manager"
+            WHERE "mcardno" = ${normalizedUserCard} AND "mis_extinct" = false
+          `;
+          const count = Number(managerCheck[0]?.count || 0);
+          isManager = count > 0;
+          console.log(`[Attendance History] 🔍 Manager count = ${count}, Final isManager = ${isManager}`);
+        } catch (error) {
+          console.error(`[Attendance History] ❌ Error in fallback manager check for card ${normalizedUserCard}:`, error);
+          // Do NOT silently fail - log clearly and keep isManager as false
+          isManager = false;
+          console.log(`[Attendance History] 🔍 Final isManager = false (error occurred)`);
+        }
+      } else if (isManager) {
+        console.log(`[Attendance History] ⏭️ Skipping fallback manager check (already marked as manager in session)`);
+      } else if (!normalizedUserCard) {
+        console.log(`[Attendance History] ⏭️ Skipping fallback manager check (no card number available)`);
+      }
+      
+      console.log(`[Attendance History] Final manager status: isManager=${isManager} (session value was ${req.user?.isManager})`);
+      
       const hasPolicy = req.user!.policies?.includes("attendance.view");
       const isSuperAdmin = req.user!.isSuperAdmin;
       
-      // Non-employees need the attendance.view policy
-      if (!isEmployee && !hasPolicy && !isSuperAdmin) {
+      console.log(`[Attendance History] Auth check:`, {
+        isEmployee,
+        isManager,
+        isManagerRaw: req.user?.isManager,
+        hasPolicy,
+        isSuperAdmin,
+        normalizedUserCard,
+        loginType: req.user!.loginType,
+      });
+      
+      // Non-employees need the attendance.view policy OR be a manager
+      // Managers can view their team members' attendance
+      if (!isEmployee && !hasPolicy && !isSuperAdmin && !isManager) {
+        console.log(`[Attendance History] ❌ Access denied: missing policy or manager status`);
         return res.status(403).json({ message: "Access denied", reason: "missing_policy", required: "attendance.view" });
       }
 
@@ -942,15 +1120,28 @@ export async function registerRoutes(
 
       let { cardNo } = req.params;
       const { month } = req.query;
+      
+      // Normalize requested card number
+      const normalizedRequestedCard = String(cardNo).trim();
 
-      // Employee login: restrict to own card number and last 3 months
-      if (isEmployee) {
-        if (req.user!.employeeCardNo && cardNo !== req.user!.employeeCardNo) {
-          return res.status(403).json({ message: "Access denied: You can only view your own attendance" });
+      // STEP 3: Apply employee restriction ONLY AFTER manager resolution
+      // Employee restriction must run ONLY if: isEmployee === true AND isManager === false
+      console.log(`[Attendance History] Checking employee restriction: isEmployee=${isEmployee}, isManager=${isManager}, will restrict=${isEmployee && !isManager}`);
+      if (isEmployee && !isManager) {
+        // Compare normalized values
+        if (normalizedUserCard && normalizedRequestedCard !== normalizedUserCard) {
+          console.log(`[Attendance History] ❌ Card number mismatch: requested="${normalizedRequestedCard}", employee="${normalizedUserCard}"`);
+          console.log(`[Attendance History] ❌ Blocking employee access - not their own card`);
+          return res.status(403).json({
+            message: "Access denied: You can only view your own attendance"
+          });
         }
-        cardNo = req.user!.employeeCardNo || cardNo;
+        console.log(`[Attendance History] ✅ Employee access allowed - viewing own card`);
+        cardNo = normalizedUserCard || cardNo;
         
-        // Restrict to last 3 months for employees
+        // STEP 4: Month restriction - apply last-3-month rule ONLY when:
+        // isEmployee === true AND isManager === false
+        // Managers must bypass month restriction completely
         if (month) {
           const requestedMonth = new Date(month as string);
           const now = new Date();
@@ -959,6 +1150,113 @@ export async function registerRoutes(
             return res.status(403).json({ message: "Access denied: You can only view attendance from the last 3 months" });
           }
         }
+      }
+
+      // Manager login: verify the card number belongs to their team
+      // Managers can view team members' attendance even if they're also employees
+      // Managers can also view their own attendance
+      if (isManager) {
+        if (!normalizedUserCard) {
+          console.log("[Attendance History] ❌ Manager card number not found in session");
+          return res.status(403).json({ message: "Access denied: Manager card number not found" });
+        }
+
+        console.log(`[Attendance History] Manager access check: managerCardNo=${normalizedUserCard}, requestedCardNo=${normalizedRequestedCard}`);
+
+        // Allow managers to view their own attendance
+        if (normalizedRequestedCard === normalizedUserCard) {
+          console.log(`[Attendance History] ✅ Manager viewing own attendance: ${normalizedRequestedCard}`);
+          cardNo = normalizedRequestedCard;
+          // Continue to fetch attendance (bypass team check)
+        } else {
+          // For team members, verify they're in the manager's team
+          // Get manager's team members (use normalized card number for consistency)
+          const managers = await prisma.$queryRaw<Array<{
+            mid: string;
+            mcardno: string;
+            mdepartmentId: string | null;
+            mdesignationId: string | null;
+            morgUnitId: string | null;
+            mis_extinct: boolean;
+          }>>`
+            SELECT "mid", "mcardno", "mdepartmentId", "mdesignationId", "morgUnitId", "mis_extinct"
+            FROM "emp_manager"
+            WHERE "mcardno" = ${normalizedUserCard} AND "mis_extinct" = false
+          `;
+
+          console.log(`[Attendance History] Manager assignments found: ${managers.length}`);
+
+          if (managers.length === 0) {
+            console.log("[Attendance History] ❌ No manager assignments found");
+            return res.status(403).json({ 
+              message: "Access denied: No manager assignments found" 
+            });
+          }
+
+          // Build where clause based on manager's scope
+          const whereConditions: any[] = [];
+          
+          managers.forEach((manager) => {
+            const condition: any = { status: "ACTIVE" };
+            if (manager.mdepartmentId) {
+              condition.departmentId = manager.mdepartmentId;
+            }
+            if (manager.mdesignationId) {
+              condition.designationId = manager.mdesignationId;
+            }
+            if (manager.morgUnitId) {
+              condition.orgUnitId = manager.morgUnitId;
+            }
+            
+            if (manager.mdepartmentId || manager.mdesignationId || manager.morgUnitId) {
+              whereConditions.push(condition);
+            }
+          });
+
+          console.log(`[Attendance History] Where conditions: ${whereConditions.length}`);
+
+          if (whereConditions.length === 0) {
+            console.log("[Attendance History] ❌ No valid where conditions (manager has no scope defined)");
+            return res.status(403).json({ 
+              message: "Access denied: Manager has no team scope defined" 
+            });
+          }
+
+          // Get team member card numbers
+          const teamMembers = await prisma.employee.findMany({
+            where: {
+              OR: whereConditions,
+            },
+            select: { cardNumber: true },
+          });
+
+          const teamCardNumbers = teamMembers
+            .map(e => e.cardNumber)
+            .filter((card): card is string => card !== null)
+            .map(card => String(card).trim()); // Normalize to strings
+
+          console.log(`[Attendance History] Team members found: ${teamCardNumbers.length}`);
+          console.log(`[Attendance History] Requested card "${normalizedRequestedCard}" in team: ${teamCardNumbers.includes(normalizedRequestedCard)}`);
+          console.log(`[Attendance History] Sample team cards: ${teamCardNumbers.slice(0, 5).join(", ")}`);
+
+          // Verify the requested card number is in the team
+          if (!teamCardNumbers.includes(normalizedRequestedCard)) {
+            console.log(`[Attendance History] ❌ Card "${normalizedRequestedCard}" not in team. Team cards: ${teamCardNumbers.slice(0, 10).join(", ")}...`);
+            return res.status(403).json({ 
+              message: "Access denied: You can only view attendance for your team members" 
+            });
+          }
+
+          console.log(`[Attendance History] ✅ Manager access granted for team member card ${normalizedRequestedCard}`);
+          cardNo = normalizedRequestedCard;
+        }
+      }
+
+      // Ensure cardNo is set correctly after all checks
+      // For employees, it's already set to their own card
+      // For managers, use the requested card (already validated)
+      if (isManager && !cardNo) {
+        cardNo = normalizedRequestedCard;
       }
 
       console.log(`[API] Attendance history request: cardNo=${cardNo}, month=${month}`);
@@ -1621,11 +1919,11 @@ export async function registerRoutes(
       const existingChecks = await Promise.all(
         departmentIds.map(async (deptId: string) => {
           const existing = await prisma.$queryRaw<Array<{ mid: string }>>`
-            SELECT mid FROM emp_manager 
-            WHERE mcardno = ${employee.cardNumber}
+            SELECT "mid" FROM "emp_manager" 
+            WHERE "mcardno" = ${employee.cardNumber}
               AND "morgUnitId" = ${orgUnitId}
               AND "mdepartmentId" = ${deptId}
-              AND mis_extinct = false
+              AND "mis_extinct" = false
             LIMIT 1
           `;
           return { deptId, exists: existing.length > 0 };
@@ -1650,7 +1948,7 @@ export async function registerRoutes(
         const mid = `${employee.cardNumber}_${orgUnitId}_${deptId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         
         await prisma.$executeRaw`
-          INSERT INTO emp_manager (mid, mcardno, "morgUnitId", "mdepartmentId", "mdesignationId", mis_extinct)
+          INSERT INTO "emp_manager" ("mid", "mcardno", "morgUnitId", "mdepartmentId", "mdesignationId", "mis_extinct")
           VALUES (${mid}, ${employee.cardNumber}, ${orgUnitId}, ${deptId}, ${employee.designationId || null}, false)
         `;
 
@@ -4051,11 +4349,34 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
       const uniqueSmnos = cards.map(c => c.smno);
       const designationMap = await getEmployeeDesignations(uniqueSmnos);
 
-      // Add designation to each card
-      const cardsWithDesignation = cards.map(card => ({
-        ...card,
-        designation: designationMap.get(card.smno) || null,
-      }));
+      // Filter to only include active employees (status: "ACTIVE" AND interviewDate: null)
+      let activeEmployeeCardNos: Set<string> = new Set();
+      try {
+        const activeEmployees = await prisma.employee.findMany({
+          where: {
+            cardNumber: { in: uniqueSmnos },
+            status: "ACTIVE",
+            interviewDate: null, // Only active employees (not exited)
+          },
+          select: { cardNumber: true },
+        });
+        activeEmployeeCardNos = new Set(
+          activeEmployees
+            .map(e => e.cardNumber)
+            .filter((card): card is string => card !== null)
+        );
+      } catch (error) {
+        console.error('[Sales Staff Summary] Error filtering active employees:', error);
+        // If filtering fails, include all (don't break the endpoint)
+      }
+
+      // Add designation to each card and filter to only active employees
+      const cardsWithDesignation = cards
+        .filter(card => activeEmployeeCardNos.has(card.smno)) // Only show active employees
+        .map(card => ({
+          ...card,
+          designation: designationMap.get(card.smno) || null,
+        }));
 
       // Determine which staff to show detail for
       // Employees see only their own data, MDO users can see all
@@ -4063,8 +4384,8 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
       if (isEmployeeLogin) {
         targetSmno = employeeCardNo || null;
       }
-      if (!targetSmno && cards.length > 0) {
-        targetSmno = cards[0].smno;
+      if (!targetSmno && cardsWithDesignation.length > 0) {
+        targetSmno = cardsWithDesignation[0].smno;
       }
 
       // Get records for selected staff
@@ -4310,6 +4631,886 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
     } catch (error) {
       console.error("Time policies error:", error);
       res.status(500).json({ message: "Failed to fetch time policies" });
+    }
+  });
+
+  // ==================== EMP MANAGER API ====================
+
+  // POST /api/emp-manager - Assign manager
+  app.post("/api/emp-manager", requireAuth, async (req, res) => {
+    try {
+      const { mcardno, mdepartmentId, mdesignationId, morgUnitId } = req.body;
+
+      if (!mcardno) {
+        return res.status(400).json({ success: false, message: "mcardno is required" });
+      }
+
+      // Insert directly into emp_manager table (no validation from other tables)
+      // Use a transaction to ensure we can get the inserted row
+      const result = await prisma.$transaction(async (tx) => {
+        // Handle empty strings as null
+        const deptId = mdepartmentId && mdepartmentId.trim() ? String(mdepartmentId) : null;
+        const desigId = mdesignationId && mdesignationId.trim() ? String(mdesignationId) : null;
+        const orgId = morgUnitId && morgUnitId.trim() ? String(morgUnitId) : null;
+        
+        // Generate a unique mid (using timestamp + random for uniqueness)
+        const mid = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+        
+        await tx.$executeRaw`
+          INSERT INTO "emp_manager" ("mid", "mcardno", "mdepartmentId", "mdesignationId", "morgUnitId", "mis_extinct")
+          VALUES (${mid}, ${String(mcardno)}, ${deptId}, ${desigId}, ${orgId}, false)
+        `;
+
+        // Get the latest inserted record for this card number
+        const inserted = await tx.$queryRaw<Array<{
+          mid: string;
+          mcardno: string;
+          mdepartmentId: string | null;
+          mdesignationId: string | null;
+          morgUnitId: string | null;
+          mis_extinct: boolean;
+        }>>`
+          SELECT "mid", "mcardno", "mdepartmentId", "mdesignationId", "morgUnitId", "mis_extinct"
+          FROM "emp_manager"
+          WHERE "mcardno" = ${String(mcardno)} AND "mis_extinct" = false
+          ORDER BY "mid" DESC
+          LIMIT 1
+        `;
+
+        return inserted[0] || null;
+      });
+
+      res.json({
+        success: true,
+        message: "Manager assigned successfully",
+        data: result,
+      });
+    } catch (error: any) {
+      console.error("Assign manager error:", error);
+      const errorMessage = error.message || "Failed to assign manager";
+      // Check if it's a table not found error
+      if (errorMessage.includes("does not exist") || errorMessage.includes("relation") || errorMessage.includes("table")) {
+        return res.status(500).json({ 
+          success: false, 
+          message: "emp_manager table not found. Please ensure the table exists in the database." 
+        });
+      }
+      res.status(500).json({ success: false, message: errorMessage });
+    }
+  });
+
+  // GET /api/emp-manager/by-card/:mcardno - Get managers by card number
+  app.get("/api/emp-manager/by-card/:mcardno", requireAuth, async (req, res) => {
+    try {
+      const { mcardno } = req.params;
+
+      const managers = await prisma.$queryRaw<Array<{
+        mid: string;
+        mcardno: string;
+        mdepartmentId: string | null;
+        mdesignationId: string | null;
+        morgUnitId: string | null;
+        mis_extinct: boolean;
+      }>>`
+        SELECT "mid", "mcardno", "mdepartmentId", "mdesignationId", "morgUnitId", "mis_extinct"
+        FROM "emp_manager"
+        WHERE "mcardno" = ${mcardno} AND "mis_extinct" = false
+        ORDER BY "mid" DESC
+      `;
+
+      res.json({ success: true, data: managers });
+    } catch (error: any) {
+      console.error("Get managers by card error:", error);
+      res.status(500).json({ success: false, message: error.message || "Failed to fetch managers" });
+    }
+  });
+
+  // GET /api/emp-manager/by-department/:departmentId - Get managers by department
+  app.get("/api/emp-manager/by-department/:departmentId", requireAuth, async (req, res) => {
+    try {
+      const { departmentId } = req.params;
+
+      const managers = await prisma.$queryRaw<Array<{
+        mid: string;
+        mcardno: string;
+        mdepartmentId: string | null;
+        mdesignationId: string | null;
+        morgUnitId: string | null;
+        mis_extinct: boolean;
+      }>>`
+        SELECT "mid", "mcardno", "mdepartmentId", "mdesignationId", "morgUnitId", "mis_extinct"
+        FROM "emp_manager"
+        WHERE "mdepartmentId" = ${departmentId} AND "mis_extinct" = false
+        ORDER BY "mid" DESC
+      `;
+
+      res.json({ success: true, data: managers });
+    } catch (error: any) {
+      console.error("Get managers by department error:", error);
+      res.status(500).json({ success: false, message: error.message || "Failed to fetch managers" });
+    }
+  });
+
+  // GET /api/emp-manager/by-designation/:designationId - Get managers by designation
+  app.get("/api/emp-manager/by-designation/:designationId", requireAuth, async (req, res) => {
+    try {
+      const { designationId } = req.params;
+
+      const managers = await prisma.$queryRaw<Array<{
+        mid: string;
+        mcardno: string;
+        mdepartmentId: string | null;
+        mdesignationId: string | null;
+        morgUnitId: string | null;
+        mis_extinct: boolean;
+      }>>`
+        SELECT "mid", "mcardno", "mdepartmentId", "mdesignationId", "morgUnitId", "mis_extinct"
+        FROM "emp_manager"
+        WHERE "mdesignationId" = ${designationId} AND "mis_extinct" = false
+        ORDER BY "mid" DESC
+      `;
+
+      res.json({ success: true, data: managers });
+    } catch (error: any) {
+      console.error("Get managers by designation error:", error);
+      res.status(500).json({ success: false, message: error.message || "Failed to fetch managers" });
+    }
+  });
+
+  // GET /api/emp-manager/by-orgunit/:orgUnitId - Get managers by org unit
+  app.get("/api/emp-manager/by-orgunit/:orgUnitId", requireAuth, async (req, res) => {
+    try {
+      const { orgUnitId } = req.params;
+
+      const managers = await prisma.$queryRaw<Array<{
+        mid: string;
+        mcardno: string;
+        mdepartmentId: string | null;
+        mdesignationId: string | null;
+        morgUnitId: string | null;
+        mis_extinct: boolean;
+      }>>`
+        SELECT "mid", "mcardno", "mdepartmentId", "mdesignationId", "morgUnitId", "mis_extinct"
+        FROM "emp_manager"
+        WHERE "morgUnitId" = ${orgUnitId} AND "mis_extinct" = false
+        ORDER BY "mid" DESC
+      `;
+
+      res.json({ success: true, data: managers });
+    } catch (error: any) {
+      console.error("Get managers by org unit error:", error);
+      res.status(500).json({ success: false, message: error.message || "Failed to fetch managers" });
+    }
+  });
+
+  // GET /api/emp-manager - Get all active managers
+  app.get("/api/emp-manager", requireAuth, async (req, res) => {
+    try {
+      const managers = await prisma.$queryRaw<Array<{
+        mid: string;
+        mcardno: string;
+        mdepartmentId: string | null;
+        mdesignationId: string | null;
+        morgUnitId: string | null;
+        mis_extinct: boolean;
+      }>>`
+        SELECT "mid", "mcardno", "mdepartmentId", "mdesignationId", "morgUnitId", "mis_extinct"
+        FROM "emp_manager"
+        WHERE "mis_extinct" = false
+        ORDER BY "mcardno", "mid" DESC
+      `;
+
+      res.json({ success: true, data: managers });
+    } catch (error: any) {
+      console.error("Get all managers error:", error);
+      const errorMessage = error.message || "Failed to fetch managers";
+      // Check if it's a table not found error
+      if (errorMessage.includes("does not exist") || errorMessage.includes("relation") || errorMessage.includes("table")) {
+        return res.status(500).json({ 
+          success: false, 
+          message: "emp_manager table not found. Please ensure the table exists in the database.",
+          data: []
+        });
+      }
+      res.status(500).json({ success: false, message: errorMessage, data: [] });
+    }
+  });
+
+  // GET /api/emp-manager/all - Get all managers including extinct
+  app.get("/api/emp-manager/all", requireAuth, async (req, res) => {
+    try {
+      const managers = await prisma.$queryRaw<Array<{
+        mid: string;
+        mcardno: string;
+        mdepartmentId: string | null;
+        mdesignationId: string | null;
+        morgUnitId: string | null;
+        mis_extinct: boolean;
+      }>>`
+        SELECT "mid", "mcardno", "mdepartmentId", "mdesignationId", "morgUnitId", "mis_extinct"
+        FROM "emp_manager"
+        ORDER BY "mis_extinct" ASC, "mcardno", "mid" DESC
+      `;
+
+      res.json({ success: true, data: managers });
+    } catch (error: any) {
+      console.error("Get all managers (including extinct) error:", error);
+      const errorMessage = error.message || "Failed to fetch managers";
+      if (errorMessage.includes("does not exist") || errorMessage.includes("relation") || errorMessage.includes("table")) {
+        return res.status(500).json({ 
+          success: false, 
+          message: "emp_manager table not found. Please ensure the table exists in the database.",
+          data: []
+        });
+      }
+      res.status(500).json({ success: false, message: errorMessage, data: [] });
+    }
+  });
+
+  // GET /api/manager/team/members - Get team members for manager
+  app.get("/api/manager/team/members", requireAuth, async (req, res) => {
+    try {
+      const employeeCardNo = req.user!.employeeCardNo;
+      
+      console.log("[Team Members] Manager card number:", employeeCardNo);
+      
+      if (!employeeCardNo) {
+        console.log("[Team Members] ❌ No employee card number found");
+        return res.status(403).json({ 
+          success: false, 
+          message: "Manager card number not found. Please login as a manager." 
+        });
+      }
+
+      // Get manager assignments
+      const managers = await prisma.$queryRaw<Array<{
+        mid: string;
+        mcardno: string;
+        mdepartmentId: string | null;
+        mdesignationId: string | null;
+        morgUnitId: string | null;
+        mis_extinct: boolean;
+      }>>`
+        SELECT "mid", "mcardno", "mdepartmentId", "mdesignationId", "morgUnitId", "mis_extinct"
+        FROM "emp_manager"
+        WHERE "mcardno" = ${employeeCardNo} AND "mis_extinct" = false
+      `;
+
+      if (managers.length === 0) {
+        console.log("[Team Members] ❌ No manager assignments found");
+        return res.json([]);
+      }
+
+      // Build where clause based on manager's scope
+      // interviewDate: null is ALWAYS applied at top level (only active employees)
+      const whereConditions: any[] = [];
+      
+      managers.forEach((manager) => {
+        const condition: any = {};
+        if (manager.mdepartmentId) {
+          condition.departmentId = manager.mdepartmentId;
+        }
+        if (manager.mdesignationId) {
+          condition.designationId = manager.mdesignationId;
+        }
+        if (manager.morgUnitId) {
+          condition.orgUnitId = manager.morgUnitId;
+        }
+        
+        if (manager.mdepartmentId || manager.mdesignationId || manager.morgUnitId) {
+          whereConditions.push(condition);
+        }
+      });
+
+      if (whereConditions.length === 0) {
+        console.log("[Team Members] ❌ No valid where conditions");
+        return res.json([]);
+      }
+
+      // Get team members - interviewDate: null is ALWAYS applied (only active employees)
+      const teamMembers = await prisma.employee.findMany({
+        where: {
+          AND: [
+            {
+              status: "ACTIVE",
+              interviewDate: null, // ALWAYS applied - only employees who haven't exited
+            },
+            {
+              OR: whereConditions,
+            }
+          ]
+        },
+        select: { 
+          id: true,
+          firstName: true,
+          lastName: true,
+          cardNumber: true,
+          department: { select: { id: true, name: true, code: true } },
+          designation: { select: { id: true, name: true, code: true } },
+          orgUnit: { select: { id: true, name: true } },
+        },
+        orderBy: { firstName: "asc" },
+      });
+
+      console.log("[Team Members] ✅ Found", teamMembers.length, "team members");
+      res.json(teamMembers);
+    } catch (error: any) {
+      console.error("[Team Members] ❌ Error:", error);
+      res.status(500).json({ 
+        success: false, 
+        message: error.message || "Failed to fetch team members" 
+      });
+    }
+  });
+
+  // GET /api/manager/team/tasks - Get team tasks for manager
+  app.get("/api/manager/team/tasks", requireAuth, async (req, res) => {
+    try {
+      const employeeCardNo = req.user!.employeeCardNo;
+      
+      console.log("[Team Tasks] Manager card number:", employeeCardNo);
+      
+      if (!employeeCardNo) {
+        console.log("[Team Tasks] ❌ No employee card number found");
+        return res.status(403).json({ 
+          success: false, 
+          message: "Manager card number not found. Please login as a manager." 
+        });
+      }
+
+      // Get manager assignments
+      const managers = await prisma.$queryRaw<Array<{
+        mid: string;
+        mcardno: string;
+        mdepartmentId: string | null;
+        mdesignationId: string | null;
+        morgUnitId: string | null;
+        mis_extinct: boolean;
+      }>>`
+        SELECT "mid", "mcardno", "mdepartmentId", "mdesignationId", "morgUnitId", "mis_extinct"
+        FROM "emp_manager"
+        WHERE "mcardno" = ${employeeCardNo} AND "mis_extinct" = false
+      `;
+
+      console.log("[Team Tasks] Manager assignments found:", managers.length);
+      managers.forEach((m, i) => {
+        console.log(`[Team Tasks]   ${i + 1}. Dept: ${m.mdepartmentId || "None"}, Designation: ${m.mdesignationId || "None"}, OrgUnit: ${m.morgUnitId || "None"}`);
+      });
+
+      if (managers.length === 0) {
+        console.log("[Team Tasks] ❌ No manager assignments found");
+        return res.json([]);
+      }
+
+      // Build where clause based on manager's scope
+      // Each manager assignment creates an AND condition (all specified fields must match)
+      // Multiple assignments are combined with OR (any assignment can match)
+      const whereConditions: any[] = [];
+      
+      managers.forEach((manager, idx) => {
+        console.log(`[Team Tasks] Processing manager assignment ${idx + 1}:`, {
+          mid: manager.mid,
+          departmentId: manager.mdepartmentId,
+          designationId: manager.mdesignationId,
+          orgUnitId: manager.morgUnitId,
+        });
+
+        const condition: any = { status: "ACTIVE" };
+        if (manager.mdepartmentId) {
+          condition.departmentId = manager.mdepartmentId;
+          console.log(`[Team Tasks]   → Adding department filter: ${manager.mdepartmentId}`);
+        }
+        if (manager.mdesignationId) {
+          condition.designationId = manager.mdesignationId;
+          console.log(`[Team Tasks]   → Adding designation filter: ${manager.mdesignationId}`);
+        }
+        if (manager.morgUnitId) {
+          condition.orgUnitId = manager.morgUnitId;
+          console.log(`[Team Tasks]   → Adding orgUnit filter: ${manager.morgUnitId}`);
+        }
+        
+        // Only add condition if at least one scope is defined
+        if (manager.mdepartmentId || manager.mdesignationId || manager.morgUnitId) {
+          whereConditions.push(condition);
+          console.log(`[Team Tasks]   ✅ Added condition ${idx + 1}:`, condition);
+        } else {
+          console.log(`[Team Tasks]   ⚠️ Skipped condition ${idx + 1} (no scope defined)`);
+        }
+      });
+
+      console.log("[Team Tasks] Final where conditions (OR logic):", JSON.stringify(whereConditions, null, 2));
+      console.log("[Team Tasks] Query will find employees matching ANY of these conditions (each condition uses AND)");
+
+      if (whereConditions.length === 0) {
+        console.log("[Team Tasks] ❌ No valid where conditions (manager has no scope defined)");
+        return res.json([]);
+      }
+
+      // Get team member IDs with detailed logging
+      console.log("[Team Tasks] Executing employee query with OR conditions...");
+      const teamMembers = await prisma.employee.findMany({
+        where: {
+          OR: whereConditions,
+        },
+        select: { 
+          id: true,
+          firstName: true,
+          lastName: true,
+          cardNumber: true,
+          departmentId: true,
+          designationId: true,
+          orgUnitId: true,
+          status: true,
+        },
+      });
+
+      console.log("[Team Tasks] Team members found:", teamMembers.length);
+      if (teamMembers.length > 0) {
+        teamMembers.forEach((m, i) => {
+          console.log(`[Team Tasks]   ${i + 1}. ${m.firstName} ${m.lastName || ""} (Card: ${m.cardNumber})`);
+          console.log(`[Team Tasks]      → Dept: ${m.departmentId || "None"}, Designation: ${m.designationId || "None"}, OrgUnit: ${m.orgUnitId || "None"}`);
+        });
+      } else {
+        console.log("[Team Tasks] ⚠️ No employees match the filter criteria!");
+        console.log("[Team Tasks] Debug: Checking sample employees to see why filter doesn't match...");
+        
+        // Debug: Check a few employees to see their actual values
+        const sampleEmployees = await prisma.employee.findMany({
+          where: { status: "ACTIVE" },
+          take: 5,
+          select: {
+            firstName: true,
+            lastName: true,
+            cardNumber: true,
+            departmentId: true,
+            designationId: true,
+            orgUnitId: true,
+          },
+        });
+        console.log("[Team Tasks] Sample active employees in DB:", sampleEmployees.map(e => ({
+          name: `${e.firstName} ${e.lastName || ""}`,
+          card: e.cardNumber,
+          dept: e.departmentId,
+          desig: e.designationId,
+          org: e.orgUnitId,
+        })));
+      }
+
+      const teamMemberIds = teamMembers.map(e => e.id);
+
+      if (teamMemberIds.length === 0) {
+        console.log("[Team Tasks] ❌ No team members found matching manager scope");
+        return res.json([]);
+      }
+
+      // Get tasks for team members
+      const tasks = await prisma.task.findMany({
+        where: {
+          assigneeId: { in: teamMemberIds },
+        },
+        include: {
+          assignee: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              cardNumber: true,
+              department: { select: { id: true, name: true, code: true } },
+              designation: { select: { id: true, name: true, code: true } },
+              orgUnit: { select: { id: true, name: true } },
+            },
+          },
+          creator: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+      });
+
+      console.log("[Team Tasks] ✅ Tasks found:", tasks.length);
+      tasks.forEach((t, i) => {
+        console.log(`[Team Tasks]   ${i + 1}. "${t.title}" assigned to ${t.assignee?.firstName} ${t.assignee?.lastName || ""}`);
+      });
+
+      res.json(tasks);
+    } catch (error: any) {
+      console.error("[Team Tasks] ❌ Error:", error);
+      res.status(500).json({ 
+        success: false, 
+        message: error.message || "Failed to fetch team tasks" 
+      });
+    }
+  });
+
+  // GET /api/manager/team/sales-staff - Get team sales staff for manager
+  app.get("/api/manager/team/sales-staff", requireAuth, async (req, res) => {
+    try {
+      const employeeCardNo = req.user!.employeeCardNo;
+      
+      console.log("[Team Sales] Manager card number:", employeeCardNo);
+      
+      if (!employeeCardNo) {
+        console.log("[Team Sales] ❌ No employee card number found");
+        return res.status(403).json({ 
+          success: false, 
+          message: "Manager card number not found. Please login as a manager." 
+        });
+      }
+
+      // Get manager assignments
+      const managers = await prisma.$queryRaw<Array<{
+        mid: string;
+        mcardno: string;
+        mdepartmentId: string | null;
+        mdesignationId: string | null;
+        morgUnitId: string | null;
+        mis_extinct: boolean;
+      }>>`
+        SELECT "mid", "mcardno", "mdepartmentId", "mdesignationId", "morgUnitId", "mis_extinct"
+        FROM "emp_manager"
+        WHERE "mcardno" = ${employeeCardNo} AND "mis_extinct" = false
+      `;
+
+      console.log("[Team Sales] Manager assignments found:", managers.length);
+      managers.forEach((m, i) => {
+        console.log(`[Team Sales]   ${i + 1}. Dept: ${m.mdepartmentId || "None"}, Designation: ${m.mdesignationId || "None"}, OrgUnit: ${m.morgUnitId || "None"}`);
+      });
+
+      if (managers.length === 0) {
+        console.log("[Team Sales] ❌ No manager assignments found");
+        return res.json({ success: true, cards: [], table: { month: null, rows: [], grandTotal: 0, grandQty: 0 } });
+      }
+
+      // Build where clause based on manager's scope
+      const whereConditions: any[] = [];
+      
+      managers.forEach((manager, idx) => {
+        console.log(`[Team Sales] Processing manager assignment ${idx + 1}:`, {
+          mid: manager.mid,
+          departmentId: manager.mdepartmentId,
+          designationId: manager.mdesignationId,
+          orgUnitId: manager.morgUnitId,
+        });
+
+        const condition: any = { status: "ACTIVE" };
+        if (manager.mdepartmentId) {
+          condition.departmentId = manager.mdepartmentId;
+          console.log(`[Team Sales]   → Adding department filter: ${manager.mdepartmentId}`);
+        }
+        if (manager.mdesignationId) {
+          condition.designationId = manager.mdesignationId;
+          console.log(`[Team Sales]   → Adding designation filter: ${manager.mdesignationId}`);
+        }
+        if (manager.morgUnitId) {
+          condition.orgUnitId = manager.morgUnitId;
+          console.log(`[Team Sales]   → Adding orgUnit filter: ${manager.morgUnitId}`);
+        }
+        
+        if (manager.mdepartmentId || manager.mdesignationId || manager.morgUnitId) {
+          whereConditions.push(condition);
+          console.log(`[Team Sales]   ✅ Added condition ${idx + 1}:`, condition);
+        } else {
+          console.log(`[Team Sales]   ⚠️ Skipped condition ${idx + 1} (no scope defined)`);
+        }
+      });
+
+      console.log("[Team Sales] Final where conditions (OR logic):", JSON.stringify(whereConditions, null, 2));
+
+      if (whereConditions.length === 0) {
+        console.log("[Team Sales] ❌ No valid where conditions (manager has no scope defined)");
+        return res.json({ success: true, cards: [], table: { month: null, rows: [], grandTotal: 0, grandQty: 0 } });
+      }
+
+      // Get team member card numbers
+      console.log("[Team Sales] Executing employee query with OR conditions...");
+      const teamMembers = await prisma.employee.findMany({
+        where: {
+          OR: whereConditions,
+        },
+        select: { 
+          cardNumber: true,
+          firstName: true,
+          lastName: true,
+          departmentId: true,
+          designationId: true,
+          orgUnitId: true,
+        },
+      });
+
+      console.log("[Team Sales] Team members found:", teamMembers.length);
+      if (teamMembers.length > 0) {
+        teamMembers.forEach((m, i) => {
+          console.log(`[Team Sales]   ${i + 1}. ${m.firstName} ${m.lastName || ""} (Card: ${m.cardNumber})`);
+        });
+      } else {
+        console.log("[Team Sales] ⚠️ No employees match the filter criteria!");
+      }
+
+      const teamCardNumbers = teamMembers
+        .map(e => e.cardNumber)
+        .filter((card): card is string => card !== null);
+
+      console.log("[Team Sales] Team card numbers:", teamCardNumbers.length);
+      console.log("[Team Sales] Card numbers:", teamCardNumbers);
+
+      if (teamCardNumbers.length === 0) {
+        console.log("[Team Sales] ❌ No team card numbers found");
+        return res.json({ success: true, cards: [], table: { month: null, rows: [], grandTotal: 0, grandQty: 0 } });
+      }
+
+      // Get sales data from database (same as sales/staff/summary)
+      console.log("[Team Sales] Fetching sales data from database...");
+      let data: any[] = [];
+      let dataSource = 'database';
+      
+      try {
+        data = await getBillSummaryFromDB();
+        
+        // If database is empty, try to fetch from API
+        if (data.length === 0) {
+          console.log('[Team Sales] Database empty, fetching from API...');
+          try {
+            const records = await fetchBillSummaryFromAPI();
+            if (records.length > 0) {
+              await storeBillSummaryInDB(records);
+              data = await getBillSummaryFromDB();
+              dataSource = 'api-then-db';
+            }
+          } catch (apiError: any) {
+            console.error('[Team Sales] Failed to fetch from API:', apiError);
+          }
+        }
+      } catch (dbError: any) {
+        console.error('[Team Sales] Error reading from DB:', dbError);
+        try {
+          data = await fetchBillSummaryFromAPI();
+          dataSource = 'api-fallback';
+        } catch (apiError: any) {
+          console.error('[Team Sales] Both DB and API failed:', apiError);
+          return res.status(503).json({
+            success: false,
+            message: `Unable to load sales data: ${apiError.message}`,
+            dataSource: 'none',
+          });
+        }
+      }
+
+      // Filter by team member card numbers
+      data = data.filter((r) => teamCardNumbers.includes(r.SMNO || ""));
+
+      console.log("[Team Sales] Sales records found for team:", data.length);
+
+      // Get today's date for comparison
+      const now = new Date();
+      const todayStart = new Date(now);
+      todayStart.setHours(0, 0, 0, 0);
+      const yesterday = new Date(todayStart);
+      yesterday.setDate(yesterday.getDate() - 1);
+      const dayBeforeYesterday = new Date(todayStart);
+      dayBeforeYesterday.setDate(dayBeforeYesterday.getDate() - 2);
+
+      // Build daily totals per staff for cards (today, last sale date, last-last sale date)
+      const staffSales: Record<string, { 
+        name: string; 
+        unit: string;
+        dateTotals: Record<string, number>;
+        sortedDates: string[];
+      }> = {};
+
+      data.forEach((r) => {
+        const smno = r.SMNO || "unknown";
+        const name = r.SM || smno;
+        const unit = r.UNIT || "";
+        const dateStr = r.dat || r.DAT || "";
+        const netSale = parseFloat(r.NetSale || r.NETSALE || 0) || 0;
+
+        if (!staffSales[smno]) {
+          staffSales[smno] = { name, unit, dateTotals: {}, sortedDates: [] };
+        }
+        staffSales[smno].dateTotals[dateStr] = (staffSales[smno].dateTotals[dateStr] || 0) + netSale;
+      });
+
+      // Sort dates for each staff (most recent first)
+      Object.values(staffSales).forEach(staff => {
+        staff.sortedDates = Object.keys(staff.dateTotals)
+          .map(d => ({ dateStr: d, date: parseBillDate(d) }))
+          .filter(d => d.date !== null)
+          .sort((a, b) => b.date!.getTime() - a.date!.getTime())
+          .map(d => d.dateStr);
+      });
+
+      // Build cards array
+      const cards = Object.entries(staffSales)
+        .map(([smno, info]) => {
+          const getVal = (idx: number) => info.sortedDates[idx] ? info.dateTotals[info.sortedDates[idx]] : 0;
+          const totalSale = Object.values(info.dateTotals).reduce((sum, v) => sum + v, 0);
+
+          return {
+            smno,
+            name: info.name,
+            unit: info.unit,
+            todaySale: getVal(0),      // Most recent date
+            lastSale: getVal(1),        // Second most recent
+            lastLastSale: getVal(2),    // Third most recent
+            todayDate: info.sortedDates[0] || null,
+            lastDate: info.sortedDates[1] || null,
+            lastLastDate: info.sortedDates[2] || null,
+            totalSale,
+          };
+        })
+        .sort((a, b) => b.todaySale - a.todaySale);
+
+      // Fetch designations for all SMNOs
+      const uniqueSmnos = cards.map(c => c.smno);
+      const designationMap = await getEmployeeDesignations(uniqueSmnos);
+
+      // Add designation to each card
+      const cardsWithDesignation = cards.map(card => ({
+        ...card,
+        designation: designationMap.get(card.smno) || null,
+      }));
+
+      // Determine which staff to show detail for
+      const requestedSmno = typeof req.query.smno === "string" ? req.query.smno : null;
+      let targetSmno: string | null = requestedSmno;
+      if (!targetSmno && cards.length > 0) {
+        targetSmno = cards[0].smno;
+      }
+
+      // Get records for selected staff
+      const staffRecords = targetSmno
+        ? data.filter((r) => r.SMNO === targetSmno)
+        : [];
+
+      // Build table grouped by month and brand type
+      let tableMonth: string | null = null;
+      let tableRows: Array<{ brandType: string; quantity: number; netAmount: number }> = [];
+      let grandTotal = 0;
+      let grandQty = 0;
+
+      if (staffRecords.length > 0) {
+        // MTD: Use current month for table display
+        const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        tableMonth = currentMonthKey;
+        
+        // Filter records for current month (MTD)
+        const monthRecords = staffRecords.filter(r => {
+          const d = parseBillDate(r.dat || r.DAT);
+          if (!d) return false;
+          const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+          return monthKey === currentMonthKey;
+        });
+
+        // Group by BTYPE (N = INH, Y = SOR)
+        const byBrand: Record<string, { quantity: number; netAmount: number }> = {};
+
+        monthRecords.forEach((r) => {
+          const btype = (r.BTYPE || "").toString().trim().toUpperCase();
+          const brandKey = btype === "Y" ? "Y" : btype === "N" ? "N" : "Unknown";
+          const quantity = parseInt(r.QTY || r.qty || 0) || 0;
+          const netAmount = parseFloat(r.NetSale || r.NETSALE || 0) || 0;
+
+          if (!byBrand[brandKey]) {
+            byBrand[brandKey] = { quantity: 0, netAmount: 0 };
+          }
+          byBrand[brandKey].quantity += quantity;
+          byBrand[brandKey].netAmount += netAmount;
+          grandTotal += netAmount;
+          grandQty += quantity;
+        });
+
+        const brandLabels: Record<string, string> = {
+          N: "INH",
+          Y: "SOR",
+          Unknown: "Unknown",
+        };
+
+        tableRows = Object.entries(byBrand)
+          .map(([key, vals]) => ({
+            brandType: brandLabels[key] || key,
+            quantity: vals.quantity,
+            netAmount: vals.netAmount,
+          }))
+          .sort((a, b) => a.brandType.localeCompare(b.brandType));
+      }
+
+      // Calculate MTD date range: 1st of current month to today
+      const mtdStartDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      const mtdEndDate = new Date(now);
+      
+      const fromDate = format(mtdStartDate, "dd-MMM-yyyy").toUpperCase();
+      const toDate = format(mtdEndDate, "dd-MMM-yyyy").toUpperCase();
+
+      console.log("[Team Sales] ✅ Returning", cardsWithDesignation.length, "team sales cards");
+
+      res.json({
+        success: true,
+        cards: cardsWithDesignation,
+        table: {
+          month: tableMonth,
+          rows: tableRows,
+          grandTotal,
+          grandQty,
+        },
+        dateRange: {
+          from: fromDate,
+          to: toDate,
+        },
+        selectedSmno: targetSmno,
+        dataSource,
+      });
+    } catch (error: any) {
+      console.error("Manager team sales-staff error:", error);
+      res.status(500).json({ 
+        success: false, 
+        message: error.message || "Failed to fetch team sales staff" 
+      });
+    }
+  });
+
+  // DELETE /api/emp-manager/:mid - Delete a manager assignment
+  app.delete("/api/emp-manager/:mid", requireAuth, async (req, res) => {
+    try {
+      const { mid } = req.params;
+
+      if (!mid) {
+        return res.status(400).json({ 
+          success: false, 
+          message: "Manager ID (mid) is required" 
+        });
+      }
+
+      // Check if manager exists
+      const existing = await prisma.$queryRaw<Array<{ mid: string }>>`
+        SELECT "mid" FROM "emp_manager" WHERE "mid" = ${mid}
+      `;
+
+      if (existing.length === 0) {
+        return res.status(404).json({ 
+          success: false, 
+          message: "Manager assignment not found" 
+        });
+      }
+
+      // Delete the manager assignment
+      await prisma.$executeRaw`
+        DELETE FROM "emp_manager" WHERE "mid" = ${mid}
+      `;
+
+      res.json({ 
+        success: true, 
+        message: "Manager assignment removed successfully" 
+      });
+    } catch (error: any) {
+      console.error("Delete manager error:", error);
+      const errorMessage = error.message || "Failed to delete manager";
+      res.status(500).json({ 
+        success: false, 
+        message: errorMessage 
+      });
     }
   });
 

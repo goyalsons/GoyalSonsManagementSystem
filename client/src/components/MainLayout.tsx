@@ -34,7 +34,8 @@ import {
   MoreHorizontal,
   X,
   Sun,
-  Moon
+  Moon,
+  UserCheck
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
@@ -65,6 +66,7 @@ interface NavItem {
   label: string;
   policy: string | null;
   subItems?: SubNavItem[];
+  managerOnly?: boolean; // Show only for managers
 }
 
 const navItems: NavItem[] = [
@@ -142,6 +144,10 @@ const navItems: NavItem[] = [
   { href: "/settings", icon: Settings, label: "Settings", policy: null },
   // Standalone Sales Staff for employees (hidden for MDO who see it under Targets)
   { href: "/sales-staff", icon: BarChart3, label: "Sales Staff", policy: null },
+  { href: "/assigned-manager", icon: UserCheck, label: "Assigned Manager", policy: null },
+  // Manager Team Routes (shown only for managers)
+  { href: "/manager/team-task-history", icon: History, label: "Team Task History", policy: null, managerOnly: true },
+  { href: "/manager/team-sales-staff", icon: BarChart3, label: "Team Sales Staff", policy: null, managerOnly: true },
 ];
 
 const adminItems: NavItem[] = [];
@@ -543,7 +549,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
     });
     return initial;
   });
-  const { user, logout, hasPolicy, hasRole, isEmployeeLogin } = useAuth();
+  const { user, logout, hasPolicy, hasRole, isEmployeeLogin, isManager } = useAuth();
   const { theme, toggleTheme } = useTheme();
 
   const toggleMenu = useCallback((label: string) => {
@@ -561,11 +567,26 @@ export default function MainLayout({ children }: MainLayoutProps) {
       return newState;
     });
   }, []);
-
+  
   const visibleNavItems = useMemo(() => {
     const isEmployee = isEmployeeLogin();
     const isMDO = user?.loginType === "mdo";
     const isSMDesignation = user?.employee?.designationCode?.toUpperCase() === "SM";
+    const managerStatus = isManager();
+    
+    // Debug logging
+    console.log("[Nav Debug] Manager Check:", {
+      isManager: managerStatus,
+      userIsManager: user?.isManager,
+      employeeCardNo: user?.employeeCardNo,
+      employeeId: user?.employeeId,
+      managerScopes: user?.managerScopes,
+      userObject: user,
+    });
+    
+    // Log all managerOnly items
+    const managerOnlyItems = navItems.filter(item => item.managerOnly);
+    console.log("[Nav Debug] Manager-only items:", managerOnlyItems.map(i => i.label));
     
     // Items members/employees should see (restricted list - no Dashboard, Targets, Tasks, Claims, Announcements, Training)
     // Work Log is partially visible - members see only Task History
@@ -577,19 +598,31 @@ export default function MainLayout({ children }: MainLayoutProps) {
     
     return navItems
       .filter(item => {
+        // Manager-only items - show only if user is a manager (even for employees)
+        if (item.managerOnly) {
+          return managerStatus; // Show if manager, hide if not
+        }
+
         // Settings is ONLY for MDO
         if (item.label === "Settings" && !isMDO) {
           return false;
         }
 
-        // Hide MDO-only items from members
-        if (isEmployee && mdoOnlyItems.includes(item.label)) {
+        // Hide MDO-only items from members (unless they're managers)
+        if (isEmployee && mdoOnlyItems.includes(item.label) && !managerStatus) {
           return false;
         }
 
         if (isEmployee) {
-          // Members see only specific items regardless of policies
-          return employeeAllowedItems.includes(item.label);
+          // Regular members see only specific items
+          // Managers who are employees see manager items + their regular items
+          if (managerStatus) {
+            // Manager employees: show manager items OR employee allowed items
+            return employeeAllowedItems.includes(item.label) || item.managerOnly;
+          } else {
+            // Regular employees: only show employee allowed items
+            return employeeAllowedItems.includes(item.label);
+          }
         }
         
         // MDO users: hide standalone "Sales Staff" (they see it under Members)
@@ -610,11 +643,18 @@ export default function MainLayout({ children }: MainLayoutProps) {
         }
         
         // For members: show only Task History from Work Log section (hide My Work Log, Today Work Log, Fill Work Log)
+        // BUT managers (who are employees) can see all Work Log items to view their own attendance
         if (isEmployee && item.label === "Work Log") {
-          return { 
-            ...item, 
-            subItems: item.subItems.filter(sub => sub.label === "Task History") 
-          };
+          if (managerStatus) {
+            // Managers can see all Work Log items (their own attendance)
+            return item;
+          } else {
+            // Regular employees: only Task History
+            return { 
+              ...item, 
+              subItems: item.subItems.filter(sub => sub.label === "Task History") 
+            };
+          }
         }
         
         // Sales Staff is visible to all members in Members section

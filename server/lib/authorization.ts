@@ -184,12 +184,15 @@ export async function getUserAuthInfo(userId: string) {
 
   const fullUser = await prisma.user.findUnique({
     where: { id: userId },
-    include: {
+    select: {
+      employeeId: true,
       employee: {
         select: {
+          id: true,
           firstName: true,
           lastName: true,
           gender: true,
+          cardNumber: true,
           designation: {
             select: {
               code: true,
@@ -201,12 +204,53 @@ export async function getUserAuthInfo(userId: string) {
     },
   });
 
+  // Check if user is a manager
+  let isManager = false;
+  let managerScopes = null;
+  // Get card number from the employee record (it's selected in the query above)
+  const employeeCardNo = fullUser?.employee?.cardNumber || null;
+  
+  console.log(`[getUserAuthInfo] Checking manager status for userId=${userId}, employeeCardNo=${employeeCardNo}`);
+  
+  if (employeeCardNo) {
+    const managerAssignments = await prisma.$queryRaw<Array<{
+      mid: string;
+      mcardno: string;
+      mdepartmentId: string | null;
+      mdesignationId: string | null;
+      morgUnitId: string | null;
+      mis_extinct: boolean;
+    }>>`
+      SELECT "mid", "mcardno", "mdepartmentId", "mdesignationId", "morgUnitId", "mis_extinct"
+      FROM "emp_manager"
+      WHERE "mcardno" = ${employeeCardNo} AND "mis_extinct" = false
+    `;
+    
+    if (managerAssignments.length > 0) {
+      isManager = true;
+      const departmentIds = Array.from(new Set(managerAssignments.map(m => m.mdepartmentId).filter((id): id is string => id !== null)));
+      const designationIds = Array.from(new Set(managerAssignments.map(m => m.mdesignationId).filter((id): id is string => id !== null)));
+      const orgUnitIds = Array.from(new Set(managerAssignments.map(m => m.morgUnitId).filter((id): id is string => id !== null)));
+      managerScopes = {
+        departmentIds: departmentIds.length > 0 ? departmentIds : null,
+        designationIds: designationIds.length > 0 ? designationIds : null,
+        orgUnitIds: orgUnitIds.length > 0 ? orgUnitIds : null,
+      };
+      console.log(`[getUserAuthInfo] ✅ User is a manager with ${managerAssignments.length} assignment(s)`);
+    } else {
+      console.log(`[getUserAuthInfo] ❌ User is NOT a manager (no assignments found for card ${employeeCardNo})`);
+    }
+  } else {
+    console.log(`[getUserAuthInfo] ❌ User is NOT a manager (no employee card number)`);
+  }
+
   return {
     id: user.id,
     name: user.name,
     email: user.email,
     isSuperAdmin: user.isSuperAdmin,
     orgUnitId: user.orgUnitId,
+    employeeId: fullUser?.employeeId || null,
     roles: user.roles.map((ur) => ({
       id: ur.role.id,
       name: ur.role.name,
@@ -220,5 +264,7 @@ export async function getUserAuthInfo(userId: string) {
       designationCode: fullUser.employee.designation?.code || null,
       designationName: fullUser.employee.designation?.name || null,
     } : null,
+    isManager,
+    managerScopes,
   };
 }

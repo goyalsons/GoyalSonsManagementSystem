@@ -20,6 +20,12 @@ export interface UserAuth {
     designationCode: string | null;
     designationName: string | null;
   } | null;
+  isManager?: boolean;
+  managerScopes?: {
+    departmentIds: string[] | null;
+    designationIds: string[] | null;
+    orgUnitIds: string[] | null;
+  } | null;
 }
 
 interface AuthContextType {
@@ -32,6 +38,8 @@ interface AuthContextType {
   hasRole: (roleName: string) => boolean;
   canAccessOrg: (orgUnitId: string) => boolean;
   isEmployeeLogin: () => boolean;
+  isManager: () => boolean;
+  getManagerScopes: () => { departmentIds: string[] | null; designationIds: string[] | null; orgUnitIds: string[] | null; } | null;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -90,7 +98,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const data = await response.json();
         localStorage.setItem("gms_token", data.token);
         setToken(data.token);
+        // Use user data from login (now includes manager status) and refresh to ensure latest
         setUser(data.user);
+        await fetchUser(data.token);
         return { success: true };
       } else {
         const error = await response.json();
@@ -143,6 +153,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return user.loginType === "employee";
   }
 
+  function isManager(): boolean {
+    if (!user) return false;
+    return user.isManager === true;
+  }
+
+  function getManagerScopes() {
+    if (!user || !user.isManager) return null;
+    return user.managerScopes;
+  }
+
   return (
     <AuthContext.Provider
       value={{
@@ -155,6 +175,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         hasRole,
         canAccessOrg,
         isEmployeeLogin,
+        isManager,
+        getManagerScopes,
       }}
     >
       {children}

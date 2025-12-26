@@ -676,6 +676,28 @@ export default function AttendanceHistoryPage() {
                   </div>
                 )}
                 <div>
+                  <span className="text-muted-foreground">In Time:</span>
+                  <div className="font-medium text-foreground font-mono">
+                    {(() => {
+                      const status = (selectedRecord.STATUS || "").toUpperCase().trim();
+                      return (status === "ABSENT" || status === "DOUBLE ABSENT" || status === "DOUBLE A" || status.includes("DOUBLE"))
+                        ? "--:--"
+                        : (selectedRecord.t_in || selectedRecord.result_t_in || "--:--");
+                    })()}
+                  </div>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Out Time:</span>
+                  <div className="font-medium text-foreground font-mono">
+                    {(() => {
+                      const status = (selectedRecord.STATUS || "").toUpperCase().trim();
+                      return (status === "ABSENT" || status === "DOUBLE ABSENT" || status === "DOUBLE A" || status.includes("DOUBLE"))
+                        ? "--:--"
+                        : (selectedRecord.t_out || selectedRecord.result_t_out || "--:--");
+                    })()}
+                  </div>
+                </div>
+                <div>
                   <span className="text-muted-foreground">Branch:</span>
                   <div className="font-medium text-foreground">{selectedRecord.branch_code}</div>
                 </div>
