@@ -21,7 +21,7 @@ import {
 } from "./lib/auth-middleware";
 import { getUserAuthInfo, getAccessibleOrgUnitIds } from "./lib/authorization";
 import { getDepartmentName, getDesignationName, refreshSyncSchedules, triggerManualSync } from "./auto-sync";
-import { getEmployeeAttendance, isBigQueryConfigured, getTodayAttendanceFromBigQuery, parseTimeToDateTime, normalizeCardNumber, getTodayDateIST, clearTodayAttendanceCache } from "./bigquery-service";
+import { getEmployeeAttendance, isBigQueryConfigured, getTodayAttendanceFromBigQuery, parseTimeToDateTime, parseTimeToDateTimeWithDate, normalizeCardNumber, getTodayDateIST, clearTodayAttendanceCache, getBigQueryClient } from "./bigquery-service";
 import { sendOtpSms } from "./sms-service";
 import multer from "multer";
 import fs from "fs";
@@ -1034,6 +1034,274 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Today attendance error:", error);
       res.status(500).json({ message: "Failed to fetch today's attendance" });
+    }
+  });
+
+  // Manager Dashboard - Attendance Overview for Today or Last Day
+  app.get("/api/manager/dashboard/attendance", requireAuth, async (req, res) => {
+    try {
+      const accessibleOrgUnitIds = req.user!.accessibleOrgUnitIds;
+      const { dateType = "today" } = req.query; // "today" or "lastday"
+
+      // Build employee filter - only active employees (status: ACTIVE and interviewDate: null)
+      const employeeWhere: any = {
+        orgUnitId: { in: accessibleOrgUnitIds },
+        status: "ACTIVE",
+        interviewDate: null, // Only employees who haven't exited
+      };
+
+      // Determine date range
+      let targetDate: string;
+      let dateStart: Date;
+      let dateEnd: Date;
+
+      if (dateType === "lastday") {
+        // Get yesterday's date in IST (avoid timezone issues by calculating directly from date string)
+        const todayIST = getTodayDateIST(); // Format: YYYY-MM-DD
+        const [year, month, day] = todayIST.split('-').map(Number);
+        const todayDate = new Date(year, month - 1, day); // month is 0-indexed
+        const yesterdayDate = new Date(todayDate);
+        yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+        
+        // Format as YYYY-MM-DD
+        const yYear = yesterdayDate.getFullYear();
+        const yMonth = String(yesterdayDate.getMonth() + 1).padStart(2, '0');
+        const yDay = String(yesterdayDate.getDate()).padStart(2, '0');
+        targetDate = `${yYear}-${yMonth}-${yDay}`;
+        
+        dateStart = new Date(targetDate + 'T00:00:00+05:30');
+        dateEnd = new Date(targetDate + 'T23:59:59+05:30');
+      } else {
+        // Today
+        targetDate = getTodayDateIST();
+        dateStart = new Date(targetDate + 'T00:00:00+05:30');
+        dateEnd = new Date(targetDate + 'T23:59:59+05:30');
+      }
+
+      console.log(`[Manager Dashboard] Fetching attendance for ${dateType}, Date: ${targetDate}`);
+
+      // Get all employees with their attendance
+      const employees = await prisma.employee.findMany({
+        where: employeeWhere,
+        include: {
+          orgUnit: { select: { id: true, name: true, code: true } },
+          department: { select: { id: true, name: true, code: true } },
+          designation: { select: { id: true, name: true, code: true } },
+          attendance: {
+            where: {
+              date: {
+                gte: dateStart,
+                lte: dateEnd,
+              },
+            },
+            take: 1,
+            orderBy: { createdAt: 'desc' },
+          },
+        },
+        orderBy: { firstName: "asc" },
+      });
+
+      // Build local attendance map
+      const localAttendanceByEmpId = new Map<string, any>();
+      employees.forEach(emp => {
+        if (emp.attendance && emp.attendance.length > 0) {
+          localAttendanceByEmpId.set(emp.id, emp.attendance[0]);
+        }
+      });
+
+      // Fetch BigQuery attendance as fallback
+      let bigQueryAttendance: Map<string, any> = new Map();
+      if (isBigQueryConfigured()) {
+        try {
+          if (dateType === "today") {
+            bigQueryAttendance = await getTodayAttendanceFromBigQuery();
+          } else if (dateType === "lastday") {
+            // Query BigQuery for yesterday's attendance
+            const client = getBigQueryClient();
+            const projectId = 'quickstart-1587217624038';
+            const datasetId = 'hrms';
+            const tableId = 'ATTENDENCE_SUMMARY';
+            
+            // Query for yesterday's date using parameterized query
+            const query = `
+              SELECT * 
+              FROM \`${projectId}.${datasetId}.${tableId}\`
+              WHERE dt = @targetDate
+            `;
+            
+            const [rows] = await client.query({ 
+              query, 
+              params: { targetDate },
+              location: 'us-central1' 
+            });
+            (rows as any[]).forEach((row: any) => {
+              // Normalize BigQuery DATE/TIME objects (same as getTodayAttendanceFromBigQuery)
+              const normalized: any = { ...row };
+              if (row.dt && typeof row.dt === 'object' && row.dt.value) {
+                normalized.dt = row.dt.value;
+              }
+              if (row.t_in && typeof row.t_in === 'object' && row.t_in.value) {
+                normalized.t_in = row.t_in.value;
+              }
+              if (row.t_out && typeof row.t_out === 'object' && row.t_out.value) {
+                normalized.t_out = row.t_out.value;
+              }
+              if (row.result_t_in && typeof row.result_t_in === 'object' && row.result_t_in.value) {
+                normalized.result_t_in = row.result_t_in.value;
+              }
+              if (row.result_t_out && typeof row.result_t_out === 'object' && row.result_t_out.value) {
+                normalized.result_t_out = row.result_t_out.value;
+              }
+              
+              const cardNo = normalizeCardNumber(normalized.card_no || normalized.cardno || '');
+              if (cardNo) {
+                bigQueryAttendance.set(cardNo, normalized);
+              }
+            });
+            console.log(`[Manager Dashboard] BigQuery returned ${bigQueryAttendance.size} records for ${targetDate}`);
+          }
+        } catch (bqError) {
+          console.error("[Manager Dashboard] BigQuery error:", bqError);
+        }
+      }
+
+      // Transform data with early/late indicators
+      const attendanceData = employees.map(emp => {
+        const localRecord = localAttendanceByEmpId.get(emp.id);
+        const normalizedCardNo = normalizeCardNumber(emp.cardNumber);
+        const bqRecord = normalizedCardNo ? bigQueryAttendance.get(normalizedCardNo) : null;
+        
+        let status = "absent";
+        let attendanceStatus: string | null = null;
+        let checkInAt: Date | string | null = null;
+        let checkOutAt: Date | string | null = null;
+        let isLate = false;
+        let isEarlyOut = false;
+        let dataSource: string = "none";
+        
+        // PRIORITY 1: Local Prisma attendance
+        if (localRecord) {
+          status = localRecord.status === "present" || localRecord.checkInAt ? "present" : "absent";
+          checkInAt = localRecord.checkInAt;
+          checkOutAt = localRecord.checkOutAt;
+          attendanceStatus = localRecord.status;
+          dataSource = "local";
+        }
+        // PRIORITY 2: BigQuery attendance
+        else if (bqRecord) {
+          const actualTimeIn = bqRecord.t_in;
+          const actualTimeOut = bqRecord.t_out;
+          
+          const hasActualPunchIn = actualTimeIn && actualTimeIn !== "null" && String(actualTimeIn).trim() !== "";
+          const hasActualPunchOut = actualTimeOut && actualTimeOut !== "null" && String(actualTimeOut).trim() !== "";
+          
+          // For lastday, combine time with targetDate; for today, parseTimeToDateTime uses today's date by default
+          if (hasActualPunchIn) {
+            if (dateType === "lastday") {
+              checkInAt = parseTimeToDateTimeWithDate(actualTimeIn, new Date(targetDate + 'T00:00:00+05:30'));
+            } else {
+              checkInAt = parseTimeToDateTime(actualTimeIn);
+            }
+          } else if (bqRecord.result_t_in) {
+            const resultTimeIn = typeof bqRecord.result_t_in === 'object' ? bqRecord.result_t_in.value : bqRecord.result_t_in;
+            if (resultTimeIn && resultTimeIn !== "05:30:00") {
+              if (dateType === "lastday") {
+                checkInAt = parseTimeToDateTimeWithDate(resultTimeIn, new Date(targetDate + 'T00:00:00+05:30'));
+              } else {
+                checkInAt = parseTimeToDateTime(resultTimeIn);
+              }
+            }
+          }
+          
+          if (hasActualPunchOut) {
+            if (dateType === "lastday") {
+              checkOutAt = parseTimeToDateTimeWithDate(actualTimeOut, new Date(targetDate + 'T00:00:00+05:30'));
+            } else {
+              checkOutAt = parseTimeToDateTime(actualTimeOut);
+            }
+          } else if (bqRecord.result_t_out) {
+            const resultTimeOut = typeof bqRecord.result_t_out === 'object' ? bqRecord.result_t_out.value : bqRecord.result_t_out;
+            if (resultTimeOut && resultTimeOut !== "05:30:00") {
+              if (dateType === "lastday") {
+                checkOutAt = parseTimeToDateTimeWithDate(resultTimeOut, new Date(targetDate + 'T00:00:00+05:30'));
+              } else {
+                checkOutAt = parseTimeToDateTime(resultTimeOut);
+              }
+            }
+          }
+          
+          const statusUpper = (bqRecord.STATUS || "").toUpperCase();
+          const isPresent = 
+            bqRecord.P === 1 || 
+            statusUpper.includes("PRESENT") ||
+            statusUpper === "P" ||
+            hasActualPunchIn;
+          
+          status = isPresent ? "present" : "absent";
+          attendanceStatus = bqRecord.STATUS;
+          dataSource = "bigquery";
+          
+          // Determine late/early indicators from status
+          isLate = statusUpper.includes("LATE");
+          isEarlyOut = statusUpper.includes("EARLY_OUT") || statusUpper.includes("EARLY OUT");
+        }
+
+        // Determine status category: Present, Absent, Mis (Miss), Half
+        let statusCategory = "absent";
+        if (status === "present") {
+          const statusUpper = (attendanceStatus || "").toUpperCase();
+          if (statusUpper.includes("HALF") || statusUpper.includes("HALFDAY")) {
+            statusCategory = "half";
+          } else if (statusUpper.includes("MISS")) {
+            statusCategory = "mis";
+          } else {
+            statusCategory = "present";
+          }
+        }
+
+        return {
+          id: emp.id,
+          cardNumber: emp.cardNumber,
+          firstName: emp.firstName,
+          lastName: emp.lastName,
+          unit: emp.orgUnit?.name || null,
+          department: emp.department?.name || null,
+          designation: emp.designation?.name || null,
+          status: statusCategory, // present, absent, mis, half
+          checkInAt: checkInAt instanceof Date ? checkInAt.toISOString() : checkInAt,
+          checkOutAt: checkOutAt instanceof Date ? checkOutAt.toISOString() : checkOutAt,
+          attendanceStatus,
+          isLate,
+          isEarlyOut,
+          dataSource,
+        };
+      });
+
+      // Calculate summary
+      const presentCount = attendanceData.filter(a => a.status === "present").length;
+      const absentCount = attendanceData.filter(a => a.status === "absent").length;
+      const misCount = attendanceData.filter(a => a.status === "mis").length;
+      const halfCount = attendanceData.filter(a => a.status === "half").length;
+      const lateCount = attendanceData.filter(a => a.isLate).length;
+      const earlyOutCount = attendanceData.filter(a => a.isEarlyOut).length;
+
+      res.json({
+        date: targetDate,
+        dateType,
+        summary: {
+          total: attendanceData.length,
+          present: presentCount,
+          absent: absentCount,
+          mis: misCount,
+          half: halfCount,
+          late: lateCount,
+          earlyOut: earlyOutCount,
+        },
+        data: attendanceData,
+      });
+    } catch (error) {
+      console.error("Manager dashboard attendance error:", error);
+      res.status(500).json({ message: "Failed to fetch attendance data" });
     }
   });
 

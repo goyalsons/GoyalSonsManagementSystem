@@ -89,7 +89,7 @@ function loadCredentials(): {
   return credentials;
 }
 
-function getBigQueryClient(): BigQuery {
+export function getBigQueryClient(): BigQuery {
   if (!bigQueryClient) {
     try {
       const credentials = loadCredentials();
@@ -375,6 +375,41 @@ export function clearTodayAttendanceCache(): void {
  * Parse BigQuery time string (HH:MM:SS) to full ISO datetime for today
  * Handles: "10:30:45", {value: "10:30:45"}, null, "null"
  */
+/**
+ * Parse time string and combine with a specific date
+ */
+export function parseTimeToDateTimeWithDate(timeStr: string | { value: string } | null | undefined, baseDate: Date): Date | null {
+  if (!timeStr) return null;
+  
+  // Handle BigQuery value object format
+  let timeValue: string;
+  if (typeof timeStr === 'object' && 'value' in timeStr) {
+    timeValue = timeStr.value;
+  } else {
+    timeValue = String(timeStr);
+  }
+  
+  // Handle "null" string or empty values
+  if (!timeValue || timeValue === "null" || timeValue.trim() === "") {
+    return null;
+  }
+  
+  // Parse HH:MM:SS format
+  const parts = timeValue.split(':');
+  if (parts.length < 2) return null;
+  
+  const hours = parseInt(parts[0], 10);
+  const minutes = parseInt(parts[1], 10);
+  const seconds = parts.length > 2 ? parseInt(parts[2], 10) : 0;
+  
+  if (isNaN(hours) || isNaN(minutes)) return null;
+  
+  // Combine with the provided base date
+  const result = new Date(baseDate);
+  result.setHours(hours, minutes, seconds, 0);
+  return result;
+}
+
 export function parseTimeToDateTime(timeStr: string | { value: string } | null | undefined): Date | null {
   if (!timeStr) return null;
   
