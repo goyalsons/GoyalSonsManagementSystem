@@ -72,6 +72,8 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { href: "/", icon: LayoutDashboard, label: "Dashboard", policy: null },
+  // Manager Dashboard (shown only for managers)
+  { href: "/manager/dashboard", icon: TrendingUp, label: "Manager Dashboard", policy: null, managerOnly: true },
   { href: "/users", icon: UserCog, label: "User Management", policy: "users.view" },
   { 
     icon: Users, 
@@ -146,8 +148,8 @@ const navItems: NavItem[] = [
   { href: "/settings", icon: Settings, label: "Settings", policy: null },
   // Standalone Sales Staff for employees (hidden for MDO who see it under Targets)
   { href: "/sales-staff", icon: BarChart3, label: "Sales Staff", policy: null },
-  { href: "/assigned-manager", icon: UserCheck, label: "Assigned Manager", policy: null },
   // Manager Team Routes (shown only for managers)
+  { href: "/assigned-manager", icon: UserCheck, label: "Assigned Manager", policy: null },
   { href: "/manager/team-task-history", icon: History, label: "Team Task History", policy: null, managerOnly: true },
   { href: "/manager/team-sales-staff", icon: BarChart3, label: "Team Sales Staff", policy: null, managerOnly: true },
 ];
@@ -331,10 +333,10 @@ const SidebarNav = React.memo(function SidebarNav({
         onScroll={handleScroll}
         className="flex-1 min-h-0 overflow-y-auto scrollbar-thin py-3 sm:py-4 px-2 sm:px-3 overscroll-contain">
         <nav className="space-y-0.5 sm:space-y-1">
-          {visibleNavItems.map((item) => (
+          {visibleNavItems.map((item, index) => (
             item.subItems ? (
               <NavItemWithSubmenu 
-                key={item.label} 
+                key={`${item.label}-${index}`} 
                 item={item} 
                 location={location}
                 isOpen={isMenuOpen(item.label, item.subItems)}
@@ -343,7 +345,7 @@ const SidebarNav = React.memo(function SidebarNav({
               />
             ) : (
               <NavLink 
-                key={item.href} 
+                key={`${item.href}-${index}`} 
                 item={item} 
                 location={location}
                 onNavigate={onNavigate}
@@ -358,10 +360,10 @@ const SidebarNav = React.memo(function SidebarNav({
                   Admin
                 </p>
               </div>
-              {visibleAdminItems.map((item) => (
+              {visibleAdminItems.map((item, index) => (
                 item.subItems ? (
                   <NavItemWithSubmenu 
-                    key={item.label} 
+                    key={`${item.label}-admin-${index}`} 
                     item={item} 
                     location={location}
                     isOpen={isMenuOpen(item.label, item.subItems)}
@@ -370,7 +372,7 @@ const SidebarNav = React.memo(function SidebarNav({
                   />
                 ) : (
                   <NavLink 
-                    key={item.href} 
+                    key={`${item.href}-admin-${index}`} 
                     item={item} 
                     location={location}
                     onNavigate={onNavigate}
