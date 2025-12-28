@@ -87,9 +87,34 @@ interface OrgUnit {
 
 export default function AssignedManagerPage() {
   const [selectedEmployees, setSelectedEmployees] = useState<Employee[]>([]);
-  const [mdepartmentId, setMdepartmentId] = useState("");
-  const [mdesignationId, setMdesignationId] = useState("");
-  const [morgUnitId, setMorgUnitId] = useState("");
+  const [selectedDepartmentIds, setSelectedDepartmentIds] = useState<string[]>([]);
+  const [selectedDesignationIds, setSelectedDesignationIds] = useState<string[]>([]);
+  const [selectedOrgUnitIds, setSelectedOrgUnitIds] = useState<string[]>([]);
+  
+  // Toggle functions for multi-select
+  const handleDepartmentToggle = (deptId: string) => {
+    setSelectedDepartmentIds(prev =>
+      prev.includes(deptId)
+        ? prev.filter(id => id !== deptId)
+        : [...prev, deptId]
+    );
+  };
+
+  const handleDesignationToggle = (desigId: string) => {
+    setSelectedDesignationIds(prev =>
+      prev.includes(desigId)
+        ? prev.filter(id => id !== desigId)
+        : [...prev, desigId]
+    );
+  };
+
+  const handleOrgUnitToggle = (unitId: string) => {
+    setSelectedOrgUnitIds(prev =>
+      prev.includes(unitId)
+        ? prev.filter(id => id !== unitId)
+        : [...prev, unitId]
+    );
+  };
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [employeeSearchOpen, setEmployeeSearchOpen] = useState(false);
   const [employeeSearchTerm, setEmployeeSearchTerm] = useState("");
@@ -180,61 +205,81 @@ export default function AssignedManagerPage() {
 
   const managers = managersResponse?.data || [];
 
-  // Mutation for assigning manager (supports multiple employees)
+  // Mutation for assigning manager (supports multiple employees, departments, designations, org units)
   const assignManagerMutation = useMutation({
     mutationFn: async (employees: Employee[]) => {
       const results = [];
       const errors = [];
       
+      // Generate all combinations of departments, designations, and org units
+      // If arrays are empty, use [null] to create one row with null values
+      const deptIds = selectedDepartmentIds.length > 0 ? selectedDepartmentIds : [null];
+      const desigIds = selectedDesignationIds.length > 0 ? selectedDesignationIds : [null];
+      const unitIds = selectedOrgUnitIds.length > 0 ? selectedOrgUnitIds : [null];
+      
+      // Create all combinations (Cartesian product)
+      const combinations: Array<{ deptId: string | null; desigId: string | null; unitId: string | null }> = [];
+      for (const deptId of deptIds) {
+        for (const desigId of desigIds) {
+          for (const unitId of unitIds) {
+            combinations.push({ deptId, desigId, unitId });
+          }
+        }
+      }
+      
+      // For each employee, create assignments for all combinations
       for (const employee of employees) {
-        try {
-          const res = await fetch("/api/emp-manager", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${localStorage.getItem("gms_token")}`,
-            },
-            body: JSON.stringify({
-              mcardno: employee.cardNumber || "",
-              mdepartmentId: mdepartmentId || undefined,
-              mdesignationId: mdesignationId || undefined,
-              morgUnitId: morgUnitId || undefined,
-            }),
-          });
-          
-          const contentType = res.headers.get("content-type");
-          if (!contentType || !contentType.includes("application/json")) {
-            const text = await res.text();
-            throw new Error(`Server returned non-JSON response. Status: ${res.status}`);
+        for (const combo of combinations) {
+          try {
+            const res = await fetch("/api/emp-manager", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${localStorage.getItem("gms_token")}`,
+              },
+              body: JSON.stringify({
+                mcardno: employee.cardNumber || "",
+                mdepartmentId: combo.deptId || undefined,
+                mdesignationId: combo.desigId || undefined,
+                morgUnitId: combo.unitId || undefined,
+              }),
+            });
+            
+            const contentType = res.headers.get("content-type");
+            if (!contentType || !contentType.includes("application/json")) {
+              const text = await res.text();
+              throw new Error(`Server returned non-JSON response. Status: ${res.status}`);
+            }
+            
+            const result = await res.json();
+            if (!res.ok || !result.success) {
+              throw new Error(result.message || "Failed to assign manager");
+            }
+            results.push({ employee, combo, success: true });
+          } catch (error: any) {
+            errors.push({ employee, combo, error: error.message || "Failed to assign manager" });
           }
-          
-          const result = await res.json();
-          if (!res.ok || !result.success) {
-            throw new Error(result.message || "Failed to assign manager");
-          }
-          results.push({ employee, success: true });
-        } catch (error: any) {
-          errors.push({ employee, error: error.message || "Failed to assign manager" });
         }
       }
       
       if (errors.length > 0) {
-        throw new Error(`${errors.length} of ${employees.length} assignments failed`);
+        throw new Error(`${errors.length} of ${results.length + errors.length} assignments failed`);
       }
       
       return results;
     },
     onSuccess: (results, employees) => {
+      const totalAssignments = results.length;
       toast({
         title: "Success",
-        description: `${employees.length} manager${employees.length > 1 ? 's' : ''} assigned successfully`,
+        description: `${totalAssignments} manager assignment${totalAssignments > 1 ? 's' : ''} created successfully`,
       });
       queryClient.invalidateQueries({ queryKey: ["/api/emp-manager"] });
       // Reset form
       setSelectedEmployees([]);
-      setMdepartmentId("");
-      setMdesignationId("");
-      setMorgUnitId("");
+      setSelectedDepartmentIds([]);
+      setSelectedDesignationIds([]);
+      setSelectedOrgUnitIds([]);
       setIsSubmitting(false);
     },
     onError: (error: Error) => {
@@ -479,79 +524,145 @@ export default function AssignedManagerPage() {
                 )}
               </div>
 
-              {/* Department Dropdown */}
+              {/* Department Multi-Select */}
               <div className="space-y-2">
-                <Label htmlFor="mdepartmentId">Department</Label>
-                <Select value={mdepartmentId || "none"} onValueChange={(value) => setMdepartmentId(value === "none" ? "" : value)}>
-                  <SelectTrigger id="mdepartmentId" className="flex-1">
-                    <SelectValue placeholder="Select Department" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">None</SelectItem>
-                    {departments.map((dept) => (
-                      <SelectItem key={dept.id} value={dept.id}>
-                        {dept.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label>Department</Label>
+                <div className="space-y-2 max-h-[200px] overflow-y-auto border border-border rounded-lg p-3 bg-muted/30">
+                  {departments.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No departments available</p>
+                  ) : (
+                    departments.map((dept) => (
+                      <div
+                        key={dept.id}
+                        className="flex items-center space-x-2 p-2 rounded-lg hover:bg-muted/50 transition-colors"
+                      >
+                        <Checkbox
+                          id={`dept-${dept.id}`}
+                          checked={selectedDepartmentIds.includes(dept.id)}
+                          onCheckedChange={() => handleDepartmentToggle(dept.id)}
+                        />
+                        <Label
+                          htmlFor={`dept-${dept.id}`}
+                          className="flex-1 cursor-pointer font-normal"
+                        >
+                          {dept.name}
+                        </Label>
+                      </div>
+                    ))
+                  )}
+                </div>
+                {selectedDepartmentIds.length > 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    {selectedDepartmentIds.length} department(s) selected
+                  </p>
+                )}
               </div>
 
-              {/* Designation Dropdown */}
+              {/* Designation Multi-Select */}
               <div className="space-y-2">
-                <Label htmlFor="mdesignationId">Designation</Label>
-                <Select value={mdesignationId || "none"} onValueChange={(value) => setMdesignationId(value === "none" ? "" : value)}>
-                  <SelectTrigger id="mdesignationId" className="flex-1">
-                    <SelectValue placeholder="Select Designation" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">None</SelectItem>
-                    {designations.map((desig) => (
-                      <SelectItem key={desig.id} value={desig.id}>
-                        {desig.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label>Designation</Label>
+                <div className="space-y-2 max-h-[200px] overflow-y-auto border border-border rounded-lg p-3 bg-muted/30">
+                  {designations.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No designations available</p>
+                  ) : (
+                    designations.map((desig) => (
+                      <div
+                        key={desig.id}
+                        className="flex items-center space-x-2 p-2 rounded-lg hover:bg-muted/50 transition-colors"
+                      >
+                        <Checkbox
+                          id={`desig-${desig.id}`}
+                          checked={selectedDesignationIds.includes(desig.id)}
+                          onCheckedChange={() => handleDesignationToggle(desig.id)}
+                        />
+                        <Label
+                          htmlFor={`desig-${desig.id}`}
+                          className="flex-1 cursor-pointer font-normal"
+                        >
+                          {desig.name}
+                        </Label>
+                      </div>
+                    ))
+                  )}
+                </div>
+                {selectedDesignationIds.length > 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    {selectedDesignationIds.length} designation(s) selected
+                  </p>
+                )}
               </div>
 
-              {/* Org Unit Dropdown */}
+              {/* Org Unit Multi-Select */}
               <div className="space-y-2">
-                <Label htmlFor="morgUnitId">Org Unit</Label>
-                <Select value={morgUnitId || "none"} onValueChange={(value) => setMorgUnitId(value === "none" ? "" : value)}>
-                  <SelectTrigger id="morgUnitId" className="flex-1">
-                    <SelectValue placeholder="Select Org Unit" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">None</SelectItem>
-                    {orgUnits.map((unit) => (
-                      <SelectItem key={unit.id} value={unit.id}>
-                        {unit.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label>Org Unit</Label>
+                <div className="space-y-2 max-h-[200px] overflow-y-auto border border-border rounded-lg p-3 bg-muted/30">
+                  {orgUnits.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No org units available</p>
+                  ) : (
+                    orgUnits.map((unit) => (
+                      <div
+                        key={unit.id}
+                        className="flex items-center space-x-2 p-2 rounded-lg hover:bg-muted/50 transition-colors"
+                      >
+                        <Checkbox
+                          id={`unit-${unit.id}`}
+                          checked={selectedOrgUnitIds.includes(unit.id)}
+                          onCheckedChange={() => handleOrgUnitToggle(unit.id)}
+                        />
+                        <Label
+                          htmlFor={`unit-${unit.id}`}
+                          className="flex-1 cursor-pointer font-normal"
+                        >
+                          {unit.name}
+                        </Label>
+                      </div>
+                    ))
+                  )}
+                </div>
+                {selectedOrgUnitIds.length > 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    {selectedOrgUnitIds.length} org unit(s) selected
+                  </p>
+                )}
               </div>
             </div>
 
-            <div className="flex gap-2">
-              <Button
-                type="submit"
-                disabled={isSubmitting || assignManagerMutation.isPending || selectedEmployees.length === 0}
-                className="bg-indigo-600 hover:bg-indigo-700"
-              >
-                {(isSubmitting || assignManagerMutation.isPending) ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Assigning {selectedEmployees.length} manager{selectedEmployees.length > 1 ? 's' : ''}...
-                  </>
-                ) : (
-                  <>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Assign {selectedEmployees.length > 0 ? `${selectedEmployees.length} ` : ''}Manager{selectedEmployees.length > 1 ? 's' : ''}
-                  </>
-                )}
-              </Button>
+            <div className="space-y-2">
+              {/* Show how many assignments will be created */}
+              {selectedEmployees.length > 0 && (() => {
+                const deptCount = selectedDepartmentIds.length > 0 ? selectedDepartmentIds.length : 1;
+                const desigCount = selectedDesignationIds.length > 0 ? selectedDesignationIds.length : 1;
+                const unitCount = selectedOrgUnitIds.length > 0 ? selectedOrgUnitIds.length : 1;
+                const totalCombinations = deptCount * desigCount * unitCount;
+                const totalAssignments = selectedEmployees.length * totalCombinations;
+                return (
+                  <div className="text-sm text-muted-foreground bg-slate-50 p-3 rounded-lg border border-slate-200">
+                    <p className="font-medium text-slate-700">
+                      Will create {totalAssignments} assignment{totalAssignments > 1 ? 's' : ''}{" "}
+                      ({selectedEmployees.length} employee{selectedEmployees.length > 1 ? 's' : ''} × {totalCombinations} combination{totalCombinations > 1 ? 's' : ''})
+                    </p>
+                  </div>
+                );
+              })()}
+              <div className="flex gap-2">
+                <Button
+                  type="submit"
+                  disabled={isSubmitting || assignManagerMutation.isPending || selectedEmployees.length === 0}
+                  className="bg-indigo-600 hover:bg-indigo-700"
+                >
+                  {(isSubmitting || assignManagerMutation.isPending) ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Creating assignments...
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Create Assignments
+                    </>
+                  )}
+                </Button>
+              </div>
             </div>
           </form>
         </CardContent>
