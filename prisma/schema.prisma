@@ -271,12 +271,20 @@ model HelpTicket {
   resolvedBy      User?    @relation(fields: [resolvedById], references: [id])
   resolvedById    String?
   resolvedAt      DateTime?
+  // New fields for role-based assignment
+  raisedByRole    String   @default("EMPLOYEE") // EMPLOYEE, MANAGER, MDO
+  managerId       String?  // Manager ID if employee is assigned to a manager
+  assignedToRole  String   @default("MDO") // MANAGER or MDO
+  assignedToId    String?  // ID of the assigned manager or MDO user
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   
   @@index([employeeId])
   @@index([status])
   @@index([createdAt])
+  @@index([assignedToRole])
+  @@index([assignedToId])
+  @@index([managerId])
 }
 
 model Session {

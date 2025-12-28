@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { useToast } from "@/hooks/use-toast";
 import {
   Select,
   SelectContent,
@@ -72,6 +73,11 @@ function getStatusBadge(status: string) {
       variant: "default",
       className: "bg-blue-100 text-blue-700 border-blue-200",
     },
+    pending: {
+      label: "Pending",
+      variant: "default",
+      className: "bg-slate-100 text-slate-700 border-slate-200",
+    },
     in_progress: {
       label: "In Progress",
       variant: "default",
@@ -82,6 +88,11 @@ function getStatusBadge(status: string) {
       variant: "default",
       className: "bg-green-100 text-green-700 border-green-200",
     },
+    dismissed: {
+      label: "Dismissed",
+      variant: "default",
+      className: "bg-red-100 text-red-700 border-red-200",
+    },
     closed: {
       label: "Closed",
       variant: "outline",
@@ -91,6 +102,15 @@ function getStatusBadge(status: string) {
   
   const config = statusConfig[status] || statusConfig.open;
   return <Badge className={config.className}>{config.label}</Badge>;
+}
+
+function getBorderColorClass(status: string): string {
+  if (status === "resolved") {
+    return "border-green-500 border-2";
+  } else if (status === "dismissed") {
+    return "border-red-500 border-2";
+  }
+  return "";
 }
 
 function getPriorityBadge(priority: string) {
@@ -107,10 +127,60 @@ function getPriorityBadge(priority: string) {
 
 function TicketCard({ ticket, isAdmin }: { ticket: HelpTicket; isAdmin: boolean }) {
   const [viewOpen, setViewOpen] = useState(false);
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { user } = useAuth();
+  
+  const canUpdate = user?.isSuperAdmin || 
+                    user?.loginType === "mdo" || 
+                    user?.isManager || false;
+  
+  const updateStatusMutation = useMutation({
+    mutationFn: async (newStatus: string) => {
+      const res = await fetch(`/api/help-tickets/${ticket.id}`, {
+        method: "PUT",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("gms_token")}`,
+        },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      const result = await res.json();
+      if (!res.ok || result.success === false) {
+        throw new Error(result.message || "Failed to update ticket status");
+      }
+      return result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/help-tickets"] });
+      toast({
+        title: "Ticket updated",
+        description: `Ticket status updated successfully`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Update failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+  
+  const handleResolve = () => {
+    updateStatusMutation.mutate("resolved");
+  };
+  
+  const handleDismiss = () => {
+    updateStatusMutation.mutate("dismissed");
+  };
+  
+  const borderClass = getBorderColorClass(ticket.status);
   
   return (
     <>
-      <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => setViewOpen(true)}>
+      <Card className={`hover:shadow-md transition-shadow cursor-pointer ${borderClass}`} onClick={() => setViewOpen(true)}>
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between gap-3">
             <div className="flex-1 min-w-0">
@@ -158,7 +228,7 @@ function TicketCard({ ticket, isAdmin }: { ticket: HelpTicket; isAdmin: boolean 
       </Card>
 
       <Dialog open={viewOpen} onOpenChange={setViewOpen}>
-        <DialogContent className="max-w-2xl bg-card border-border max-h-[90vh] overflow-y-auto">
+        <DialogContent className={`max-w-2xl bg-card max-h-[90vh] overflow-y-auto ${getBorderColorClass(ticket.status)}`}>
           <DialogHeader>
             <DialogTitle className="text-foreground">Ticket Details</DialogTitle>
             <DialogDescription>
@@ -229,6 +299,28 @@ function TicketCard({ ticket, isAdmin }: { ticket: HelpTicket; isAdmin: boolean 
                 </span>
               )}
             </div>
+
+            {canUpdate && ticket.status !== "resolved" && ticket.status !== "dismissed" && (
+              <div className="flex items-center gap-3 pt-4 border-t border-border">
+                <Button
+                  onClick={handleResolve}
+                  disabled={updateStatusMutation.isPending}
+                  className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                >
+                  <CheckCircle2 className="h-4 w-4 mr-2" />
+                  Resolve
+                </Button>
+                <Button
+                  onClick={handleDismiss}
+                  disabled={updateStatusMutation.isPending}
+                  variant="destructive"
+                  className="flex-1"
+                >
+                  <XCircle className="h-4 w-4 mr-2" />
+                  Dismiss
+                </Button>
+              </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>
@@ -252,7 +344,11 @@ export default function RequestsPage() {
       if (categoryFilter !== "all") params.set("category", categoryFilter);
       
       const res = await fetch(`/api/help-tickets?${params}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem("gms_token")}` },
+        credentials: "include",
+        headers: { 
+          Authorization: `Bearer ${localStorage.getItem("gms_token")}`,
+          "Content-Type": "application/json",
+        },
       });
       const result = await res.json();
       if (!res.ok || result.success === false) {
@@ -304,7 +400,11 @@ export default function RequestsPage() {
             Help Requests
           </h1>
           <p className="text-slate-500 mt-1">
-            View and manage help tickets
+            {user?.loginType === "mdo" 
+              ? "View help tickets raised by managers"
+              : user?.isManager 
+              ? "View help tickets from your team members"
+              : "View and manage your help tickets"}
           </p>
         </div>
         <Button
@@ -358,8 +458,10 @@ export default function RequestsPage() {
                 <SelectContent>
                   <SelectItem value="all">All Status</SelectItem>
                   <SelectItem value="open">Open</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
                   <SelectItem value="in_progress">In Progress</SelectItem>
                   <SelectItem value="resolved">Resolved</SelectItem>
+                  <SelectItem value="dismissed">Dismissed</SelectItem>
                   <SelectItem value="closed">Closed</SelectItem>
                 </SelectContent>
               </Select>

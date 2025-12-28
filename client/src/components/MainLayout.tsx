@@ -612,6 +612,11 @@ export default function MainLayout({ children }: MainLayoutProps) {
           return false;
         }
 
+        // Requests is ONLY for Managers and MDO (hide from regular employees)
+        if (item.label === "Requests") {
+          return managerStatus || isMDO;
+        }
+
         // Hide MDO-only items from members (unless they're managers)
         if (isEmployee && mdoOnlyItems.includes(item.label) && !managerStatus) {
           return false;
