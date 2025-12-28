@@ -27,7 +27,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, UserCheck, Plus, RefreshCw, Search, User, X, MoreVertical, Trash2, Users } from "lucide-react";
+import { Loader2, UserCheck, Plus, RefreshCw, Search, User, X, MoreVertical, Trash2, Users, Check } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { employeesApi, apiGet, apiDelete } from "@/lib/api";
 import TeamMembersPage from "./assigned-manager/team-members";
 import {
@@ -85,8 +86,7 @@ interface OrgUnit {
 }
 
 export default function AssignedManagerPage() {
-  const [mcardno, setMcardno] = useState("");
-  const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
+  const [selectedEmployees, setSelectedEmployees] = useState<Employee[]>([]);
   const [mdepartmentId, setMdepartmentId] = useState("");
   const [mdesignationId, setMdesignationId] = useState("");
   const [morgUnitId, setMorgUnitId] = useState("");
@@ -180,45 +180,58 @@ export default function AssignedManagerPage() {
 
   const managers = managersResponse?.data || [];
 
-  // Mutation for assigning manager
+  // Mutation for assigning manager (supports multiple employees)
   const assignManagerMutation = useMutation({
-    mutationFn: async (data: {
-      mcardno: string;
-      mdepartmentId?: string;
-      mdesignationId?: string;
-      morgUnitId?: string;
-    }) => {
-      const res = await fetch("/api/emp-manager", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("gms_token")}`,
-        },
-        body: JSON.stringify(data),
-      });
+    mutationFn: async (employees: Employee[]) => {
+      const results = [];
+      const errors = [];
       
-      // Check content type before parsing
-      const contentType = res.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) {
-        const text = await res.text();
-        throw new Error(`Server returned non-JSON response. Status: ${res.status}`);
+      for (const employee of employees) {
+        try {
+          const res = await fetch("/api/emp-manager", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${localStorage.getItem("gms_token")}`,
+            },
+            body: JSON.stringify({
+              mcardno: employee.cardNumber || "",
+              mdepartmentId: mdepartmentId || undefined,
+              mdesignationId: mdesignationId || undefined,
+              morgUnitId: morgUnitId || undefined,
+            }),
+          });
+          
+          const contentType = res.headers.get("content-type");
+          if (!contentType || !contentType.includes("application/json")) {
+            const text = await res.text();
+            throw new Error(`Server returned non-JSON response. Status: ${res.status}`);
+          }
+          
+          const result = await res.json();
+          if (!res.ok || !result.success) {
+            throw new Error(result.message || "Failed to assign manager");
+          }
+          results.push({ employee, success: true });
+        } catch (error: any) {
+          errors.push({ employee, error: error.message || "Failed to assign manager" });
+        }
       }
       
-      const result = await res.json();
-      if (!res.ok || !result.success) {
-        throw new Error(result.message || "Failed to assign manager");
+      if (errors.length > 0) {
+        throw new Error(`${errors.length} of ${employees.length} assignments failed`);
       }
-      return result;
+      
+      return results;
     },
-    onSuccess: () => {
+    onSuccess: (results, employees) => {
       toast({
         title: "Success",
-        description: "Manager assigned successfully",
+        description: `${employees.length} manager${employees.length > 1 ? 's' : ''} assigned successfully`,
       });
       queryClient.invalidateQueries({ queryKey: ["/api/emp-manager"] });
       // Reset form
-      setMcardno("");
-      setSelectedEmployee(null);
+      setSelectedEmployees([]);
       setMdepartmentId("");
       setMdesignationId("");
       setMorgUnitId("");
@@ -227,7 +240,7 @@ export default function AssignedManagerPage() {
     onError: (error: Error) => {
       toast({
         title: "Error",
-        description: error.message || "Failed to assign manager. Please try again.",
+        description: error.message || "Failed to assign managers. Please try again.",
         variant: "destructive",
       });
       setIsSubmitting(false);
@@ -302,29 +315,38 @@ export default function AssignedManagerPage() {
     }
   };
 
-  const handleSelectEmployee = (employee: Employee) => {
-    setSelectedEmployee(employee);
-    setMcardno(employee.cardNumber || "");
-    // Optionally pre-fill department, designation, org unit from employee
-    if (employee.department?.id) {
-      setMdepartmentId(employee.department.id);
-    }
-    if (employee.designation?.id) {
-      setMdesignationId(employee.designation.id);
-    }
-    if (employee.orgUnit?.id) {
-      setMorgUnitId(employee.orgUnit.id);
-    }
+  const handleToggleEmployee = (employee: Employee) => {
+    setSelectedEmployees(prev => {
+      const exists = prev.find(emp => emp.id === employee.id);
+      if (exists) {
+        // Remove employee
+        return prev.filter(emp => emp.id !== employee.id);
+      } else {
+        // Add employee
+        return [...prev, employee];
+      }
+    });
+  };
+
+  const handleRemoveEmployee = (employeeId: string) => {
+    setSelectedEmployees(prev => prev.filter(emp => emp.id !== employeeId));
+  };
+
+  const isEmployeeSelected = (employeeId: string) => {
+    return selectedEmployees.some(emp => emp.id === employeeId);
+  };
+
+  const handleCloseSearch = () => {
     setEmployeeSearchOpen(false);
     setEmployeeSearchTerm("");
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!mcardno.trim()) {
+    if (selectedEmployees.length === 0) {
       toast({
         title: "Validation Error",
-        description: "Please select an employee",
+        description: "Please select at least one employee",
         variant: "destructive",
       });
       return;
@@ -335,12 +357,7 @@ export default function AssignedManagerPage() {
     }
 
     setIsSubmitting(true);
-    assignManagerMutation.mutate({
-      mcardno: mcardno.trim(),
-      mdepartmentId: mdepartmentId || undefined,
-      mdesignationId: mdesignationId || undefined,
-      morgUnitId: morgUnitId || undefined,
-    });
+    assignManagerMutation.mutate(selectedEmployees);
   };
 
   // Get display names for IDs in the table (without shortforms)
@@ -403,7 +420,7 @@ export default function AssignedManagerPage() {
         <CardHeader>
           <CardTitle>Assign Manager</CardTitle>
           <CardDescription>
-            Select a member and choose their management scope (department, designation, or org unit)
+            Select one or more members and choose their management scope (department, designation, or org unit)
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -412,34 +429,41 @@ export default function AssignedManagerPage() {
               {/* Employee Selection */}
               <div className="space-y-2 md:col-span-2">
                 <Label htmlFor="employee">
-                  Select Member <span className="text-red-500">*</span>
+                  Select Members <span className="text-red-500">*</span>
                 </Label>
-                {selectedEmployee ? (
-                  <div className="flex items-center gap-3 p-3 border rounded-lg bg-slate-50">
-                    <div className="h-10 w-10 rounded-full bg-indigo-500 flex items-center justify-center text-white font-semibold">
-                      {selectedEmployee.firstName.charAt(0).toUpperCase()}
-                    </div>
-                    <div className="flex-1">
-                      <p className="font-medium text-slate-800">
-                        {selectedEmployee.firstName} {selectedEmployee.lastName || ""}
-                      </p>
-                      <p className="text-sm text-slate-500 font-mono">
-                        Card: {selectedEmployee.cardNumber || "N/A"}
-                      </p>
-                    </div>
+                {selectedEmployees.length > 0 ? (
+                  <div className="space-y-2">
+                    {selectedEmployees.map((employee) => (
+                      <div key={employee.id} className="flex items-center gap-3 p-3 border rounded-lg bg-slate-50">
+                        <div className="h-10 w-10 rounded-full bg-indigo-500 flex items-center justify-center text-white font-semibold">
+                          {employee.firstName.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-medium text-slate-800">
+                            {employee.firstName} {employee.lastName || ""}
+                          </p>
+                          <p className="text-sm text-slate-500 font-mono">
+                            Card: {employee.cardNumber || "N/A"}
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleRemoveEmployee(employee.id)}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
                     <Button
                       type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        setSelectedEmployee(null);
-                        setMcardno("");
-                        setMdepartmentId("");
-                        setMdesignationId("");
-                        setMorgUnitId("");
-                      }}
+                      variant="outline"
+                      className="w-full justify-start"
+                      onClick={() => setEmployeeSearchOpen(true)}
                     >
-                      <X className="h-4 w-4" />
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add more members...
                     </Button>
                   </div>
                 ) : (
@@ -450,7 +474,7 @@ export default function AssignedManagerPage() {
                     onClick={() => setEmployeeSearchOpen(true)}
                   >
                     <Search className="h-4 w-4 mr-2" />
-                    Search and select member...
+                    Search and select members...
                   </Button>
                 )}
               </div>
@@ -513,18 +537,18 @@ export default function AssignedManagerPage() {
             <div className="flex gap-2">
               <Button
                 type="submit"
-                disabled={isSubmitting || assignManagerMutation.isPending || !selectedEmployee}
+                disabled={isSubmitting || assignManagerMutation.isPending || selectedEmployees.length === 0}
                 className="bg-indigo-600 hover:bg-indigo-700"
               >
                 {(isSubmitting || assignManagerMutation.isPending) ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Assigning...
+                    Assigning {selectedEmployees.length} manager{selectedEmployees.length > 1 ? 's' : ''}...
                   </>
                 ) : (
                   <>
                     <Plus className="h-4 w-4 mr-2" />
-                    Assign Manager
+                    Assign {selectedEmployees.length > 0 ? `${selectedEmployees.length} ` : ''}Manager{selectedEmployees.length > 1 ? 's' : ''}
                   </>
                 )}
               </Button>
@@ -534,12 +558,12 @@ export default function AssignedManagerPage() {
       </Card>
 
       {/* Employee Search Dialog */}
-      <Dialog open={employeeSearchOpen} onOpenChange={setEmployeeSearchOpen}>
+      <Dialog open={employeeSearchOpen} onOpenChange={handleCloseSearch}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Search and Select Member</DialogTitle>
+            <DialogTitle>Search and Select Members</DialogTitle>
             <DialogDescription>
-              Search by card number, name, or phone number
+              Search by card number, name, or phone number. Select multiple members.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -553,6 +577,12 @@ export default function AssignedManagerPage() {
                 autoFocus
               />
             </div>
+            {selectedEmployees.length > 0 && (
+              <div className="flex items-center gap-2 text-sm text-indigo-600 bg-indigo-50 p-2 rounded-lg">
+                <Check className="h-4 w-4" />
+                <span>{selectedEmployees.length} member{selectedEmployees.length > 1 ? 's' : ''} selected</span>
+              </div>
+            )}
             <div className="max-h-[400px] overflow-y-auto border rounded-lg">
               {searchingEmployees ? (
                 <div className="flex items-center justify-center py-8">
@@ -564,45 +594,65 @@ export default function AssignedManagerPage() {
                 </div>
               ) : (
                 <div className="divide-y">
-                  {employees.map((employee: any) => (
-                    <button
-                      key={employee.id}
-                      type="button"
-                      onClick={() => handleSelectEmployee(employee)}
-                      className="w-full p-3 text-left hover:bg-slate-50 transition-colors flex items-center gap-3"
-                    >
-                      <div className="h-10 w-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-semibold">
-                        {employee.firstName.charAt(0).toUpperCase()}
-                      </div>
-                      <div className="flex-1">
-                        <p className="font-medium text-slate-800">
-                          {employee.firstName} {employee.lastName || ""}
-                        </p>
-                        <div className="flex items-center gap-3 text-sm text-slate-500">
-                          {employee.cardNumber && (
-                            <span className="font-mono">Card: {employee.cardNumber}</span>
-                          )}
-                          {employee.phone && <span>Phone: {employee.phone}</span>}
+                  {employees.map((employee: any) => {
+                    const isSelected = isEmployeeSelected(employee.id);
+                    return (
+                      <button
+                        key={employee.id}
+                        type="button"
+                        onClick={() => handleToggleEmployee(employee)}
+                        className="w-full p-3 text-left hover:bg-slate-50 transition-colors flex items-center gap-3"
+                      >
+                        <div className="flex items-center">
+                          <Checkbox
+                            checked={isSelected}
+                            onCheckedChange={() => handleToggleEmployee(employee)}
+                            className="mr-2"
+                          />
                         </div>
-                        {(employee.department || employee.designation || employee.orgUnit) && (
-                          <div className="flex items-center gap-2 mt-1 text-xs text-slate-400">
-                            {employee.department && (
-                              <span>Dept: {employee.department.name}</span>
+                        <div className="h-10 w-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-semibold">
+                          {employee.firstName.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-medium text-slate-800">
+                            {employee.firstName} {employee.lastName || ""}
+                          </p>
+                          <div className="flex items-center gap-3 text-sm text-slate-500">
+                            {employee.cardNumber && (
+                              <span className="font-mono">Card: {employee.cardNumber}</span>
                             )}
-                            {employee.designation && (
-                              <span>Desig: {employee.designation.name}</span>
-                            )}
-                            {employee.orgUnit && (
-                              <span>Unit: {employee.orgUnit.name}</span>
-                            )}
+                            {employee.phone && <span>Phone: {employee.phone}</span>}
                           </div>
+                          {(employee.department || employee.designation || employee.orgUnit) && (
+                            <div className="flex items-center gap-2 mt-1 text-xs text-slate-400">
+                              {employee.department && (
+                                <span>Dept: {employee.department.name}</span>
+                              )}
+                              {employee.designation && (
+                                <span>Desig: {employee.designation.name}</span>
+                              )}
+                              {employee.orgUnit && (
+                                <span>Unit: {employee.orgUnit.name}</span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        {isSelected && (
+                          <Check className="h-5 w-5 text-indigo-600" />
                         )}
-                      </div>
-                      <User className="h-5 w-5 text-slate-400" />
-                    </button>
-                  ))}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={handleCloseSearch}>
+                Cancel
+              </Button>
+              <Button onClick={handleCloseSearch}>
+                Done ({selectedEmployees.length})
+              </Button>
             </div>
           </div>
         </DialogContent>
