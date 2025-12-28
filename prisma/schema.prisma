@@ -45,6 +45,7 @@ model User {
   auditLogs     AuditLog[]
   tasksCreated  Task[]
   announcements Announcement[]
+  helpTicketsResolved HelpTicket[]
   settings      UserSettings?
 }
 
@@ -126,6 +127,7 @@ model Employee {
   tasks           Task[]
   announcements   Announcement[] @relation("AnnouncementRecipients")
   claims          Claim[]
+  helpTickets     HelpTicket[]
 
   @@index([orgUnitId])
   @@index([departmentId])
@@ -253,6 +255,28 @@ model ClaimAttachment {
   claimId  String
   url      String
   name     String?
+}
+
+model HelpTicket {
+  id              String   @id @default(uuid())
+  employee        Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  employeeId      String
+  subject         String
+  description     String
+  category        String   @default("attendance") // attendance, general, technical, etc.
+  status          String   @default("open") // open, in_progress, resolved, closed
+  priority        String   @default("medium") // low, medium, high, urgent
+  relatedData     Json?    // Store related attendance/work log data
+  response        String?
+  resolvedBy      User?    @relation(fields: [resolvedById], references: [id])
+  resolvedById    String?
+  resolvedAt      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@index([employeeId])
+  @@index([status])
+  @@index([createdAt])
 }
 
 model Session {

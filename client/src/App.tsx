@@ -44,6 +44,7 @@ const SalesStaffPage = lazy(() => import("@/pages/sales-staff"));
 const AssignedManagerPage = lazy(() => import("@/pages/assigned-manager"));
 const TeamTaskHistoryPage = lazy(() => import("@/pages/manager/team-task-history"));
 const TeamSalesStaffPage = lazy(() => import("@/pages/manager/team-sales-staff"));
+const RequestsPage = lazy(() => import("@/pages/requests/index"));
 
 // Loading spinner component for Suspense fallback
 function PageLoader() {
@@ -211,6 +212,7 @@ function AuthenticatedRoutes() {
           {/* Manager Team Routes */}
           <Route path="/manager/team-task-history" component={TeamTaskHistoryPage} />
           <Route path="/manager/team-sales-staff" component={TeamSalesStaffPage} />
+            <Route path="/requests" component={RequestsPage} />
           
           {isMDO && <Route path="/settings" component={SettingsPage} />}
           <Route path="/admin/routing" component={ApiRoutingPage} />

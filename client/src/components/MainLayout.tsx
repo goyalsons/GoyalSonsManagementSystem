@@ -35,7 +35,8 @@ import {
   X,
   Sun,
   Moon,
-  UserCheck
+  UserCheck,
+  HelpCircle
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
@@ -141,6 +142,7 @@ const navItems: NavItem[] = [
     ]
   },
   { href: "/training", icon: GraduationCap, label: "Training", policy: null },
+  { href: "/requests", icon: HelpCircle, label: "Requests", policy: null },
   { href: "/settings", icon: Settings, label: "Settings", policy: null },
   // Standalone Sales Staff for employees (hidden for MDO who see it under Targets)
   { href: "/sales-staff", icon: BarChart3, label: "Sales Staff", policy: null },
@@ -643,18 +645,13 @@ export default function MainLayout({ children }: MainLayoutProps) {
         }
         
         // For members: show only Task History from Work Log section (hide My Work Log, Today Work Log, Fill Work Log)
-        // BUT managers (who are employees) can see all Work Log items to view their own attendance
+        // Managers (who are employees) should see only Task History in Work Log menu
         if (isEmployee && item.label === "Work Log") {
-          if (managerStatus) {
-            // Managers can see all Work Log items (their own attendance)
-            return item;
-          } else {
-            // Regular employees: only Task History
+          // Always show only Task History for managers (they have separate Team Task History menu)
             return { 
               ...item, 
               subItems: item.subItems.filter(sub => sub.label === "Task History") 
             };
-          }
         }
         
         // Sales Staff is visible to all members in Members section

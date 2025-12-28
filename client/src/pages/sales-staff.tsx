@@ -8,11 +8,18 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useAuth } from "@/lib/auth-context";
 import { 
   Search, TrendingUp, TrendingDown, Calendar, 
   User, BarChart3, Store, Hash, Loader2,
-  AlertCircle, Table2, Users, RefreshCw
+  AlertCircle, Table2, Users, RefreshCw, Filter
 } from "lucide-react";
 import { format } from "date-fns";
 import SalesExcelPivotTable, { type SalesDataRow } from "@/components/SalesExcelPivotTable";
@@ -53,6 +60,7 @@ interface SummaryData {
     to: string | null;
   };
   selectedSmno: string | null;
+  lastRefreshTime: string | null;
 }
 
 interface PivotApiResponse {
@@ -353,6 +361,8 @@ export default function SalesStaffPage() {
   const [selectedSmno, setSelectedSmno] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<string>("staff");
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [filterUnit, setFilterUnit] = useState<string | null>(null);
+  const [filterDivision, setFilterDivision] = useState<string | null>(null);
 
   // Auto-load employee's own data
   useEffect(() => {
@@ -402,18 +412,43 @@ export default function SalesStaffPage() {
   // Extract pivot data or use empty array
   const pivotData: SalesDataRow[] = pivotResponse?.success ? (pivotResponse.data || []) : [];
 
-  // Filter cards based on search query
+  // Extract available units and divisions from cards data
+  const availableUnits = useMemo(() => {
+    if (!data?.cards) return [];
+    const units = new Set<string>();
+    data.cards.forEach(card => {
+      if (card.unit) units.add(card.unit);
+    });
+    return Array.from(units).sort();
+  }, [data?.cards]);
+
+  // Filter cards based on search query, unit, and division
   const filteredCards = useMemo(() => {
     if (!data?.cards) return [];
-    if (!searchQuery.trim()) return data.cards;
     
-    const query = searchQuery.toLowerCase().trim();
-    return data.cards.filter(card => 
-      card.smno.toLowerCase().includes(query) ||
-      card.name.toLowerCase().includes(query) ||
-      (card.unit && card.unit.toLowerCase().includes(query))
-    );
-  }, [data?.cards, searchQuery]);
+    let filtered = data.cards;
+    
+    // Apply search query filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      filtered = filtered.filter(card => 
+        card.smno.toLowerCase().includes(query) ||
+        card.name.toLowerCase().includes(query) ||
+        (card.unit && card.unit.toLowerCase().includes(query))
+      );
+    }
+    
+    // Apply unit filter
+    if (filterUnit) {
+      filtered = filtered.filter(card => card.unit === filterUnit);
+    }
+    
+    // Note: Division filtering would require division data in cards, 
+    // which may not be available in the current API response
+    // For now, we'll just apply unit filter
+    
+    return filtered;
+  }, [data?.cards, searchQuery, filterUnit]);
 
   const summaryTotals = useMemo(() => {
     return filteredCards.reduce(
@@ -536,6 +571,12 @@ export default function SalesStaffPage() {
               : "View and analyze staff sales performance"
             }
           </p>
+          {data?.lastRefreshTime && (
+            <p className="text-xs text-slate-400 mt-1 flex items-center gap-1">
+              <Calendar className="h-3 w-3" />
+              Last Refresh: {format(new Date(data.lastRefreshTime), "dd MMM yyyy, hh:mm a")}
+            </p>
+          )}
         </div>
         <Button
           onClick={handleRefresh}
@@ -613,6 +654,43 @@ export default function SalesStaffPage() {
                     </Button>
                   </div>
                 )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Filters - Unit and Division */}
+          {!isEmployee && availableUnits.length > 0 && (
+            <Card className="border-slate-200 bg-white shadow-sm">
+              <CardContent className="pt-6">
+                <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
+                  <div className="flex items-center gap-2">
+                    <Filter className="h-4 w-4 text-slate-500" />
+                    <span className="text-sm font-medium text-slate-700">Filters:</span>
+                  </div>
+                  
+                  {/* Unit Filter */}
+                  <div className="flex items-center gap-2">
+                    <Label htmlFor="unit-filter" className="text-sm text-slate-600">
+                      Unit:
+                    </Label>
+                    <Select 
+                      value={filterUnit || "all"} 
+                      onValueChange={(value) => setFilterUnit(value === "all" ? null : value)}
+                    >
+                      <SelectTrigger id="unit-filter" className="w-[140px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Units</SelectItem>
+                        {availableUnits.map((unit) => (
+                          <SelectItem key={unit} value={unit}>
+                            {unit}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
               </CardContent>
             </Card>
           )}

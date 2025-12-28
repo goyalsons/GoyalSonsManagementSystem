@@ -154,6 +154,7 @@ async function syncApiSource(routeId: string): Promise<void> {
         clearTodayAttendanceCache();
         clearAttendanceCache();
 
+        try {
         await prisma.dataImportLog.update({
           where: { id: importLog.id },
           data: {
@@ -165,7 +166,11 @@ async function syncApiSource(routeId: string): Promise<void> {
             metadata: { skipped: result.skipped, dataType: "attendance" },
           },
         });
+        } catch (dbError: any) {
+          console.error(`[Auto-Sync] [${route.name}] Failed to update import log (database unreachable):`, dbError.message);
+        }
 
+        try {
         await prisma.apiRouting.update({
           where: { id: routeId },
           data: { 
@@ -173,6 +178,9 @@ async function syncApiSource(routeId: string): Promise<void> {
             lastSyncStatus: failed > 0 ? "partial" : "completed",
           },
         });
+        } catch (dbError: any) {
+          console.error(`[Auto-Sync] [${route.name}] Failed to update route status (database unreachable):`, dbError.message);
+        }
         
         return;
       }
@@ -351,6 +359,7 @@ async function syncApiSource(routeId: string): Promise<void> {
       const duration = Math.round((Date.now() - startTime.getTime()) / 1000);
       console.log(`[Auto-Sync] [${route.name}] Complete: ${imported} imported, ${failed} failed in ${duration}s`);
 
+      try {
       await prisma.dataImportLog.update({
         where: { id: importLog.id },
         data: {
@@ -361,7 +370,11 @@ async function syncApiSource(routeId: string): Promise<void> {
           completedAt: new Date(),
         },
       });
+      } catch (dbError: any) {
+        console.error(`[Auto-Sync] [${route.name}] Failed to update import log (database unreachable):`, dbError.message);
+      }
 
+      try {
       await prisma.apiRouting.update({
         where: { id: routeId },
         data: { 
@@ -369,6 +382,9 @@ async function syncApiSource(routeId: string): Promise<void> {
           lastSyncStatus: failed > 0 ? "partial" : "completed",
         },
       });
+      } catch (dbError: any) {
+        console.error(`[Auto-Sync] [${route.name}] Failed to update route status (database unreachable):`, dbError.message);
+      }
     } catch (fetchError: any) {
       const errorMessage = fetchError.name === 'AbortError' 
         ? 'Request timed out'
@@ -376,6 +392,7 @@ async function syncApiSource(routeId: string): Promise<void> {
       
       console.error(`[Auto-Sync] [${route.name}] Error: ${errorMessage}`);
       
+      try {
       await prisma.dataImportLog.update({
         where: { id: importLog.id },
         data: {
@@ -384,7 +401,12 @@ async function syncApiSource(routeId: string): Promise<void> {
           completedAt: new Date(),
         },
       });
+      } catch (dbError: any) {
+        console.error(`[Auto-Sync] [${route.name}] Failed to log error (database unreachable):`, dbError.message);
+        // Don't throw - we've already logged the error to console
+      }
 
+      try {
       await prisma.apiRouting.update({
         where: { id: routeId },
         data: { 
@@ -392,6 +414,10 @@ async function syncApiSource(routeId: string): Promise<void> {
           lastSyncStatus: "failed",
         },
       });
+      } catch (dbError: any) {
+        console.error(`[Auto-Sync] [${route.name}] Failed to update route status (database unreachable):`, dbError.message);
+        // Don't throw - we've already logged the error to console
+      }
     }
   } catch (error) {
     console.error(`[Auto-Sync] Fatal error for route ${routeId}:`, error);

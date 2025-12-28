@@ -17,6 +17,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { 
@@ -28,9 +29,11 @@ import {
   CheckCircle2,
   XCircle,
   MinusCircle,
-  Loader2
+  Loader2,
+  HelpCircle
 } from "lucide-react";
 import { apiGet } from "@/lib/api";
+import { HelpTicketForm } from "@/components/HelpTicketForm";
 
 interface AttendanceRecord {
   card_no: string;
@@ -118,9 +121,9 @@ function getStatusStyle(status: string): StatusStyle {
     return { bgColor: "#10b981", dots: [{ color: "#3b82f6", count: 1 }] };
   }
   
-  // PRESENT LATE EARLY_OUT - Green with blue dot (combined)
+  // PRESENT LATE EARLY_OUT - Green with 2 dots (white for LATE, blue for EARLY_OUT)
   if (s === "PRESENT LATE EARLY_OUT" || s === "PRESENT L") {
-    return { bgColor: "#10b981", dots: [{ color: "#3b82f6", count: 1 }] };
+    return { bgColor: "#10b981", dots: [{ color: "#ffffff", count: 1 }, { color: "#3b82f6", count: 1 }] };
   }
   
   // HALFDAY / HALF DAY - Yellow, NO dots
@@ -155,7 +158,7 @@ function getStatusStyle(status: string): StatusStyle {
   
   // Fallback patterns based on BigQuery STATUS content
   if (s.includes("PRESENT") && s.includes("LATE") && s.includes("EARLY")) {
-    return { bgColor: "#10b981", dots: [{ color: "#3b82f6", count: 1 }] };
+    return { bgColor: "#10b981", dots: [{ color: "#ffffff", count: 1 }, { color: "#3b82f6", count: 1 }] };
   }
   if (s.includes("PRESENT") && s.includes("LATE")) {
     return { bgColor: "#10b981", dots: [{ color: "#ffffff", count: 1 }] };
@@ -220,6 +223,7 @@ export default function AttendanceHistoryPage() {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedRecord, setSelectedRecord] = useState<AttendanceRecord | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [helpTicketOpen, setHelpTicketOpen] = useState(false);
 
   // Auto-load employee's own data on mount
   useEffect(() => {
@@ -292,12 +296,43 @@ export default function AttendanceHistoryPage() {
     return cells;
   }, [selectedMonth, selectedYear, recordsByDate]);
 
-  const handlePrevMonth = () => {
+  // Minimum date: October 2025 (month index 9, since months are 0-indexed)
+  const minDate = new Date(2025, 9, 1); // October is month 9 (0-indexed)
+  minDate.setHours(0, 0, 0, 0); // Normalize to start of day
+  
+  const isMinDate = useMemo(() => {
+    // Check if going to previous month would be before minimum date
+    let prevMonth: number;
+    let prevYear: number;
+    
     if (selectedMonth === 0) {
-      setSelectedMonth(11);
-      setSelectedYear(selectedYear - 1);
+      prevMonth = 11;
+      prevYear = selectedYear - 1;
     } else {
-      setSelectedMonth(selectedMonth - 1);
+      prevMonth = selectedMonth - 1;
+      prevYear = selectedYear;
+    }
+    
+    const prevDate = new Date(prevYear, prevMonth, 1);
+    prevDate.setHours(0, 0, 0, 0);
+    // Disable if previous month would be before October 2025
+    return prevDate < minDate;
+  }, [selectedMonth, selectedYear]);
+
+  const handlePrevMonth = () => {
+    if (isMinDate) return; // Don't allow navigation before minimum date
+    
+    if (selectedMonth === 0) {
+      const newYear = selectedYear - 1;
+      const newDate = new Date(newYear, 11, 1); // December of previous year
+      if (newDate <= minDate) return; // Check if we'd go below minimum
+      setSelectedMonth(11);
+      setSelectedYear(newYear);
+    } else {
+      const newMonth = selectedMonth - 1;
+      const newDate = new Date(selectedYear, newMonth, 1);
+      if (newDate <= minDate) return; // Check if we'd go below minimum
+      setSelectedMonth(newMonth);
     }
   };
 
@@ -387,23 +422,54 @@ export default function AttendanceHistoryPage() {
               <div className="flex gap-2">
                 <div className="flex-1 sm:flex-none">
                   <Label className="text-sm text-muted-foreground">Month</Label>
-                  <Select value={String(selectedMonth)} onValueChange={(v) => setSelectedMonth(Number(v))}>
+                  <Select 
+                    value={String(selectedMonth)} 
+                    onValueChange={(v) => {
+                      const monthIndex = Number(v);
+                      const newDate = new Date(selectedYear, monthIndex, 1);
+                      newDate.setHours(0, 0, 0, 0);
+                      if (newDate >= minDate) {
+                        setSelectedMonth(monthIndex);
+                      }
+                    }}
+                  >
                     <SelectTrigger className="w-full sm:w-32 mt-1 bg-background">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {MONTHS.map((month, index) => (
-                        <SelectItem key={month} value={String(index)}>
+                      {MONTHS.map((month, index) => {
+                        const monthDate = new Date(selectedYear, index, 1);
+                        monthDate.setHours(0, 0, 0, 0);
+                        const isDisabled = monthDate < minDate;
+                        return (
+                          <SelectItem key={month} value={String(index)} disabled={isDisabled}>
                           {month}
                         </SelectItem>
-                      ))}
+                        );
+                      })}
                     </SelectContent>
                   </Select>
                 </div>
 
                 <div className="flex-1 sm:flex-none">
                   <Label className="text-sm text-muted-foreground">Year</Label>
-                  <Select value={String(selectedYear)} onValueChange={(v) => setSelectedYear(Number(v))}>
+                  <Select 
+                    value={String(selectedYear)} 
+                    onValueChange={(v) => {
+                      const newYear = Number(v);
+                      const newDate = new Date(newYear, selectedMonth, 1);
+                      newDate.setHours(0, 0, 0, 0);
+                      if (newDate >= minDate) {
+                        setSelectedYear(newYear);
+                      } else {
+                        // If selected month would be before min date, set to October (month 9)
+                        setSelectedYear(newYear);
+                        if (newYear === 2025) {
+                          setSelectedMonth(9); // October
+                        }
+                      }
+                    }}
+                  >
                     <SelectTrigger className="w-full sm:w-24 mt-1 bg-background">
                       <SelectValue />
                     </SelectTrigger>
@@ -486,7 +552,13 @@ export default function AttendanceHistoryPage() {
                   <Calendar className="h-4 w-4" /> Calendar View
                 </CardTitle>
                 <div className="flex items-center justify-between sm:justify-end gap-2">
-                  <Button variant="outline" size="icon" onClick={handlePrevMonth} className="h-8 w-8">
+                  <Button 
+                    variant="outline" 
+                    size="icon" 
+                    onClick={handlePrevMonth} 
+                    disabled={isMinDate}
+                    className="h-8 w-8"
+                  >
                     <ChevronLeft className="h-4 w-4" />
                   </Button>
                   <span className="font-medium text-foreground min-w-[120px] text-center text-sm">
@@ -643,6 +715,9 @@ export default function AttendanceHistoryPage() {
         <DialogContent className="max-w-md bg-card border-border">
           <DialogHeader>
             <DialogTitle className="text-foreground">Work Log Details</DialogTitle>
+            <DialogDescription>
+              View detailed information about this attendance record.
+            </DialogDescription>
           </DialogHeader>
           {selectedRecord && (
             <div className="space-y-4">
@@ -675,28 +750,92 @@ export default function AttendanceHistoryPage() {
                     <div className="font-medium text-sm text-foreground">{selectedRecord.CORRECTION_REASON}</div>
                   </div>
                 )}
-                <div>
-                  <span className="text-muted-foreground">In Time:</span>
-                  <div className="font-medium text-foreground font-mono">
-                    {(() => {
-                      const status = (selectedRecord.STATUS || "").toUpperCase().trim();
-                      return (status === "ABSENT" || status === "DOUBLE ABSENT" || status === "DOUBLE A" || status.includes("DOUBLE"))
-                        ? "--:--"
-                        : (selectedRecord.t_in || selectedRecord.result_t_in || "--:--");
-                    })()}
-                  </div>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Out Time:</span>
-                  <div className="font-medium text-foreground font-mono">
-                    {(() => {
-                      const status = (selectedRecord.STATUS || "").toUpperCase().trim();
-                      return (status === "ABSENT" || status === "DOUBLE ABSENT" || status === "DOUBLE A" || status.includes("DOUBLE"))
-                        ? "--:--"
-                        : (selectedRecord.t_out || selectedRecord.result_t_out || "--:--");
-                    })()}
-                  </div>
-                </div>
+                {(() => {
+                  const status = (selectedRecord.STATUS || "").toUpperCase().trim();
+                  const remarks = (selectedRecord.status_remarks || "").toUpperCase().trim();
+                  
+                  // Hide both fields for ABSENT/DOUBLE ABSENT
+                  const shouldHideBoth = status === "ABSENT" || status === "DOUBLE ABSENT" || status === "DOUBLE A" || status.includes("DOUBLE");
+                  
+                  if (shouldHideBoth) {
+                    return null;
+                  }
+                  
+                  // Check for PRESENT LATE EARLY_OUT first (show both In Time and Out Time)
+                  const isPresentLateEarlyOut = status === "PRESENT LATE EARLY_OUT" || status === "PRESENT L" ||
+                                                (status.includes("PRESENT") && status.includes("LATE") && status.includes("EARLY"));
+                  
+                  if (isPresentLateEarlyOut) {
+                    return (
+                      <>
+                        <div>
+                          <span className="text-muted-foreground">In Time:</span>
+                          <div className="font-medium text-foreground font-mono">
+                            {selectedRecord.t_in || selectedRecord.result_t_in || "--:--"}
+                          </div>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Out Time:</span>
+                          <div className="font-medium text-foreground font-mono">
+                            {selectedRecord.t_out || selectedRecord.result_t_out || "--:--"}
+                          </div>
+                        </div>
+                      </>
+                    );
+                  }
+                  
+                  // Check for PRESENT LATE (show only In Time, hide Out Time)
+                  const isPresentLate = status === "PRESENT LATE" || (status.includes("PRESENT") && status.includes("LATE") && !status.includes("EARLY"));
+                  
+                  if (isPresentLate) {
+                    return (
+                      <div>
+                        <span className="text-muted-foreground">In Time:</span>
+                        <div className="font-medium text-foreground font-mono">
+                          {selectedRecord.t_in || selectedRecord.result_t_in || "--:--"}
+                        </div>
+                      </div>
+                    );
+                  }
+                  
+                  // Check for PRESENT EARLY_OUT (show only Out Time, hide In Time)
+                  const isPresentEarlyOut = status === "PRESENT EARLY_OUT" || status === "PRESENT E" || 
+                                           (status.includes("PRESENT") && status.includes("EARLY") && !status.includes("LATE"));
+                  
+                  if (isPresentEarlyOut) {
+                    return (
+                      <div>
+                        <span className="text-muted-foreground">Out Time:</span>
+                        <div className="font-medium text-foreground font-mono">
+                          {selectedRecord.t_out || selectedRecord.result_t_out || "--:--"}
+                        </div>
+                      </div>
+                    );
+                  }
+                  
+                  // Hide both fields for plain PRESENT (including MARKED PRESENT in remarks)
+                  if (status === "PRESENT" || status.includes("MARKED PRESENT") || remarks.includes("MARKED PRESENT")) {
+                    return null;
+                  }
+                  
+                  // For all other statuses, show both
+                  return (
+                    <>
+                      <div>
+                        <span className="text-muted-foreground">In Time:</span>
+                        <div className="font-medium text-foreground font-mono">
+                          {selectedRecord.t_in || selectedRecord.result_t_in || "--:--"}
+                        </div>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Out Time:</span>
+                        <div className="font-medium text-foreground font-mono">
+                          {selectedRecord.t_out || selectedRecord.result_t_out || "--:--"}
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
                 <div>
                   <span className="text-muted-foreground">Branch:</span>
                   <div className="font-medium text-foreground">{selectedRecord.branch_code}</div>
@@ -706,10 +845,36 @@ export default function AttendanceHistoryPage() {
                   <div className="font-medium text-foreground">{selectedRecord.entry_type || "-"}</div>
                 </div>
               </div>
+              <div className="pt-4 border-t border-border">
+                <Button
+                  onClick={() => setHelpTicketOpen(true)}
+                  variant="outline"
+                  className="w-full"
+                >
+                  <HelpCircle className="h-4 w-4 mr-2" />
+                  Raise Help Ticket
+                </Button>
+              </div>
             </div>
           )}
         </DialogContent>
       </Dialog>
+      
+      <HelpTicketForm
+        open={helpTicketOpen}
+        onOpenChange={setHelpTicketOpen}
+        relatedData={selectedRecord ? {
+          date: selectedRecord.dt,
+          status: selectedRecord.STATUS,
+          remarks: selectedRecord.status_remarks,
+          inTime: selectedRecord.t_in || selectedRecord.result_t_in,
+          outTime: selectedRecord.t_out || selectedRecord.result_t_out,
+          branch: selectedRecord.branch_code,
+          entryType: selectedRecord.entry_type,
+          correctionReason: selectedRecord.CORRECTION_REASON,
+        } : undefined}
+        defaultSubject={selectedRecord ? `Attendance Issue - ${selectedRecord.dt} (${selectedRecord.STATUS})` : ""}
+      />
     </div>
   );
 }

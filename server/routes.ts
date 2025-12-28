@@ -1120,7 +1120,7 @@ export async function registerRoutes(
 
       let { cardNo } = req.params;
       const { month } = req.query;
-      
+
       // Normalize requested card number
       const normalizedRequestedCard = String(cardNo).trim();
 
@@ -2193,7 +2193,31 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Employee code is required" });
       }
 
-      const employee = await prisma.employee.findFirst({
+      // Retry logic for database connection issues
+      let employee = null;
+      const maxRetries = 3;
+      let lastError: any = null;
+
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          // Ensure database connection is alive before query
+          try {
+            await prisma.$queryRaw`SELECT 1`;
+          } catch (connectionError: any) {
+            console.warn(`[Employee Lookup] Connection check failed (attempt ${attempt}), attempting reconnect...`, connectionError.message);
+            // Prisma will automatically reconnect on next query, but we can force it
+            try {
+              await prisma.$disconnect().catch(() => {});
+            } catch (disconnectError) {
+              // Ignore disconnect errors
+            }
+            // Wait a moment before retrying
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            // Test connection again
+            await prisma.$queryRaw`SELECT 1`;
+          }
+
+          employee = await prisma.employee.findFirst({
         where: {
           OR: [
             { cardNumber: employeeCode },
@@ -2201,6 +2225,22 @@ export async function registerRoutes(
           ],
         },
       });
+          break; // Success, exit retry loop
+        } catch (error: any) {
+          lastError = error;
+          if (error.code === 'P1017' && attempt < maxRetries) {
+            // Database connection closed, wait and retry
+            console.warn(`[Employee Lookup] Database connection error (attempt ${attempt}/${maxRetries}), retrying...`, error.message);
+            await new Promise(resolve => setTimeout(resolve, 1000 * attempt)); // Exponential backoff
+            continue;
+          }
+          throw error; // Re-throw if not connection error or max retries reached
+        }
+      }
+
+      if (!employee && lastError) {
+        throw lastError;
+      }
 
       if (!employee) {
         return res.status(404).json({ message: "Employee not found. Please check your employee code." });
@@ -3959,6 +3999,7 @@ export async function registerRoutes(
         NETSALE: r.netSale.toString(),
         netSale: r.netSale.toString(),
         updon: r.updon,
+        updatedAt: r.updatedAt, // Include updatedAt for last refresh time calculation
       }));
     } catch (error: any) {
       console.error('[Sales Staff Summary] Error reading from database:', error);
@@ -4108,19 +4149,71 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
   // Parse date like "10-NOV-2025" to Date object
   function parseBillDate(dateStr: string): Date | null {
     if (!dateStr) return null;
+    
+    // If it's already a Date object, return it normalized
+    if (dateStr instanceof Date) {
+      const d = new Date(dateStr);
+      d.setHours(0, 0, 0, 0);
+      return d;
+    }
+    
+    // Try parsing as ISO date string first
+    if (dateStr.includes('T') || dateStr.match(/^\d{4}-\d{2}-\d{2}/)) {
+      try {
+        const d = new Date(dateStr);
+        if (!isNaN(d.getTime())) {
+          d.setHours(0, 0, 0, 0);
+          return d;
+        }
+      } catch (e) {
+        // Continue to try other formats
+      }
+    }
+    
+    // Try parsing as "DD-MON-YYYY" format
     const months: Record<string, number> = {
       'JAN': 0, 'FEB': 1, 'MAR': 2, 'APR': 3, 'MAY': 4, 'JUN': 5,
       'JUL': 6, 'AUG': 7, 'SEP': 8, 'OCT': 9, 'NOV': 10, 'DEC': 11
     };
     const parts = dateStr.split('-');
-    if (parts.length !== 3) return null;
-    const day = parseInt(parts[0]);
-    const month = months[parts[1]?.toUpperCase()];
-    const year = parseInt(parts[2]);
-    if (isNaN(day) || month === undefined || isNaN(year)) return null;
-    const date = new Date(year, month, day);
-    date.setHours(0, 0, 0, 0); // Normalize to start of day for accurate comparisons
-    return date;
+    if (parts.length === 3) {
+      const day = parseInt(parts[0]);
+      const month = months[parts[1]?.toUpperCase()];
+      const year = parseInt(parts[2]);
+      if (!isNaN(day) && month !== undefined && !isNaN(year)) {
+        const date = new Date(year, month, day);
+        date.setHours(0, 0, 0, 0);
+        return date;
+      }
+    }
+    
+    // Try parsing as "DD/MM/YYYY" or "MM/DD/YYYY"
+    const slashParts = dateStr.split('/');
+    if (slashParts.length === 3) {
+      const part1 = parseInt(slashParts[0]);
+      const part2 = parseInt(slashParts[1]);
+      const part3 = parseInt(slashParts[2]);
+      if (!isNaN(part1) && !isNaN(part2) && !isNaN(part3)) {
+        // Try DD/MM/YYYY first
+        if (part1 <= 31 && part2 <= 12) {
+          const date = new Date(part3, part2 - 1, part1);
+          if (!isNaN(date.getTime())) {
+            date.setHours(0, 0, 0, 0);
+            return date;
+          }
+        }
+        // Try MM/DD/YYYY
+        if (part1 <= 12 && part2 <= 31) {
+          const date = new Date(part3, part1 - 1, part2);
+          if (!isNaN(date.getTime())) {
+            date.setHours(0, 0, 0, 0);
+            return date;
+          }
+        }
+      }
+    }
+    
+    return null;
   }
 
   // Helper: Fetch employee designations for SMNOs
@@ -4374,9 +4467,9 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
       const cardsWithDesignation = cards
         .filter(card => activeEmployeeCardNos.has(card.smno)) // Only show active employees
         .map(card => ({
-          ...card,
-          designation: designationMap.get(card.smno) || null,
-        }));
+        ...card,
+        designation: designationMap.get(card.smno) || null,
+      }));
 
       // Determine which staff to show detail for
       // Employees see only their own data, MDO users can see all
@@ -4452,6 +4545,22 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
       const fromDate = format(mtdStartDate, "dd-MMM-yyyy").toUpperCase();
       const toDate = format(mtdEndDate, "dd-MMM-yyyy").toUpperCase();
 
+      // Get the latest updatedAt timestamp from the data (last refresh time)
+      let lastRefreshTime: Date | null = null;
+      if (data.length > 0) {
+        // Get max updatedAt from the records
+        const maxUpdatedAt = data.reduce((max, r) => {
+          const recordDate = r.updatedAt ? new Date(r.updatedAt) : null;
+          if (!recordDate) return max;
+          return !max || recordDate > max ? recordDate : max;
+        }, null as Date | null);
+        lastRefreshTime = maxUpdatedAt;
+        // If no updatedAt found (API fallback case), use current time
+        if (!lastRefreshTime && dataSource === 'api-fallback') {
+          lastRefreshTime = new Date();
+        }
+      }
+
       return res.json({
         success: true,
         cards: cardsWithDesignation, // Use cards with designation
@@ -4467,6 +4576,7 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
         },
         selectedSmno: targetSmno,
         dataSource, // Include data source for debugging
+        lastRefreshTime: lastRefreshTime ? lastRefreshTime.toISOString() : null, // Add last refresh time
       });
     } catch (error: any) {
       console.error("Sales staff summary error:", error);
@@ -4936,7 +5046,7 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
               interviewDate: null, // ALWAYS applied - only employees who haven't exited
             },
             {
-              OR: whereConditions,
+          OR: whereConditions,
             }
           ]
         },
@@ -5148,6 +5258,7 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
   // GET /api/manager/team/sales-staff - Get team sales staff for manager
   app.get("/api/manager/team/sales-staff", requireAuth, async (req, res) => {
     try {
+      const forceRefresh = req.query.forceRefresh === 'true';
       const employeeCardNo = req.user!.employeeCardNo;
       
       console.log("[Team Sales] Manager card number:", employeeCardNo);
@@ -5266,6 +5377,25 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
       let data: any[] = [];
       let dataSource = 'database';
       
+      // If forceRefresh is true, fetch fresh data from API
+      if (forceRefresh) {
+        console.log('[Team Sales] Force refresh requested, fetching from API...');
+        try {
+          const records = await fetchBillSummaryFromAPI();
+          if (records.length > 0) {
+            await storeBillSummaryInDB(records);
+            data = await getBillSummaryFromDB();
+            dataSource = 'api-then-db';
+          } else {
+            // If API returns empty, fall back to database
+            data = await getBillSummaryFromDB();
+          }
+        } catch (apiError: any) {
+          console.error('[Team Sales] Force refresh failed, using database:', apiError);
+          // Fall back to database if API fails
+          data = await getBillSummaryFromDB();
+        }
+      } else {
       try {
         data = await getBillSummaryFromDB();
         
@@ -5295,6 +5425,7 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
             message: `Unable to load sales data: ${apiError.message}`,
             dataSource: 'none',
           });
+          }
         }
       }
 
@@ -5343,10 +5474,23 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
       });
 
       // Build cards array
+      const currentMonthKeyForCards = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
       const cards = Object.entries(staffSales)
         .map(([smno, info]) => {
           const getVal = (idx: number) => info.sortedDates[idx] ? info.dateTotals[info.sortedDates[idx]] : 0;
           const totalSale = Object.values(info.dateTotals).reduce((sum, v) => sum + v, 0);
+          
+          // Calculate current month total
+          let monthTotal = 0;
+          Object.entries(info.dateTotals).forEach(([dateStr, sale]) => {
+            const date = parseBillDate(dateStr);
+            if (date) {
+              const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+              if (monthKey === currentMonthKeyForCards) {
+                monthTotal += sale;
+              }
+            }
+          });
 
           return {
             smno,
@@ -5359,6 +5503,7 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
             lastDate: info.sortedDates[1] || null,
             lastLastDate: info.sortedDates[2] || null,
             totalSale,
+            monthTotal, // Current month total
           };
         })
         .sort((a, b) => b.todaySale - a.todaySale);
@@ -5385,18 +5530,19 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
         ? data.filter((r) => r.SMNO === targetSmno)
         : [];
 
-      // Build table grouped by month and brand type
+      // Build table grouped by month and brand type (for selected staff)
       let tableMonth: string | null = null;
       let tableRows: Array<{ brandType: string; quantity: number; netAmount: number }> = [];
       let grandTotal = 0;
       let grandQty = 0;
 
       if (staffRecords.length > 0) {
-        // MTD: Use current month for table display
-        const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        // Use requested month or default to current month for table display
+        const requestedMonthForTable = typeof req.query.month === "string" ? req.query.month : null;
+        const currentMonthKey = requestedMonthForTable || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
         tableMonth = currentMonthKey;
         
-        // Filter records for current month (MTD)
+        // Filter records for selected month
         const monthRecords = staffRecords.filter(r => {
           const d = parseBillDate(r.dat || r.DAT);
           if (!d) return false;
@@ -5437,6 +5583,250 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
           .sort((a, b) => a.brandType.localeCompare(b.brandType));
       }
 
+      // Build pivot table data (filtered by selected staff member if provided, otherwise all team members)
+      const pivotTable: {
+        rows: Array<{
+          rowLabel: string;
+          today: { qty: number; netSale: number };
+          lastDay: { qty: number; netSale: number };
+          monthRange: { qty: number; netSale: number };
+        }>;
+      } = {
+        rows: [],
+      };
+
+      // Get month parameter from query (default to current month if not provided)
+      const requestedMonth = typeof req.query.month === "string" ? req.query.month : null;
+      const pivotMonthKey = requestedMonth || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      
+      // Get filter parameters
+      const filterUnit = typeof req.query.filterUnit === "string" ? req.query.filterUnit : null;
+      const filterDivision = typeof req.query.filterDivision === "string" ? req.query.filterDivision : null;
+
+      // Calculate date ranges (reuse existing todayStart from above)
+      const todayEnd = new Date(now);
+      todayEnd.setHours(23, 59, 59, 999);
+      
+      // Get last day (most recent date before today from the data)
+      const allDates = new Set<string>();
+      data.forEach(r => {
+        const dateStr = r.dat || r.DAT;
+        if (dateStr) allDates.add(dateStr);
+      });
+      const sortedDates = Array.from(allDates)
+        .map(d => ({ dateStr: d, date: parseBillDate(d) }))
+        .filter(d => d.date !== null && d.date < todayStart)
+        .sort((a, b) => b.date!.getTime() - a.date!.getTime());
+      const lastDayDate = sortedDates.length > 0 ? sortedDates[0].date : null;
+      const lastDayStart = lastDayDate ? new Date(lastDayDate) : null;
+      const lastDayEnd = lastDayStart ? new Date(lastDayStart) : null;
+      if (lastDayEnd) {
+        lastDayEnd.setHours(23, 59, 59, 999);
+      }
+      
+      // Month range: 1st of selected month to today (or end of month if past month)
+      const [year, month] = pivotMonthKey.split("-").map(Number);
+      const monthStart = new Date(year, month - 1, 1);
+      monthStart.setHours(0, 0, 0, 0);
+      const monthEnd = new Date(year, month, 0); // Last day of month
+      monthEnd.setHours(23, 59, 59, 999);
+      const monthRangeEnd = monthEnd > todayEnd ? todayEnd : monthEnd;
+
+      // Get all records for pivot (from entire data, not just selected month, to calculate today and lastDay)
+      let pivotRecords = data;
+      
+      // Filter by selected staff member if provided
+      if (targetSmno) {
+        pivotRecords = pivotRecords.filter(r => r.SMNO === targetSmno);
+      }
+      
+      // Filter by unit if provided
+      if (filterUnit) {
+        pivotRecords = pivotRecords.filter(r => {
+          const unit = (r.UNIT || r.unit || "").toString().trim();
+          return unit === filterUnit;
+        });
+      }
+      
+      // Filter by division if provided
+      if (filterDivision) {
+        pivotRecords = pivotRecords.filter(r => {
+          const divi = (r.divi || r.DIVI || "").toString().trim() || "Unknown";
+          return divi === filterDivision;
+        });
+      }
+
+      // Collect all available units and divisions from the data (before filtering)
+      // This is used to populate filter dropdowns
+      const allUnitSet = new Set<string>();
+      const allDivisionSet = new Set<string>();
+      
+      // Get all records for the selected month (before unit/division filtering)
+      let allMonthRecords = data.filter(r => {
+        const d = parseBillDate(r.dat || r.DAT);
+        if (!d) return false;
+        const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        return monthKey === pivotMonthKey;
+      });
+      
+      if (targetSmno) {
+        allMonthRecords = allMonthRecords.filter(r => r.SMNO === targetSmno);
+      }
+
+      allMonthRecords.forEach((r) => {
+        const divi = (r.divi || r.DIVI || "").toString().trim() || "Unknown";
+        const unit = (r.UNIT || r.unit || "").toString().trim() || "Unknown";
+        allUnitSet.add(unit);
+        allDivisionSet.add(divi);
+      });
+
+      const availableUnits = Array.from(allUnitSet).sort();
+      const availableDivisions = Array.from(allDivisionSet).sort();
+
+      // Group by division and brand type, then calculate today, lastDay, and monthRange totals
+      // Structure: pivotData[division][brandType] = { today, lastDay, monthRange }
+      const pivotData: Record<string, Record<string, { 
+        today: { qty: number; netSale: number };
+        lastDay: { qty: number; netSale: number };
+        monthRange: { qty: number; netSale: number };
+      }>> = {};
+      const divisionSet = new Set<string>();
+
+      console.log(`[Team Sales] Processing ${pivotRecords.length} records for pivot table`);
+      console.log(`[Team Sales] Date ranges - Today: ${todayStart.toISOString()} to ${todayEnd.toISOString()}, Month: ${monthStart.toISOString()} to ${monthRangeEnd.toISOString()}`);
+      if (lastDayStart && lastDayEnd) {
+        console.log(`[Team Sales] Last Day: ${lastDayStart.toISOString()} to ${lastDayEnd.toISOString()}`);
+      }
+      
+      // Sample a few records to see their date format
+      if (pivotRecords.length > 0) {
+        const sampleRecords = pivotRecords.slice(0, 5);
+        console.log(`[Team Sales] Sample records (first 5):`);
+        sampleRecords.forEach((r, idx) => {
+          const dateStr = r.dat || r.DAT;
+          const parsed = parseBillDate(dateStr);
+          console.log(`[Team Sales]   Record ${idx + 1}: dat="${dateStr}", parsed=${parsed ? parsed.toISOString() : 'null'}, qty=${r.QTY || r.qty}, netSale=${r.NetSale || r.NETSALE || r.netSale}`);
+        });
+      }
+
+      pivotRecords.forEach((r) => {
+        // Handle date - could be string or Date object from database
+        let recordDate: Date | null = null;
+        const dateStr = r.dat || r.DAT;
+        if (dateStr) {
+          if (dateStr instanceof Date) {
+            recordDate = new Date(dateStr);
+            recordDate.setHours(0, 0, 0, 0);
+          } else if (typeof dateStr === 'string') {
+            recordDate = parseBillDate(dateStr);
+          }
+        }
+        if (!recordDate) {
+          // Skip records with invalid dates
+          return;
+        }
+        
+        const divi = (r.divi || r.DIVI || "").toString().trim() || "Unknown";
+        const btype = (r.BTYPE || "").toString().trim().toUpperCase();
+        const brandLabel = btype === "Y" ? "SOR" : btype === "N" ? "InHouse" : "Unknown";
+        const quantity = parseInt(r.QTY || r.qty || 0) || 0;
+        const netAmount = parseFloat(r.NetSale || r.NETSALE || 0) || 0;
+
+        divisionSet.add(divi);
+
+        if (!pivotData[divi]) {
+          pivotData[divi] = {};
+        }
+        if (!pivotData[divi][brandLabel]) {
+          pivotData[divi][brandLabel] = {
+            today: { qty: 0, netSale: 0 },
+            lastDay: { qty: 0, netSale: 0 },
+            monthRange: { qty: 0, netSale: 0 },
+          };
+        }
+
+        // Normalize dates to compare only date part (ignore time)
+        const recordDateOnly = new Date(recordDate.getFullYear(), recordDate.getMonth(), recordDate.getDate());
+        const todayDateOnly = new Date(todayStart.getFullYear(), todayStart.getMonth(), todayStart.getDate());
+        const lastDayDateOnly = lastDayStart ? new Date(lastDayStart.getFullYear(), lastDayStart.getMonth(), lastDayStart.getDate()) : null;
+        const monthStartDateOnly = new Date(monthStart.getFullYear(), monthStart.getMonth(), monthStart.getDate());
+        const monthRangeEndDateOnly = new Date(monthRangeEnd.getFullYear(), monthRangeEnd.getMonth(), monthRangeEnd.getDate());
+
+        // Check if record is from today
+        if (recordDateOnly.getTime() === todayDateOnly.getTime()) {
+          pivotData[divi][brandLabel].today.qty += quantity;
+          pivotData[divi][brandLabel].today.netSale += netAmount;
+        }
+        
+        // Check if record is from last day
+        if (lastDayDateOnly && recordDateOnly.getTime() === lastDayDateOnly.getTime()) {
+          pivotData[divi][brandLabel].lastDay.qty += quantity;
+          pivotData[divi][brandLabel].lastDay.netSale += netAmount;
+        }
+        
+        // Check if record is in month range
+        if (recordDateOnly >= monthStartDateOnly && recordDateOnly <= monthRangeEndDateOnly) {
+          pivotData[divi][brandLabel].monthRange.qty += quantity;
+          pivotData[divi][brandLabel].monthRange.netSale += netAmount;
+        }
+      });
+
+      console.log(`[Team Sales] Pivot data summary: ${Object.keys(pivotData).length} divisions, ${divisionSet.size} unique divisions`);
+      Object.entries(pivotData).forEach(([divi, brands]) => {
+        Object.entries(brands).forEach(([brand, data]) => {
+          if (data.today.qty > 0 || data.today.netSale > 0 || 
+              data.lastDay.qty > 0 || data.lastDay.netSale > 0 || 
+              data.monthRange.qty > 0 || data.monthRange.netSale > 0) {
+            console.log(`[Team Sales] ${divi}/${brand}: today=${data.today.qty}/${data.today.netSale}, lastDay=${data.lastDay.qty}/${data.lastDay.netSale}, monthRange=${data.monthRange.qty}/${data.monthRange.netSale}`);
+          }
+        });
+      });
+
+      // Build pivot rows with division hierarchy
+      const sortedDivisions = Array.from(divisionSet).sort();
+
+      // Build rows: Division header first, then InHouse, then SOR
+      sortedDivisions.forEach(divi => {
+        const divisionData = pivotData[divi];
+        
+        // Calculate division totals (sum of all brand types)
+        const divisionTotals = {
+          today: { qty: 0, netSale: 0 },
+          lastDay: { qty: 0, netSale: 0 },
+          monthRange: { qty: 0, netSale: 0 },
+        };
+
+        // Add division header first
+        Object.values(divisionData).forEach(brandData => {
+          divisionTotals.today.qty += brandData.today.qty;
+          divisionTotals.today.netSale += brandData.today.netSale;
+          divisionTotals.lastDay.qty += brandData.lastDay.qty;
+          divisionTotals.lastDay.netSale += brandData.lastDay.netSale;
+          divisionTotals.monthRange.qty += brandData.monthRange.qty;
+          divisionTotals.monthRange.netSale += brandData.monthRange.netSale;
+        });
+
+        pivotTable.rows.push({
+          rowLabel: divi,
+          today: divisionTotals.today,
+          lastDay: divisionTotals.lastDay,
+          monthRange: divisionTotals.monthRange,
+        });
+
+        // Add brand types under division (InHouse, then SOR)
+        const brandOrder = ["InHouse", "SOR"];
+        brandOrder.forEach(brandLabel => {
+          if (divisionData[brandLabel]) {
+            pivotTable.rows.push({
+              rowLabel: brandLabel,
+              today: divisionData[brandLabel].today,
+              lastDay: divisionData[brandLabel].lastDay,
+              monthRange: divisionData[brandLabel].monthRange,
+            });
+          }
+        });
+      });
+
       // Calculate MTD date range: 1st of current month to today
       const mtdStartDate = new Date(now.getFullYear(), now.getMonth(), 1);
       const mtdEndDate = new Date(now);
@@ -5444,7 +5834,24 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
       const fromDate = format(mtdStartDate, "dd-MMM-yyyy").toUpperCase();
       const toDate = format(mtdEndDate, "dd-MMM-yyyy").toUpperCase();
 
+      // Get the latest updatedAt timestamp from the data (last refresh time)
+      let lastRefreshTime: Date | null = null;
+      if (data.length > 0) {
+        // Get max updatedAt from the records
+        const maxUpdatedAt = data.reduce((max, r) => {
+          const recordDate = r.updatedAt ? new Date(r.updatedAt) : null;
+          if (!recordDate) return max;
+          return !max || recordDate > max ? recordDate : max;
+        }, null as Date | null);
+        lastRefreshTime = maxUpdatedAt;
+        // If no updatedAt found (API fallback case), use current time
+        if (!lastRefreshTime && dataSource === 'api-fallback') {
+          lastRefreshTime = new Date();
+        }
+      }
+
       console.log("[Team Sales] ✅ Returning", cardsWithDesignation.length, "team sales cards");
+      console.log("[Team Sales] Pivot table rows:", pivotTable.rows.length);
 
       res.json({
         success: true,
@@ -5455,12 +5862,16 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
           grandTotal,
           grandQty,
         },
+        pivotTable, // Add pivot table data
         dateRange: {
           from: fromDate,
           to: toDate,
         },
         selectedSmno: targetSmno,
         dataSource,
+        lastRefreshTime: lastRefreshTime ? lastRefreshTime.toISOString() : null, // Add last refresh time
+        availableUnits, // Available units for filtering
+        availableDivisions, // Available divisions for filtering
       });
     } catch (error: any) {
       console.error("Manager team sales-staff error:", error);
@@ -5468,6 +5879,174 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
         success: false, 
         message: error.message || "Failed to fetch team sales staff" 
       });
+    }
+  });
+
+  // ==================== HELP TICKETS API ====================
+  
+  // GET /api/help-tickets - Get all help tickets (filtered by employee if not admin)
+  app.get("/api/help-tickets", requireAuth, async (req, res) => {
+    try {
+      const user = req.user!;
+      const { status, category } = req.query;
+      
+      const where: any = {};
+      
+      // If user is not super admin, only show their own tickets
+      if (!user.isSuperAdmin && user.employeeId) {
+        where.employeeId = user.employeeId;
+      }
+      
+      if (status && typeof status === 'string') {
+        where.status = status;
+      }
+      
+      if (category && typeof category === 'string') {
+        where.category = category;
+      }
+      
+      const tickets = await prisma.helpTicket.findMany({
+        where,
+        include: {
+          employee: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              cardNumber: true,
+              employeeCode: true,
+            },
+          },
+          resolvedBy: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      
+      res.json({ success: true, tickets });
+    } catch (error: any) {
+      console.error("Get help tickets error:", error);
+      res.status(500).json({ success: false, message: error.message || "Failed to fetch help tickets" });
+    }
+  });
+  
+  // POST /api/help-tickets - Create a new help ticket
+  app.post("/api/help-tickets", requireAuth, async (req, res) => {
+    try {
+      const user = req.user!;
+      const { subject, description, category, priority, relatedData } = req.body;
+      
+      if (!user.employeeId) {
+        return res.status(403).json({ 
+          success: false, 
+          message: "Only employees can create help tickets" 
+        });
+      }
+      
+      if (!subject || !description) {
+        return res.status(400).json({ 
+          success: false, 
+          message: "Subject and description are required" 
+        });
+      }
+      
+      const ticket = await prisma.helpTicket.create({
+        data: {
+          employeeId: user.employeeId,
+          subject,
+          description,
+          category: category || "attendance",
+          priority: priority || "medium",
+          relatedData: relatedData || null,
+          status: "open",
+        },
+        include: {
+          employee: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              cardNumber: true,
+              employeeCode: true,
+            },
+          },
+        },
+      });
+      
+      res.json({ success: true, ticket });
+    } catch (error: any) {
+      console.error("Create help ticket error:", error);
+      res.status(500).json({ success: false, message: error.message || "Failed to create help ticket" });
+    }
+  });
+  
+  // PUT /api/help-tickets/:id - Update help ticket (for status/response)
+  app.put("/api/help-tickets/:id", requireAuth, async (req, res) => {
+    try {
+      const user = req.user!;
+      const { id } = req.params;
+      const { status, response } = req.body;
+      
+      const ticket = await prisma.helpTicket.findUnique({
+        where: { id },
+      });
+      
+      if (!ticket) {
+        return res.status(404).json({ success: false, message: "Ticket not found" });
+      }
+      
+      // Only allow employee to update their own tickets, or admin to update any
+      if (!user.isSuperAdmin && ticket.employeeId !== user.employeeId) {
+        return res.status(403).json({ 
+          success: false, 
+          message: "You can only update your own tickets" 
+        });
+      }
+      
+      const updateData: any = {};
+      
+      // Only admin can update status and response
+      if (user.isSuperAdmin) {
+        if (status) updateData.status = status;
+        if (response !== undefined) updateData.response = response;
+        if (status === "resolved" || status === "closed") {
+          updateData.resolvedById = user.id;
+          updateData.resolvedAt = new Date();
+        }
+      }
+      
+      const updatedTicket = await prisma.helpTicket.update({
+        where: { id },
+        data: updateData,
+        include: {
+          employee: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              cardNumber: true,
+              employeeCode: true,
+            },
+          },
+          resolvedBy: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
+        },
+      });
+      
+      res.json({ success: true, ticket: updatedTicket });
+    } catch (error: any) {
+      console.error("Update help ticket error:", error);
+      res.status(500).json({ success: false, message: error.message || "Failed to update help ticket" });
     }
   });
 
