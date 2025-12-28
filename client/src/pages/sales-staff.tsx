@@ -387,6 +387,7 @@ export default function SalesStaffPage() {
       return result;
     },
     staleTime: 5 * 60 * 1000,
+    refetchInterval: 60 * 60 * 1000, // Auto-refresh every 1 hour
     retry: 1,
     retryDelay: 2000,
   });
@@ -405,6 +406,7 @@ export default function SalesStaffPage() {
       return result;
     },
     staleTime: 5 * 60 * 1000,
+    refetchInterval: 60 * 60 * 1000, // Auto-refresh every 1 hour
     retry: 1,
     retryDelay: 2000,
   });
