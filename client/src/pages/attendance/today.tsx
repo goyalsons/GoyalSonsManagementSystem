@@ -104,7 +104,13 @@ export default function TodayAttendancePage() {
   const formatTime = (dateStr: string | null) => {
     if (!dateStr) return "-";
     const date = new Date(dateStr);
-    return date.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true });
+    // Explicitly use IST timezone to ensure correct time display
+    return date.toLocaleTimeString("en-IN", { 
+      hour: "2-digit", 
+      minute: "2-digit", 
+      hour12: true,
+      timeZone: "Asia/Kolkata"
+    });
   };
 
   const formatDate = (dateStr: string) => {

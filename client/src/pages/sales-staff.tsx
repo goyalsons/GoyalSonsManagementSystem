@@ -432,12 +432,12 @@ export default function SalesStaffPage() {
     
     // Apply search query filter
     if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase().trim();
+    const query = searchQuery.toLowerCase().trim();
       filtered = filtered.filter(card => 
-        card.smno.toLowerCase().includes(query) ||
-        card.name.toLowerCase().includes(query) ||
-        (card.unit && card.unit.toLowerCase().includes(query))
-      );
+      card.smno.toLowerCase().includes(query) ||
+      card.name.toLowerCase().includes(query) ||
+      (card.unit && card.unit.toLowerCase().includes(query))
+    );
     }
     
     // Apply unit filter

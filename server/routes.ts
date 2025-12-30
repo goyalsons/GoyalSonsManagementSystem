@@ -4445,13 +4445,13 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
     };
     const parts = dateStr.split('-');
     if (parts.length === 3) {
-      const day = parseInt(parts[0]);
-      const month = months[parts[1]?.toUpperCase()];
-      const year = parseInt(parts[2]);
+    const day = parseInt(parts[0]);
+    const month = months[parts[1]?.toUpperCase()];
+    const year = parseInt(parts[2]);
       if (!isNaN(day) && month !== undefined && !isNaN(year)) {
-        const date = new Date(year, month, day);
+    const date = new Date(year, month, day);
         date.setHours(0, 0, 0, 0);
-        return date;
+    return date;
       }
     }
     
