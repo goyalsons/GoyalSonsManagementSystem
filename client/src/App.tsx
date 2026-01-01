@@ -241,6 +241,12 @@ function Router() {
   useEffect(() => {
     // Only redirect if user is authenticated and we're on root or dashboard route
     if (user && !isLoading && (location === "/" || location === "/dashboard")) {
+      // Check if user is a manager first
+      if (user.isManager) {
+        setLocation("/manager/dashboard");
+        return;
+      }
+      
       // Check for various sales staff role name variations
       const userRoles = user.roles || [];
       const roleNames = userRoles.map((r: any) => (r.name || "").toLowerCase());

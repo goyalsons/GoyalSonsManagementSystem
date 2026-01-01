@@ -18,7 +18,29 @@ export default function AuthCallbackPage() {
     
     if (token) {
       localStorage.setItem("gms_token", token);
-      window.location.href = "/";
+      
+      // Fetch user data to check if manager
+      fetch("/api/auth/me", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      })
+        .then((res) => {
+          if (res.ok) {
+            return res.json();
+          }
+          throw new Error("Failed to fetch user");
+        })
+        .then((userData) => {
+          if (userData.isManager) {
+            window.location.href = "/manager/dashboard";
+          } else {
+            window.location.href = "/";
+          }
+        })
+        .catch(() => {
+          window.location.href = "/";
+        });
     } else {
       setLocation("/login?error=No authentication token received");
     }

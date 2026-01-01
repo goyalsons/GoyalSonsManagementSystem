@@ -28,13 +28,17 @@ export default function LoginPage() {
   const [resendTimer, setResendTimer] = useState<number>(0); // Timer for resend button (2 minutes)
   const [canResend, setCanResend] = useState(false);
   
-  const { login, user } = useAuth();
+  const { login, user, isManager } = useAuth();
 
   useEffect(() => {
     if (user) {
-      setLocation("/");
+      if (isManager()) {
+        setLocation("/manager/dashboard");
+      } else {
+        setLocation("/");
+      }
     }
-  }, [user, setLocation]);
+  }, [user, setLocation, isManager]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -164,6 +168,12 @@ export default function LoginPage() {
         
         // Check user role and redirect accordingly
         if (data.user) {
+          // Check if user is a manager first
+          if (data.user.isManager) {
+            window.location.href = "/manager/dashboard";
+            return;
+          }
+          
           const userRoles = data.user.roles || [];
           const roleNames = userRoles.map((r: any) => r.name?.toLowerCase() || "");
           const isSalesStaff = roleNames.includes("sales_staff") || 
@@ -198,7 +208,26 @@ export default function LoginPage() {
     const result = await login(email, password);
     
     if (result.success) {
-      setLocation("/");
+      // Fetch user data to check if manager
+      try {
+        const meRes = await fetch("/api/auth/me", {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("gms_token")}`,
+          },
+        });
+        if (meRes.ok) {
+          const userData = await meRes.json();
+          if (userData.isManager) {
+            setLocation("/manager/dashboard");
+          } else {
+            setLocation("/");
+          }
+        } else {
+          setLocation("/");
+        }
+      } catch (err) {
+        setLocation("/");
+      }
     } else {
       setError(result.error || "Login failed");
     }
