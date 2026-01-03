@@ -54,6 +54,7 @@ interface User {
   createdAt: string;
   orgUnit?: { name: string; code: string };
   roles: UserRole[];
+  isDefaultMDO?: boolean;
 }
 
 interface OrgUnit {
@@ -193,8 +194,17 @@ export default function UsersListPage() {
                         </AvatarFallback>
                       </Avatar>
                       <div>
-                        <div className="font-medium text-foreground">
+                        <div className="font-medium text-foreground flex items-center gap-2">
                           {user.name}
+                          {user.isDefaultMDO && (
+                            <Badge
+                              variant="outline"
+                              className="bg-amber-50 text-amber-700 border-amber-200 gap-1 text-xs"
+                            >
+                              <Crown className="h-3 w-3" />
+                              Default MDO
+                            </Badge>
+                          )}
                         </div>
                         <div className="text-xs text-muted-foreground">
                           {user.email}

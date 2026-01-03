@@ -1662,6 +1662,7 @@ export async function registerRoutes(
   app.get("/api/users", requireAuth, requireMDO, requirePolicy("users.view"), async (req, res) => {
     try {
       const accessibleOrgUnitIds = req.user!.accessibleOrgUnitIds;
+      const envLoginEmail = process.env.ENV_LOGIN_EMAIL?.toLowerCase();
 
       const users = await prisma.user.findMany({
         where: { orgUnitId: { in: accessibleOrgUnitIds } },
@@ -1682,7 +1683,13 @@ export async function registerRoutes(
         orderBy: { name: "asc" },
       });
 
-      res.json(users);
+      // Add isDefaultMDO flag to each user
+      const usersWithDefaultFlag = users.map(user => ({
+        ...user,
+        isDefaultMDO: envLoginEmail ? user.email.toLowerCase() === envLoginEmail : false,
+      }));
+
+      res.json(usersWithDefaultFlag);
     } catch (error) {
       console.error("Users error:", error);
       res.status(500).json({ message: "Failed to fetch users" });

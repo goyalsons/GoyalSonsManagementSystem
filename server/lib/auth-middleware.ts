@@ -125,11 +125,23 @@ export function requireMDO(req: Request, res: Response, next: NextFunction) {
     return res.status(401).json({ message: "Authentication required" });
   }
 
+  // Check if user is employee login type (card-based login)
   if (req.user.loginType === "employee") {
     return res.status(403).json({ 
       message: "Access denied", 
       reason: "employee_restricted" 
     });
+  }
+
+  // Check if ENV_LOGIN_EMAIL is set - only that user gets MDO access
+  const envLoginEmail = process.env.ENV_LOGIN_EMAIL;
+  if (envLoginEmail) {
+    if (req.user.email.toLowerCase() !== envLoginEmail.toLowerCase()) {
+      return res.status(403).json({ 
+        message: "Access denied. Only the default MDO user can access this resource.", 
+        reason: "mdo_access_restricted"
+      });
+    }
   }
 
   next();
