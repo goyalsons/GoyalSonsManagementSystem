@@ -128,193 +128,10 @@ async function main() {
     create: { code: "STAFF", name: "Staff" },
   });
 
-  const policies = [
-    { key: "attendance.view", description: "View attendance records", category: "attendance" },
-    { key: "attendance.create", description: "Create attendance records", category: "attendance" },
-    { key: "attendance.edit", description: "Edit attendance records", category: "attendance" },
-    { key: "attendance.delete", description: "Delete attendance records", category: "attendance" },
-    { key: "tasks.view", description: "View tasks", category: "tasks" },
-    { key: "tasks.create", description: "Create tasks", category: "tasks" },
-    { key: "tasks.edit", description: "Edit tasks", category: "tasks" },
-    { key: "tasks.delete", description: "Delete tasks", category: "tasks" },
-    { key: "users.view", description: "View users", category: "users" },
-    { key: "users.create", description: "Create users", category: "users" },
-    { key: "users.edit", description: "Edit users", category: "users" },
-    { key: "users.delete", description: "Delete users", category: "users" },
-    { key: "employees.view", description: "View employees", category: "employees" },
-    { key: "employees.create", description: "Create employees", category: "employees" },
-    { key: "employees.edit", description: "Edit employees", category: "employees" },
-    { key: "employees.delete", description: "Delete employees", category: "employees" },
-    { key: "claims.view", description: "View claims", category: "claims" },
-    { key: "claims.create", description: "Create claims", category: "claims" },
-    { key: "claims.approve", description: "Approve claims", category: "claims" },
-    { key: "claims.reject", description: "Reject claims", category: "claims" },
-    { key: "announcements.view", description: "View announcements", category: "announcements" },
-    { key: "announcements.create", description: "Create announcements", category: "announcements" },
-    { key: "targets.view", description: "View targets", category: "targets" },
-    { key: "targets.create", description: "Create targets", category: "targets" },
-    { key: "targets.edit", description: "Edit targets", category: "targets" },
-    { key: "org.view_subtree", description: "View org subtree", category: "org" },
-    { key: "org.manage", description: "Manage organization", category: "org" },
-    { key: "admin.panel", description: "Access admin panel", category: "admin" },
-  ];
-
-  for (const policy of policies) {
-    await prisma.policy.upsert({
-      where: { key: policy.key },
-      update: {},
-      create: policy,
-    });
-  }
-
-  console.log("Created policies");
-
-  const ceoRole = await prisma.role.upsert({
-    where: { name: "CEO" },
-    update: {},
-    create: {
-      name: "CEO",
-      description: "Chief Executive Officer - Full access",
-      level: 0,
-    },
-  });
-
-  const managementRole = await prisma.role.upsert({
-    where: { name: "Management" },
-    update: {},
-    create: {
-      name: "Management",
-      description: "Management Team - Department oversight",
-      level: 1,
-    },
-  });
-
-  const hrRole = await prisma.role.upsert({
-    where: { name: "HR" },
-    update: {},
-    create: {
-      name: "HR",
-      description: "Human Resources Staff",
-      level: 2,
-    },
-  });
-
-  const financeRole = await prisma.role.upsert({
-    where: { name: "Finance" },
-    update: {},
-    create: {
-      name: "Finance",
-      description: "Finance Staff",
-      level: 2,
-    },
-  });
-
-  const employeeRole = await prisma.role.upsert({
-    where: { name: "Employee" },
-    update: {},
-    create: {
-      name: "Employee",
-      description: "Regular Employee",
-      level: 3,
-    },
-  });
-
-  console.log("Created roles");
-
-  const allPolicies = await prisma.policy.findMany();
-  const policyMap = new Map(allPolicies.map((p) => [p.key, p.id]));
-
-  for (const policy of allPolicies) {
-    await prisma.rolePolicy.upsert({
-      where: { roleId_policyId: { roleId: ceoRole.id, policyId: policy.id } },
-      update: {},
-      create: { roleId: ceoRole.id, policyId: policy.id },
-    });
-  }
-
-  const managementPolicies = [
-    "attendance.view", "attendance.create", "attendance.edit",
-    "tasks.view", "tasks.create", "tasks.edit", "tasks.delete",
-    "users.view",
-    "employees.view", "employees.create", "employees.edit",
-    "claims.view", "claims.approve", "claims.reject",
-    "announcements.view", "announcements.create",
-    "targets.view", "targets.create", "targets.edit",
-    "org.view_subtree",
-  ];
-
-  for (const policyKey of managementPolicies) {
-    const policyId = policyMap.get(policyKey);
-    if (policyId) {
-      await prisma.rolePolicy.upsert({
-        where: { roleId_policyId: { roleId: managementRole.id, policyId } },
-        update: {},
-        create: { roleId: managementRole.id, policyId },
-      });
-    }
-  }
-
-  const hrPolicies = [
-    "attendance.view", "attendance.create", "attendance.edit",
-    "employees.view", "employees.create", "employees.edit",
-    "users.view",
-    "claims.view",
-    "announcements.view",
-    "targets.view",
-    "org.view_subtree",
-  ];
-
-  for (const policyKey of hrPolicies) {
-    const policyId = policyMap.get(policyKey);
-    if (policyId) {
-      await prisma.rolePolicy.upsert({
-        where: { roleId_policyId: { roleId: hrRole.id, policyId } },
-        update: {},
-        create: { roleId: hrRole.id, policyId },
-      });
-    }
-  }
-
-  const financePolicies = [
-    "attendance.view",
-    "claims.view", "claims.approve", "claims.reject",
-    "employees.view",
-    "announcements.view",
-    "targets.view",
-    "org.view_subtree",
-  ];
-
-  for (const policyKey of financePolicies) {
-    const policyId = policyMap.get(policyKey);
-    if (policyId) {
-      await prisma.rolePolicy.upsert({
-        where: { roleId_policyId: { roleId: financeRole.id, policyId } },
-        update: {},
-        create: { roleId: financeRole.id, policyId },
-      });
-    }
-  }
-
-  const employeePolicies = [
-    "attendance.view",
-    "tasks.view",
-    "claims.view", "claims.create",
-    "announcements.view",
-    "targets.view",
-  ];
-
-  for (const policyKey of employeePolicies) {
-    const policyId = policyMap.get(policyKey);
-    if (policyId) {
-      await prisma.rolePolicy.upsert({
-        where: { roleId_policyId: { roleId: employeeRole.id, policyId } },
-        update: {},
-        create: { roleId: employeeRole.id, policyId },
-      });
-    }
-  }
-
-  console.log("Created role-policy mappings");
+  // Role and Policy tables removed - commented out all role/policy creation code
+  // const policies = [...];
+  // Role, Policy, UserRole, RolePolicy creation code removed
+  console.log("Skipped policies and roles creation (tables removed)");
 
   const ceoUser = await prisma.user.upsert({
     where: { email: "ceo@goyalsons.com" },
@@ -348,11 +165,8 @@ async function main() {
     },
   });
 
-  await prisma.userRole.upsert({
-    where: { userId_roleId: { userId: managerUser.id, roleId: managementRole.id } },
-    update: {},
-    create: { userId: managerUser.id, roleId: managementRole.id },
-  });
+  // UserRole assignments removed - Role tables deleted
+  // await prisma.userRole.upsert({...});
 
   const hrUser = await prisma.user.upsert({
     where: { email: "hr@goyalsons.com" },
@@ -367,11 +181,8 @@ async function main() {
     },
   });
 
-  await prisma.userRole.upsert({
-    where: { userId_roleId: { userId: hrUser.id, roleId: hrRole.id } },
-    update: {},
-    create: { userId: hrUser.id, roleId: hrRole.id },
-  });
+  // UserRole assignments removed - Role tables deleted
+  // await prisma.userRole.upsert({...});
 
   const financeUser = await prisma.user.upsert({
     where: { email: "finance@goyalsons.com" },
@@ -386,11 +197,8 @@ async function main() {
     },
   });
 
-  await prisma.userRole.upsert({
-    where: { userId_roleId: { userId: financeUser.id, roleId: financeRole.id } },
-    update: {},
-    create: { userId: financeUser.id, roleId: financeRole.id },
-  });
+  // UserRole assignments removed - Role tables deleted
+  // await prisma.userRole.upsert({...});
 
   const hrEmployee = await prisma.employee.upsert({
     where: { employeeCode: "EMP001" },
@@ -421,11 +229,8 @@ async function main() {
     },
   });
 
-  await prisma.userRole.upsert({
-    where: { userId_roleId: { userId: employeeUser.id, roleId: employeeRole.id } },
-    update: {},
-    create: { userId: employeeUser.id, roleId: employeeRole.id },
-  });
+  // UserRole assignments removed - Role tables deleted
+  // await prisma.userRole.upsert({...});
 
   let empCounter = 2;
   for (const dept of departmentRecords) {
