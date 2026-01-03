@@ -17,6 +17,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, ArrowLeft, User, Building2, Briefcase, CheckCircle2, AlertCircle } from "lucide-react";
 import { managerApi, branchesApi, departmentsApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { encodeFullName } from "@/lib/utils";
 
 export default function AssignManagerPage() {
   const [, setLocation] = useLocation();
@@ -249,7 +250,7 @@ export default function AssignManagerPage() {
                 <div className="flex-1 space-y-2">
                   <div>
                     <p className="font-semibold text-foreground">
-                      {employee.firstName} {employee.lastName || ""}
+                      {encodeFullName(employee.firstName, employee.lastName)}
                     </p>
                     <p className="text-sm text-muted-foreground">
                       Card: {employee.cardNumber}

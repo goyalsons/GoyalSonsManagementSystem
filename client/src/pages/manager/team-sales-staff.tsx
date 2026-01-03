@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useAuth } from "@/lib/auth-context";
+import { encodeName } from "@/lib/utils";
 import { 
   Search, TrendingUp, TrendingDown, Calendar, 
   User, BarChart3, Store, Hash, Loader2,
@@ -221,7 +222,7 @@ function StaffCardCompact({
                 </Badge>
               )}
             </div>
-            <h3 className="font-semibold text-slate-800 text-sm">{card.name}</h3>
+            <h3 className="font-semibold text-slate-800 text-sm">{encodeName(card.name)}</h3>
           </div>
         </div>
         {TrendIcon && <TrendIcon className={`h-5 w-5 ${trendColor}`} />}
@@ -514,7 +515,7 @@ function DetailTable({
           {card.name.charAt(0).toUpperCase()}
         </div>
         <div className="flex-1">
-          <h3 className="text-xl font-bold text-slate-800">{card.name}</h3>
+          <h3 className="text-xl font-bold text-slate-800">{encodeName(card.name)}</h3>
           <div className="flex items-center gap-3 text-sm text-slate-500 mt-1 flex-wrap">
             <span className="flex items-center gap-1">
               <Hash className="h-3.5 w-3.5" /> {card.smno}

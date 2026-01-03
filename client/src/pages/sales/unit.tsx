@@ -9,6 +9,7 @@ import {
   Store, ArrowLeft, Briefcase, Award, Calendar, ChevronRight
 } from "lucide-react";
 import { format } from "date-fns";
+import { encodeName } from "@/lib/utils";
 
 interface DepartmentData {
   success: boolean;
@@ -74,7 +75,7 @@ function StaffRow({ staff, isExpanded, onToggle }: { staff: StaffData['staff'][0
               {staff.name.charAt(0)}
             </div>
             <div>
-              <p className="font-medium text-foreground">{staff.name}</p>
+              <p className="font-medium text-foreground">{encodeName(staff.name)}</p>
               <p className="text-xs text-muted-foreground">{staff.department}</p>
             </div>
           </div>

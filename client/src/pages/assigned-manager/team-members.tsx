@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/table";
 import { Loader2, ArrowLeft, Users } from "lucide-react";
 import { employeesApi } from "@/lib/api";
+import { encodeFullName } from "@/lib/utils";
 
 interface TeamMembersPageProps {
   manager: {
@@ -153,7 +154,7 @@ export default function TeamMembersPage({
                         {index + 1}
                       </TableCell>
                       <TableCell className="font-medium">
-                        {member.firstName} {member.lastName || ""}
+                        {encodeFullName(member.firstName, member.lastName)}
                       </TableCell>
                       <TableCell className="font-mono text-sm">
                         {member.cardNumber || "—"}

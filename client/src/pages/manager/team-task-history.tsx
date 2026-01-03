@@ -519,7 +519,7 @@ export default function TeamTaskHistoryPage() {
               <div className="h-9 w-9 rounded-lg bg-indigo-500 flex items-center justify-center">
                 <Calendar className="h-5 w-5 text-white" />
               </div>
-              {selectedMember.firstName} {selectedMember.lastName || ""}
+              {encodeFullName(selectedMember.firstName, selectedMember.lastName)}
             </h1>
             <p className="text-slate-500 mt-1">
               Work Log & Attendance History
@@ -537,7 +537,7 @@ export default function TeamTaskHistoryPage() {
               <div className="flex flex-wrap items-center gap-x-8 gap-y-2 text-sm">
                 <div>
                   <span className="text-muted-foreground">Member:</span>
-                  <span className="ml-2 font-medium text-foreground">{attendanceData.records[0].Name}</span>
+                  <span className="ml-2 font-medium text-foreground">{encodeName(attendanceData.records[0].Name)}</span>
                 </div>
                 <div>
                   <span className="text-muted-foreground">Card No:</span>
@@ -1108,7 +1108,7 @@ export default function TeamTaskHistoryPage() {
                       </TableCell>
                       <TableCell>
                         <div className="font-medium">
-                          {member.firstName} {member.lastName || ""}
+                          {encodeFullName(member.firstName, member.lastName)}
                         </div>
                       </TableCell>
                       <TableCell>

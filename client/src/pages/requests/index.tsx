@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
+import { encodeFullName } from "@/lib/utils";
 import {
   Select,
   SelectContent,
@@ -205,7 +206,7 @@ function TicketCard({ ticket, isAdmin }: { ticket: HelpTicket; isAdmin: boolean 
             <div className="flex items-center gap-4">
               <span className="flex items-center gap-1">
                 <User className="h-3 w-3" />
-                {ticket.employee.firstName} {ticket.employee.lastName || ""}
+                {encodeFullName(ticket.employee.firstName, ticket.employee.lastName)}
               </span>
               <span className="flex items-center gap-1">
                 <Calendar className="h-3 w-3" />
@@ -251,7 +252,7 @@ function TicketCard({ ticket, isAdmin }: { ticket: HelpTicket; isAdmin: boolean 
             <div>
               <Label className="text-sm font-medium text-muted-foreground">Raised By</Label>
               <p className="text-foreground mt-1">
-                {ticket.employee.firstName} {ticket.employee.lastName || ""}
+                {encodeFullName(ticket.employee.firstName, ticket.employee.lastName)}
                 {ticket.employee.cardNumber && (
                   <span className="text-muted-foreground ml-2">({ticket.employee.cardNumber})</span>
                 )}

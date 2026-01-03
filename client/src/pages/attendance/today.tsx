@@ -41,6 +41,7 @@ import {
   TodayAttendanceRecord,
 } from "@/lib/api";
 import { ImagePreview } from "@/components/ui/image-preview";
+import { encodeFullName } from "@/lib/utils";
 
 export default function TodayAttendancePage() {
   const [search, setSearch] = useState("");
@@ -334,7 +335,7 @@ export default function TodayAttendancePage() {
                           )}
                           <div>
                             <p className="font-medium text-foreground">
-                              {record.firstName} {record.lastName || ""}
+                              {encodeFullName(record.firstName, record.lastName)}
                             </p>
                             {record.designation && (
                               <p className="text-xs text-muted-foreground">{record.designation.name}</p>

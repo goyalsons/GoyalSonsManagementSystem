@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useState } from "react";
+import { encodeName } from "@/lib/utils";
 
 interface TeamTarget {
   id: string;
@@ -199,7 +200,7 @@ export default function TeamTargetsPage() {
                         {target.employeeName.split(" ").map(n => n[0]).join("").slice(0, 2)}
                       </div>
                       <div>
-                        <div className="font-medium">{target.employeeName}</div>
+                        <div className="font-medium">{encodeName(target.employeeName)}</div>
                         <div className="text-xs text-muted-foreground">{target.employeeRole}</div>
                       </div>
                     </div>

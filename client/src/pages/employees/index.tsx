@@ -52,6 +52,7 @@ import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { ImagePreview } from "@/components/ui/image-preview";
+import { encodeFullName } from "@/lib/utils";
 
 interface Employee {
   id: string;
@@ -382,7 +383,7 @@ export default function EmployeesPage() {
                         )}
                         <div>
                           <div className="font-medium text-foreground">
-                            {employee.firstName} {employee.lastName}
+                            {encodeFullName(employee.firstName, employee.lastName)}
                           </div>
                           <div className="text-xs text-muted-foreground">
                             {employee.phone || 'No phone'}

@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 import { apiGet } from "@/lib/api";
 import { HelpTicketForm } from "@/components/HelpTicketForm";
+import { encodeName } from "@/lib/utils";
 
 interface AttendanceRecord {
   card_no: string;
@@ -497,7 +498,7 @@ export default function AttendanceHistoryPage() {
                 <div className="flex flex-wrap items-center gap-x-8 gap-y-2 text-sm">
                   <div>
                     <span className="text-muted-foreground">Member:</span>
-                    <span className="ml-2 font-medium text-foreground">{data.records[0].Name}</span>
+                    <span className="ml-2 font-medium text-foreground">{encodeName(data.records[0].Name)}</span>
                   </div>
                   <div>
                     <span className="text-muted-foreground">Card No:</span>

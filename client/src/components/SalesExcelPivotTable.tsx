@@ -1,6 +1,7 @@
 import { useMemo, useState, Fragment, useEffect } from "react";
 import { format, parseISO } from "date-fns";
 import { Calendar, ChevronDown, User, Search } from "lucide-react";
+import { encodeName } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -330,7 +331,7 @@ export default function SalesExcelPivotTable({
 
   // Check if viewing single salesman (either via filter or employee mode)
   const isViewingSingleSalesman = selectedSmno !== "all";
-  const displayName = selectedSalesmanInfo?.sm || employeeName || "Unknown";
+  const displayName = selectedSalesmanInfo?.sm || (employeeName ? encodeName(employeeName) : null) || "Unknown";
 
   return (
     <div className="space-y-4">
@@ -400,7 +401,7 @@ export default function SalesExcelPivotTable({
                 </Badge>
               )}
               {(employeeInfo?.sm || employeeName) && (
-                <span className="text-indigo-600 text-sm">- {employeeInfo?.sm || employeeName}</span>
+                <span className="text-indigo-600 text-sm">- {employeeInfo?.sm || (employeeName ? encodeName(employeeName) : "")}</span>
               )}
             </div>
           )}

@@ -27,6 +27,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import { encodeFullName } from "@/lib/utils";
 import { Loader2, UserCheck, Plus, RefreshCw, Search, User, X, MoreVertical, Trash2, Users, Check } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { employeesApi, apiGet, apiDelete } from "@/lib/api";
@@ -485,7 +486,7 @@ export default function AssignedManagerPage() {
                         </div>
                         <div className="flex-1">
                           <p className="font-medium text-slate-800">
-                            {employee.firstName} {employee.lastName || ""}
+                            {encodeFullName(employee.firstName, employee.lastName)}
                           </p>
                           <p className="text-sm text-slate-500 font-mono">
                             Card: {employee.cardNumber || "N/A"}
@@ -726,7 +727,7 @@ export default function AssignedManagerPage() {
                         </div>
                         <div className="flex-1">
                           <p className="font-medium text-slate-800">
-                            {employee.firstName} {employee.lastName || ""}
+                            {encodeFullName(employee.firstName, employee.lastName)}
                           </p>
                           <div className="flex items-center gap-3 text-sm text-slate-500">
                             {employee.cardNumber && (
