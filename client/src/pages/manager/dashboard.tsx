@@ -59,16 +59,6 @@ interface DashboardData {
   data: DashboardAttendanceRecord[];
 }
 
-function formatTime(dateStr: string | null): string {
-  if (!dateStr) return "-";
-  try {
-    const date = new Date(dateStr);
-    return format(date, "hh:mm a");
-  } catch {
-    return "-";
-  }
-}
-
 function getStatusBadge(status: string) {
   switch (status) {
     case "present":
@@ -469,9 +459,6 @@ export default function ManagerDashboard() {
                                 </span>
                               )}
                             </div>
-                            <div className="text-xs text-slate-400 mt-1">
-                              {formatTime(employeesByStatus.present[index].checkInAt)} - {formatTime(employeesByStatus.present[index].checkOutAt)}
-                            </div>
                           </div>
                         ) : (
                           <div className="py-2 text-slate-300">-</div>
@@ -508,9 +495,6 @@ export default function ManagerDashboard() {
                                 <span className="font-mono">{employeesByStatus.mis[index].cardNumber}</span>
                               )}
                             </div>
-                            <div className="text-xs text-slate-400 mt-1">
-                              {formatTime(employeesByStatus.mis[index].checkInAt)} - {formatTime(employeesByStatus.mis[index].checkOutAt)}
-                            </div>
                           </div>
                         ) : (
                           <div className="py-2 text-slate-300">-</div>
@@ -528,9 +512,6 @@ export default function ManagerDashboard() {
                               {employeesByStatus.half[index].cardNumber && (
                                 <span className="font-mono">{employeesByStatus.half[index].cardNumber}</span>
                               )}
-                            </div>
-                            <div className="text-xs text-slate-400 mt-1">
-                              {formatTime(employeesByStatus.half[index].checkInAt)} - {formatTime(employeesByStatus.half[index].checkOutAt)}
                             </div>
                           </div>
                         ) : (
