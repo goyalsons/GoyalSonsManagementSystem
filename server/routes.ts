@@ -1678,11 +1678,6 @@ export async function registerRoutes(
           status: true,
           createdAt: true,
           orgUnit: { select: { name: true, code: true } },
-          roles: {
-            include: {
-              role: { select: { name: true } },
-            },
-          },
         },
       });
 
@@ -1690,9 +1685,10 @@ export async function registerRoutes(
         return res.json([]);
       }
 
-      // Return only this user with isDefaultMDO flag
+      // Return only this user with isDefaultMDO flag and empty roles array
       res.json([{
         ...user,
+        roles: [], // Roles table removed
         isDefaultMDO: true,
       }]);
     } catch (error) {

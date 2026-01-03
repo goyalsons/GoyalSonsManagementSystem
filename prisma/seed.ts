@@ -146,11 +146,8 @@ async function main() {
     },
   });
 
-  await prisma.userRole.upsert({
-    where: { userId_roleId: { userId: ceoUser.id, roleId: ceoRole.id } },
-    update: {},
-    create: { userId: ceoUser.id, roleId: ceoRole.id },
-  });
+  // UserRole assignments removed - Role tables deleted
+  // await prisma.userRole.upsert({...});
 
   const managerUser = await prisma.user.upsert({
     where: { email: "manager@goyalsons.com" },
