@@ -719,70 +719,69 @@ export default function AttendanceHistoryPage() {
               View detailed information about this attendance record.
             </DialogDescription>
           </DialogHeader>
-          {selectedRecord && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <span className="text-muted-foreground">Date:</span>
-                  <div className="font-medium text-foreground">{selectedRecord.dt}</div>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Status:</span>
+          {selectedRecord && (() => {
+            const status = (selectedRecord.STATUS || "").toUpperCase().trim();
+            const isPresentLateEarlyOut = status === "PRESENT LATE EARLY_OUT" || status === "PRESENT L" ||
+                                          (status.includes("PRESENT") && status.includes("LATE") && status.includes("EARLY"));
+            const isAbsent = status === "ABSENT" || status === "DOUBLE ABSENT" || status === "DOUBLE A" || status.includes("DOUBLE");
+            
+            return (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
-                    <Badge 
-                      className="border-none shadow-sm"
-                      style={{ 
-                        backgroundColor: getStatusStyle(selectedRecord.STATUS).bgColor,
-                        color: getStatusStyle(selectedRecord.STATUS).bgColor.toLowerCase() === "#ffffff" ? "#374151" : "#ffffff"
-                      }}
-                    >
-                      {selectedRecord.STATUS}
-                    </Badge>
+                    <span className="text-muted-foreground">Date:</span>
+                    <div className="font-medium text-foreground">{selectedRecord.dt}</div>
                   </div>
-                </div>
-                <div className="col-span-2">
-                  <span className="text-muted-foreground">Remarks:</span>
-                  <div className="font-medium text-sm text-foreground">{selectedRecord.status_remarks || "-"}</div>
-                </div>
-                {selectedRecord.CORRECTION_REASON && (
-                  <div className="col-span-2">
-                    <span className="text-muted-foreground">Correction Reason:</span>
-                    <div className="font-medium text-sm text-foreground">{selectedRecord.CORRECTION_REASON}</div>
+                  <div>
+                    <span className="text-muted-foreground">Status:</span>
+                    <div>
+                      {(() => {
+                        const statusStyle = getStatusStyle(selectedRecord.STATUS);
+                        return (
+                          <Badge 
+                            className="border-none shadow-sm relative w-12 h-6 flex items-center justify-center"
+                            style={{ 
+                              backgroundColor: statusStyle.bgColor,
+                            }}
+                          >
+                            {statusStyle.dots.length > 0 ? (
+                              <div className="flex justify-center gap-0.5">
+                                {statusStyle.dots.flatMap((dot, dotIndex) =>
+                                  Array.from({ length: dot.count }, (_, i) => (
+                                    <div
+                                      key={`${dotIndex}-${i}`}
+                                      className="w-1.5 h-1.5 rounded-full ring-1 ring-black/10"
+                                      style={{ backgroundColor: dot.color }}
+                                    />
+                                  ))
+                                )}
+                              </div>
+                            ) : null}
+                          </Badge>
+                        );
+                      })()}
+                    </div>
                   </div>
-                )}
-                {(() => {
-                  const status = (selectedRecord.STATUS || "").toUpperCase().trim();
-                  const remarks = (selectedRecord.status_remarks || "").toUpperCase().trim();
-                  
-                  // Hide both fields for ABSENT/DOUBLE ABSENT
-                  const shouldHideBoth = status === "ABSENT" || status === "DOUBLE ABSENT" || status === "DOUBLE A" || status.includes("DOUBLE");
-                  
-                  if (shouldHideBoth) {
-                    return null;
-                  }
-                  
-                  // Check for PRESENT LATE EARLY_OUT first (show both In Time and Out Time)
-                  const isPresentLateEarlyOut = status === "PRESENT LATE EARLY_OUT" || status === "PRESENT L" ||
-                                                (status.includes("PRESENT") && status.includes("LATE") && status.includes("EARLY"));
-                  
-                  if (isPresentLateEarlyOut) {
-                    return (
-                      <>
-                        <div>
-                          <span className="text-muted-foreground">In Time:</span>
-                          <div className="font-medium text-foreground font-mono">
-                            {selectedRecord.t_in || selectedRecord.result_t_in || "--:--"}
-                          </div>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">Out Time:</span>
-                          <div className="font-medium text-foreground font-mono">
-                            {selectedRecord.t_out || selectedRecord.result_t_out || "--:--"}
-                          </div>
-                        </div>
-                      </>
-                    );
-                  }
+                  {selectedRecord.CORRECTION_REASON && (
+                    <div className="col-span-2">
+                      <span className="text-muted-foreground">Correction Reason:</span>
+                      <div className="font-medium text-sm text-foreground">{selectedRecord.CORRECTION_REASON}</div>
+                    </div>
+                  )}
+                  {(() => {
+                    const remarks = (selectedRecord.status_remarks || "").toUpperCase().trim();
+                    
+                    // Hide both fields for ABSENT/DOUBLE ABSENT
+                    const shouldHideBoth = status === "ABSENT" || status === "DOUBLE ABSENT" || status === "DOUBLE A" || status.includes("DOUBLE");
+                    
+                    if (shouldHideBoth) {
+                      return null;
+                    }
+                    
+                    // Hide In Time and Out Time for PRESENT LATE EARLY_OUT
+                    if (isPresentLateEarlyOut) {
+                      return null;
+                    }
                   
                   // Check for PRESENT LATE (show only In Time, hide Out Time)
                   const isPresentLate = status === "PRESENT LATE" || (status.includes("PRESENT") && status.includes("LATE") && !status.includes("EARLY"));
@@ -835,28 +834,25 @@ export default function AttendanceHistoryPage() {
                       </div>
                     </>
                   );
-                })()}
-                <div>
-                  <span className="text-muted-foreground">Branch:</span>
-                  <div className="font-medium text-foreground">{selectedRecord.branch_code}</div>
+                  })()}
+                  <div>
+                    <span className="text-muted-foreground">Entry Type:</span>
+                    <div className="font-medium text-foreground">{selectedRecord.entry_type || "-"}</div>
+                  </div>
                 </div>
-                <div>
-                  <span className="text-muted-foreground">Entry Type:</span>
-                  <div className="font-medium text-foreground">{selectedRecord.entry_type || "-"}</div>
+                <div className="pt-4 border-t border-border">
+                  <Button
+                    onClick={() => setHelpTicketOpen(true)}
+                    variant="outline"
+                    className="w-full"
+                  >
+                    <HelpCircle className="h-4 w-4 mr-2" />
+                    Raise Help Ticket
+                  </Button>
                 </div>
               </div>
-              <div className="pt-4 border-t border-border">
-                <Button
-                  onClick={() => setHelpTicketOpen(true)}
-                  variant="outline"
-                  className="w-full"
-                >
-                  <HelpCircle className="h-4 w-4 mr-2" />
-                  Raise Help Ticket
-                </Button>
-              </div>
-            </div>
-          )}
+            );
+          })()}
         </DialogContent>
       </Dialog>
       

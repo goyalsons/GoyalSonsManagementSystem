@@ -117,6 +117,13 @@ export function requireOrgAccess(getTargetOrgUnitId: (req: Request) => string | 
   };
 }
 
+// MDO email whitelist - users with these emails are automatically assigned MDO role
+const MDO_EMAIL_WHITELIST = [
+  "ankush@goyalsons.com",
+  "abhishek@goyalsons.com",
+  "mukesh@goyalsons.com",
+].map(email => email.toLowerCase());
+
 export function requireMDO(req: Request, res: Response, next: NextFunction) {
   if (!req.user) {
     return res.status(401).json({ message: "Authentication required" });
@@ -130,17 +137,22 @@ export function requireMDO(req: Request, res: Response, next: NextFunction) {
     });
   }
 
-  // Check if ENV_LOGIN_EMAIL is set - only that user gets MDO access
+  // Check if user email is in MDO whitelist
+  const userEmail = req.user.email?.toLowerCase();
+  const isMDOEmail = MDO_EMAIL_WHITELIST.includes(userEmail || "");
+
+  // Check if ENV_LOGIN_EMAIL is set - only that user gets MDO access (unless whitelisted)
   const envLoginEmail = process.env.ENV_LOGIN_EMAIL;
-  if (envLoginEmail) {
-    if (req.user.email.toLowerCase() !== envLoginEmail.toLowerCase()) {
+  if (envLoginEmail && !isMDOEmail) {
+    if (userEmail !== envLoginEmail.toLowerCase()) {
       return res.status(403).json({ 
-        message: "Access denied. Only the default MDO user can access this resource.", 
+        message: "Access denied. Only authorized MDO users can access this resource.", 
         reason: "mdo_access_restricted"
       });
     }
   }
 
+  // If email is in whitelist or matches ENV_LOGIN_EMAIL, allow access
   next();
 }
 

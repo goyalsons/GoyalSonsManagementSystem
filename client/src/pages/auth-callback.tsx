@@ -19,7 +19,7 @@ export default function AuthCallbackPage() {
     if (token) {
       localStorage.setItem("gms_token", token);
       
-      // Fetch user data to check if manager
+      // Fetch user data to check role and redirect accordingly
       fetch("/api/auth/me", {
         headers: {
           Authorization: `Bearer ${token}`,
@@ -32,14 +32,26 @@ export default function AuthCallbackPage() {
           throw new Error("Failed to fetch user");
         })
         .then((userData) => {
+          // Check if user is MDO (Master Decision Officer)
+          const isMDO = userData.loginType === "mdo";
+          
+          // MDO users should be redirected to MDO dashboard
+          if (isMDO) {
+            window.location.href = "/mdo/dashboard";
+            return;
+          }
+          
+          // Check if user is a manager
           if (userData.isManager) {
             window.location.href = "/manager/dashboard";
-          } else {
-            window.location.href = "/";
+            return;
           }
+          
+          // Default redirect
+          window.location.href = "/";
         })
         .catch(() => {
-      window.location.href = "/";
+          window.location.href = "/";
         });
     } else {
       setLocation("/login?error=No authentication token received");

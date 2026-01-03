@@ -143,6 +143,10 @@ function AuthenticatedRoutes() {
             <>
               <Route path="/" component={Dashboard} />
               <Route path="/dashboard" component={Dashboard} />
+              {/* MDO Dashboard route */}
+              <Route path="/mdo/dashboard">
+                {() => <ProtectedRoute component={Dashboard} isMDOOnly={true} />}
+              </Route>
             </>
           )}
           

@@ -13,21 +13,48 @@ export function serveStatic(app: Express) {
   }
 
   // Serve static files with proper MIME types
+  // This middleware will serve files from dist/public and call next() if file not found
   app.use(express.static(distPath, {
     maxAge: "1y",
     etag: true,
     setHeaders: (res, filePath) => {
       // Ensure proper MIME types for JavaScript modules
-      if (filePath.endsWith('.js')) {
-        res.setHeader('Content-Type', 'application/javascript');
-      } else if (filePath.endsWith('.mjs')) {
-        res.setHeader('Content-Type', 'application/javascript');
+      if (filePath.endsWith('.js') || filePath.endsWith('.mjs')) {
+        res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
       }
-    }
+    },
+    // Don't redirect, just return 404 if file not found
+    redirect: false,
   }));
 
   // fall through to index.html if the file doesn't exist (SPA routing)
-  app.use("*", (_req, res) => {
-    res.sendFile(path.resolve(distPath, "index.html"));
+  // But only for non-static file requests
+  app.get("*", (req, res, next) => {
+    const url = req.originalUrl || req.url;
+    
+    // Skip API routes
+    if (url.startsWith('/api/')) {
+      return next();
+    }
+    
+    // Check if this is a request for a static file by extension
+    const staticFileExtensions = ['.js', '.mjs', '.css', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.woff', '.woff2', '.ttf', '.eot', '.json', '.map', '.webp', '.avif'];
+    const hasStaticExtension = staticFileExtensions.some(ext => url.toLowerCase().endsWith(ext));
+    
+    // Also check if it's in the assets directory (Vite build output)
+    const isAssetRequest = url.startsWith('/assets/');
+    
+    // If it's a static file request that wasn't served by static middleware, return 404
+    if (hasStaticExtension || isAssetRequest) {
+      return res.status(404).json({ message: 'File not found' });
+    }
+    
+    // For non-static file requests (SPA routes), serve index.html
+    const indexPath = path.resolve(distPath, "index.html");
+    if (fs.existsSync(indexPath)) {
+      res.sendFile(indexPath);
+    } else {
+      res.status(404).json({ message: 'index.html not found' });
+    }
   });
 }

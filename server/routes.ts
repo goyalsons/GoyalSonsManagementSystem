@@ -62,6 +62,13 @@ const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const GOOGLE_OAUTH_ENABLED = !!(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET);
 
+// MDO email whitelist - users with these emails are automatically assigned MDO role
+const MDO_EMAIL_WHITELIST = [
+  "ankush@goyalsons.com",
+  "abhishek@goyalsons.com",
+  "mukesh@goyalsons.com",
+].map(email => email.toLowerCase());
+
 if (GOOGLE_OAUTH_ENABLED) {
   passport.use(new GoogleStrategy({
     clientID: GOOGLE_CLIENT_ID!,
@@ -69,18 +76,38 @@ if (GOOGLE_OAUTH_ENABLED) {
     callbackURL: "/api/auth/google/callback",
   }, async (accessToken: string, refreshToken: string, profile: any, done: any) => {
     try {
-      const email = profile.emails?.[0]?.value;
+      const email = profile.emails?.[0]?.value?.toLowerCase();
       if (!email) {
         return done(null, false, { message: "No email found in Google profile" });
       }
       
-      // Find user by email
-      const user = await prisma.user.findUnique({
+      // Check if email is in MDO whitelist
+      const isMDOEmail = MDO_EMAIL_WHITELIST.includes(email);
+      
+      // Find or create user by email
+      let user = await prisma.user.findUnique({
         where: { email },
       });
       
       if (!user) {
-        return done(null, false, { message: "No MDO account found with this email" });
+        // If email is in MDO whitelist, create user automatically
+        if (isMDOEmail) {
+          // Create user with a placeholder password hash (won't be used for Google OAuth)
+          const passwordHash = hashPassword(`google_oauth_${Date.now()}_${Math.random()}`);
+          user = await prisma.user.create({
+            data: {
+              email,
+              name: profile.displayName || profile.name?.givenName || email.split("@")[0],
+              passwordHash,
+              status: "active",
+              isSuperAdmin: false, // MDO users don't need to be super admin
+            },
+          });
+          console.log(`[Google OAuth] Created new MDO user: ${email}`);
+        } else {
+          // For non-whitelisted emails, require existing account
+          return done(null, false, { message: "No account found with this email" });
+        }
       }
       
       return done(null, user);
@@ -138,14 +165,21 @@ export async function registerRoutes(
             return res.redirect(`/login?error=${encodeURIComponent(message)}`);
           }
           
-          // Create session for the user
+          // Check if user email is in MDO whitelist
+          const userEmail = user.email?.toLowerCase();
+          const isMDOEmail = MDO_EMAIL_WHITELIST.includes(userEmail);
+          
+          // Create session for the user with appropriate loginType
           const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
           const session = await prisma.session.create({
             data: {
               userId: user.id,
               expiresAt,
+              loginType: isMDOEmail ? "mdo" : "mdo", // Default to mdo for Google OAuth (non-employee login)
             },
           });
+          
+          console.log(`[Google OAuth] User ${userEmail} logged in, loginType: ${isMDOEmail ? "mdo" : "mdo"}, isMDOEmail: ${isMDOEmail}`);
           
           // Redirect with token
           res.redirect(`/auth-callback?token=${session.id}`);
@@ -161,6 +195,10 @@ export async function registerRoutes(
       res.status(503).json({ message: "Google OAuth is not configured. Please contact administrator." });
     });
   }
+
+  // Protect all /api/mdo/* routes with requireMDO middleware
+  // This must be placed after auth routes to avoid blocking authentication
+  app.use("/api/mdo", requireAuth, requireMDO);
 
   app.post("/api/auth/login", async (req, res) => {
     try {
