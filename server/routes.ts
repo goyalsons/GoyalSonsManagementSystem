@@ -520,7 +520,12 @@ export async function registerRoutes(
       const accessibleOrgUnitIds = req.user!.accessibleOrgUnitIds;
       const { unitId, departmentId, designationId, search, page, limit: limitParam, statusFilter } = req.query;
 
-      const where: any = { orgUnitId: { in: accessibleOrgUnitIds } };
+      // MDO users (superadmin or ENV_LOGIN_EMAIL) should see all employees
+      // Only filter by orgUnit if not superadmin and accessibleOrgUnitIds is not empty
+      const where: any = {};
+      if (!req.user!.isSuperAdmin && accessibleOrgUnitIds.length > 0) {
+        where.orgUnitId = { in: accessibleOrgUnitIds };
+      }
       
       if (unitId) {
         where.orgUnitId = unitId;
@@ -2352,10 +2357,7 @@ export async function registerRoutes(
 
       if (!user && employee) {
         try {
-          const employeeRole = await prisma.role.findFirst({
-            where: { name: "Employee" },
-          });
-
+          // Role tables removed - no need to assign roles
           const fullName = [employee.firstName, employee.lastName].filter(n => n && n !== ".").join(" ");
           
           let email = employee.companyEmail || employee.personalEmail;
@@ -2379,17 +2381,9 @@ export async function registerRoutes(
               passwordHash: "otp-only-user",
               employeeId: employee.id,
               orgUnitId: employee.orgUnitId,
+              status: "active",
             },
           });
-
-          if (employeeRole) {
-            await prisma.userRole.create({
-              data: {
-                userId: user.id,
-                roleId: employeeRole.id,
-              },
-            });
-          }
 
           console.log(`[OTP] Auto-created User account for employee: ${fullName} (${employee.cardNumber})`);
         } catch (createError: any) {
@@ -2738,10 +2732,7 @@ export async function registerRoutes(
 
       if (!user) {
         try {
-          const employeeRole = await prisma.role.findFirst({
-            where: { name: "Employee" },
-          });
-
+          // Role tables removed - no need to assign roles
           const fullName = [employee.firstName, employee.lastName].filter(n => n && n !== ".").join(" ");
           
           let email = employee.companyEmail || employee.personalEmail;
@@ -2765,17 +2756,9 @@ export async function registerRoutes(
               passwordHash: "otp-only-user",
               employeeId: employee.id,
               orgUnitId: employee.orgUnitId,
+              status: "active",
             },
           });
-
-          if (employeeRole) {
-            await prisma.userRole.create({
-              data: {
-                userId: user.id,
-                roleId: employeeRole.id,
-              },
-            });
-          }
 
           console.log(`[Employee OTP] Auto-created User account for employee: ${fullName} (${employee.cardNumber})`);
         } catch (createError: any) {
