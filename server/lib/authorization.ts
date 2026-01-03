@@ -201,11 +201,8 @@ export async function getUserAuthInfo(userId: string) {
     isSuperAdmin: user.isSuperAdmin,
     orgUnitId: user.orgUnitId,
     employeeId: fullUser?.employeeId || null,
-    roles: user.roles.map((ur) => ({
-      id: ur.role.id,
-      name: ur.role.name,
-    })),
-    policies,
+    roles: [], // Role tables removed - always empty
+    policies, // Policy tables removed - always empty
     accessibleOrgUnitIds,
     employee: fullUser?.employee ? {
       firstName: fullUser.employee.firstName,
