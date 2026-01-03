@@ -3290,6 +3290,13 @@ export async function registerRoutes(
 
         for (const emp of employees) {
           try {
+            // Skip if CARD_NO is missing or invalid
+            if (!emp["CARD_NO"] || emp["CARD_NO"].toString().trim() === "") {
+              console.warn(`[Data Fetcher] Skipping employee with missing CARD_NO:`, emp["Name"] || "Unknown");
+              failed++;
+              continue;
+            }
+            
             let departmentId = null;
             if (emp["DEPARTMENT.DEPT_CODE"]) {
               const deptCode = emp["DEPARTMENT.DEPT_CODE"];
