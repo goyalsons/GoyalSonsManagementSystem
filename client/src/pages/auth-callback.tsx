@@ -39,7 +39,7 @@ export default function AuthCallbackPage() {
           }
         })
         .catch(() => {
-          window.location.href = "/";
+      window.location.href = "/";
         });
     } else {
       setLocation("/login?error=No authentication token received");

@@ -35,7 +35,7 @@ export default function LoginPage() {
       if (isManager()) {
         setLocation("/manager/dashboard");
       } else {
-        setLocation("/");
+      setLocation("/");
       }
     }
   }, [user, setLocation, isManager]);
@@ -226,7 +226,7 @@ export default function LoginPage() {
           setLocation("/");
         }
       } catch (err) {
-        setLocation("/");
+      setLocation("/");
       }
     } else {
       setError(result.error || "Login failed");
