@@ -20,6 +20,7 @@ export function ImagePreview({
 }: ImagePreviewProps) {
   const [isHovered, setIsHovered] = useState(false);
   const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [imageError, setImageError] = useState(false);
   const imageRef = useRef<HTMLImageElement>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -79,6 +80,14 @@ export function ImagePreview({
     return <>{fallback}</>;
   }
 
+  if (imageError && fallback) {
+    return <>{fallback}</>;
+  }
+
+  const handleImageError = () => {
+    setImageError(true);
+  };
+
   return (
     <>
       <img
@@ -92,10 +101,11 @@ export function ImagePreview({
         )}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
+        onError={handleImageError}
       />
 
       {/* Preview Overlay */}
-      {isHovered && (
+      {isHovered && !imageError && (
         <div
           className="fixed z-[9999] pointer-events-none"
           style={{
@@ -117,6 +127,7 @@ export function ImagePreview({
               src={src}
               alt={alt}
               className="w-full h-full object-cover"
+              onError={handleImageError}
             />
             {/* Name overlay at bottom */}
             <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-3">
@@ -154,10 +165,19 @@ export function ImagePreviewModal({
   children,
 }: ImagePreviewModalProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [imageError, setImageError] = useState(false);
 
   if (!src && fallback) {
     return <>{fallback}</>;
   }
+
+  if (imageError && fallback) {
+    return <>{fallback}</>;
+  }
+
+  const handleImageError = () => {
+    setImageError(true);
+  };
 
   return (
     <>
@@ -173,6 +193,7 @@ export function ImagePreviewModal({
               "transition-transform duration-200 hover:scale-105",
               className
             )}
+            onError={handleImageError}
           />
         )}
       </div>
@@ -197,6 +218,7 @@ export function ImagePreviewModal({
               src={src}
               alt={alt}
               className="w-full h-full object-contain rounded-xl shadow-2xl"
+              onError={handleImageError}
             />
             <p className="text-white text-center mt-4 text-lg font-medium">{alt}</p>
           </div>

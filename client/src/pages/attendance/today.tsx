@@ -321,6 +321,11 @@ export default function TodayAttendancePage() {
                               alt={record.firstName}
                               className="h-10 w-10 rounded-full object-cover border-2 border-border"
                               previewSize={240}
+                              fallback={
+                                <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-medium">
+                                  {getInitials(record.firstName, record.lastName)}
+                                </div>
+                              }
                             />
                           ) : (
                             <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-medium">
