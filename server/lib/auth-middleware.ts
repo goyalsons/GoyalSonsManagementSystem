@@ -82,19 +82,16 @@ export function requirePolicy(policyKey: string) {
       return res.status(401).json({ message: "Authentication required" });
     }
 
+    // Role/Policy tables removed - allow all authenticated users
+    // SuperAdmin check is already handled by requireAuth/requireMDO in most cases
+    // This middleware now just ensures user is authenticated
     if (req.user.isSuperAdmin) {
       return next();
     }
 
-    if (!req.user.policies.includes(policyKey)) {
-      return res.status(403).json({ 
-        message: "Access denied", 
-        reason: "missing_policy",
-        required: policyKey 
-      });
-    }
-
-    next();
+    // For non-superadmin users, allow access (policies no longer exist)
+    // Actual access control is handled by requireMDO middleware
+    return next();
   };
 }
 

@@ -1821,36 +1821,13 @@ export async function registerRoutes(
   });
 
   app.get("/api/roles", requireAuth, async (req, res) => {
-    try {
-      const roles = await prisma.role.findMany({
-        include: {
-          policies: {
-            include: {
-              policy: true,
-            },
-          },
-        },
-        orderBy: { level: "asc" },
-      });
-
-      res.json(roles);
-    } catch (error) {
-      console.error("Roles error:", error);
-      res.status(500).json({ message: "Failed to fetch roles" });
-    }
+    // Role tables deleted - return empty array
+    res.json([]);
   });
 
   app.get("/api/policies", requireAuth, async (req, res) => {
-    try {
-      const policies = await prisma.policy.findMany({
-        orderBy: { category: "asc" },
-      });
-
-      res.json(policies);
-    } catch (error) {
-      console.error("Policies error:", error);
-      res.status(500).json({ message: "Failed to fetch policies" });
-    }
+    // Policy tables deleted - return empty array
+    res.json([]);
   });
 
   // ==================== SETTINGS API ====================

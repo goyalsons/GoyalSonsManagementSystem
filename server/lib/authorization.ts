@@ -11,38 +11,20 @@ export interface UserWithRoles {
   email: string;
   isSuperAdmin: boolean;
   orgUnitId: string | null;
-  roles: {
-    role: {
-      id: string;
-      name: string;
-      policies: {
-        policy: {
-          id: string;
-          key: string;
-        };
-      }[];
-    };
-  }[];
+  roles: never[]; // Roles removed - always empty
 }
 
 export async function isCEO(userId: string): Promise<boolean> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    include: {
-      roles: {
-        include: {
-          role: true,
-        },
-      },
+    select: {
+      isSuperAdmin: true,
     },
   });
 
   if (!user) return false;
-  if (user.isSuperAdmin) return true;
-
-  return user.roles.some(
-    (ur) => ur.role.name.toUpperCase() === "CEO" || ur.role.name.toUpperCase() === "SUPERADMIN"
-  );
+  // Role tables removed - only check isSuperAdmin
+  return user.isSuperAdmin;
 }
 
 export async function getOrgSubtreeIds(orgUnitId: string): Promise<string[]> {
@@ -60,7 +42,7 @@ export async function getOrgSubtreeIds(orgUnitId: string): Promise<string[]> {
 }
 
 export async function getUserWithRoles(userId: string): Promise<UserWithRoles | null> {
-  return prisma.user.findUnique({
+  const user = await prisma.user.findUnique({
     where: { id: userId },
     select: {
       id: true,
@@ -68,40 +50,30 @@ export async function getUserWithRoles(userId: string): Promise<UserWithRoles | 
       email: true,
       isSuperAdmin: true,
       orgUnitId: true,
-      roles: {
-        include: {
-          role: {
-            include: {
-              policies: {
-                include: {
-                  policy: true,
-                },
-              },
-            },
-          },
-        },
-      },
     },
   });
+
+  if (!user) return null;
+
+  // Role tables removed - return user with empty roles array
+  return {
+    ...user,
+    roles: [],
+  };
 }
 
 export async function getUserPolicies(userId: string): Promise<string[]> {
-  const user = await getUserWithRoles(userId);
-  if (!user) return [];
-
-  const policies = new Set<string>();
-  for (const userRole of user.roles) {
-    for (const rolePolicy of userRole.role.policies) {
-      policies.add(rolePolicy.policy.key);
-    }
-  }
-
-  return Array.from(policies);
+  // Policy tables removed - return empty array
+  return [];
 }
 
 export async function hasPolicy(userId: string, policyKey: string): Promise<boolean> {
-  const policies = await getUserPolicies(userId);
-  return policies.includes(policyKey);
+  // Policy tables removed - only superadmin has all policies
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { isSuperAdmin: true },
+  });
+  return user?.isSuperAdmin || false;
 }
 
 export async function authorize(params: {
@@ -109,7 +81,7 @@ export async function authorize(params: {
   actionKey: string;
   targetOrgUnitId?: string;
 }): Promise<AuthorizationResult> {
-  const { userId, actionKey, targetOrgUnitId } = params;
+  const { userId, targetOrgUnitId } = params;
 
   const user = await getUserWithRoles(userId);
   if (!user) {
@@ -120,16 +92,7 @@ export async function authorize(params: {
     return { allowed: true };
   }
 
-  const isCeoUser = await isCEO(userId);
-  if (isCeoUser) {
-    return { allowed: true };
-  }
-
-  const policies = await getUserPolicies(userId);
-  if (!policies.includes(actionKey)) {
-    return { allowed: false, reason: "missing_policy" };
-  }
-
+  // Policy tables removed - only check org scope if specified
   if (targetOrgUnitId && user.orgUnitId) {
     const subtreeIds = await getOrgSubtreeIds(user.orgUnitId);
     if (!subtreeIds.includes(targetOrgUnitId)) {
@@ -146,11 +109,6 @@ export async function getAccessibleOrgUnitIds(userId: string): Promise<string[]>
     select: {
       isSuperAdmin: true,
       orgUnitId: true,
-      roles: {
-        include: {
-          role: true,
-        },
-      },
     },
   });
 
@@ -161,15 +119,7 @@ export async function getAccessibleOrgUnitIds(userId: string): Promise<string[]>
     return allOrgs.map((o) => o.id);
   }
 
-  const isCeoUser = user.roles.some(
-    (ur) => ur.role.name.toUpperCase() === "CEO" || ur.role.name.toUpperCase() === "SUPERADMIN"
-  );
-
-  if (isCeoUser) {
-    const allOrgs = await prisma.orgUnit.findMany({ select: { id: true } });
-    return allOrgs.map((o) => o.id);
-  }
-
+  // Role tables removed - only check isSuperAdmin
   if (!user.orgUnitId) return [];
 
   return getOrgSubtreeIds(user.orgUnitId);
