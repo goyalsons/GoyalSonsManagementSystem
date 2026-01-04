@@ -40,6 +40,7 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { usersApi, orgUnitsApi } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
+import { encodeName } from "@/lib/utils";
 
 interface UserRole {
   role: { name: string };
@@ -195,7 +196,7 @@ export default function UsersListPage() {
                       </Avatar>
                       <div>
                         <div className="font-medium text-foreground flex items-center gap-2">
-                          {user.name}
+                          {encodeName(user.name)}
                           {user.isDefaultMDO && (
                             <Badge
                               variant="outline"

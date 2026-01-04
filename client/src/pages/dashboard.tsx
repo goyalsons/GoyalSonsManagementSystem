@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { dashboardApi } from "@/lib/api";
+import { encodeName, encodeFullName } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Link } from "wouter";
 
@@ -160,9 +161,9 @@ export default function Dashboard() {
   const getDisplayName = () => {
     const employee = (user as any).employee;
     if (employee?.firstName) {
-      return `${employee.firstName}${employee.lastName ? " " + employee.lastName : ""}`;
+      return encodeFullName(employee.firstName, employee.lastName);
     }
-    return user.name;
+    return encodeName(user.name);
   };
 
   const getInitialsColor = (index: number) => {

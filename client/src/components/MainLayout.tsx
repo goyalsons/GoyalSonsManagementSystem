@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { useLocation, Link } from "wouter";
-import { cn } from "@/lib/utils";
+import { cn, encodeName } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 import { useTheme } from "@/lib/theme-context";
 import {
@@ -391,7 +391,7 @@ const SidebarNav = React.memo(function SidebarNav({
               {user.name.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2)}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs sm:text-sm font-medium text-sidebar-foreground truncate">{user.name}</p>
+              <p className="text-xs sm:text-sm font-medium text-sidebar-foreground truncate">{encodeName(user.name)}</p>
               <p className="text-[10px] sm:text-xs text-sidebar-foreground/60 truncate">
                 {user.loginType === "employee" && user.employeeCardNo 
                   ? user.employeeCardNo 
