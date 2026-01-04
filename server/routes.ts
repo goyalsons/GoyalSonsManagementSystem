@@ -57,42 +57,134 @@ const upload = multer({
   },
 });
 
-// Google OAuth configuration
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
-const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-const GOOGLE_OAUTH_ENABLED = !!(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET);
+// MDO email whitelist - users with these emails can login via Google OAuth and get MDO role
+// You can add more emails via ALLOWED_GOOGLE_EMAILS environment variable (comma-separated)
+// Example: ALLOWED_GOOGLE_EMAILS=ankush@goyalsons.com,abhishek@goyalsons.com,mukesh@goyalsons.com,newuser@goyalsons.com
+const getAllowedGoogleEmails = (): string[] => {
+  if (process.env.ALLOWED_GOOGLE_EMAILS) {
+    return process.env.ALLOWED_GOOGLE_EMAILS.split(",")
+      .map(email => email.trim().toLowerCase())
+      .filter(email => email.length > 0);
+  }
+  // Default whitelist (ankush, abhishek, mukesh)
+  return [
+    "ankush@goyalsons.com",
+    "abhishek@goyalsons.com",
+    "mukesh@goyalsons.com",
+    "akshat@goyalsons.com",
+  ].map(email => email.toLowerCase());
+};
 
-// MDO email whitelist - users with these emails are automatically assigned MDO role
-const MDO_EMAIL_WHITELIST = [
-  "ankush@goyalsons.com",
-  "abhishek@goyalsons.com",
-  "mukesh@goyalsons.com",
-].map(email => email.toLowerCase());
+const MDO_EMAIL_WHITELIST = getAllowedGoogleEmails();
 
-if (GOOGLE_OAUTH_ENABLED) {
-  passport.use(new GoogleStrategy({
-    clientID: GOOGLE_CLIENT_ID!,
-    clientSecret: GOOGLE_CLIENT_SECRET!,
-    callbackURL: "/api/auth/google/callback",
-  }, async (accessToken: string, refreshToken: string, profile: any, done: any) => {
-    try {
-      const email = profile.emails?.[0]?.value?.toLowerCase();
-      if (!email) {
-        return done(null, false, { message: "No email found in Google profile" });
-      }
-      
-      // Check if email is in MDO whitelist
-      const isMDOEmail = MDO_EMAIL_WHITELIST.includes(email);
-      
-      // Find or create user by email
-      let user = await prisma.user.findUnique({
-        where: { email },
-      });
-      
-      if (!user) {
-        // If email is in MDO whitelist, create user automatically
-        if (isMDOEmail) {
-          // Create user with a placeholder password hash (won't be used for Google OAuth)
+// Helper functions for OAuth configuration
+const getBaseUrl = () => {
+  // Check if BASE_URL is explicitly set in environment
+  if (process.env.BASE_URL) {
+    return process.env.BASE_URL;
+  }
+  // Check if GOOGLE_CALLBACK_URL is set (full URL)
+  if (process.env.GOOGLE_CALLBACK_URL) {
+    // Extract base URL from full callback URL
+    const url = new URL(process.env.GOOGLE_CALLBACK_URL);
+    return `${url.protocol}//${url.host}`;
+  }
+  // For production, default to goyalsons.com
+  if (process.env.NODE_ENV === "production") {
+    return "https://goyalsons.com";
+  }
+  // For development, use localhost
+  return "http://localhost:5000";
+};
+
+const getCallbackUrl = () => {
+  // If full callback URL is provided, use it directly
+  if (process.env.GOOGLE_CALLBACK_URL) {
+    return process.env.GOOGLE_CALLBACK_URL;
+  }
+  // Otherwise, construct from base URL
+  return `${getBaseUrl()}/api/auth/google/callback`;
+};
+
+// Initialize Google OAuth Strategy
+function initializeGoogleOAuth(): boolean {
+  const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+  const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+  const GOOGLE_OAUTH_ENABLED = !!(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET);
+
+  console.log("\n" + "=".repeat(60));
+  console.log("[Google OAuth] 🔐 Initializing Google OAuth Strategy");
+  console.log("=".repeat(60));
+
+  // Check environment variables
+  if (!GOOGLE_CLIENT_ID) {
+    console.error("[Google OAuth] ❌ GOOGLE_CLIENT_ID is not set in environment variables");
+  }
+  if (!GOOGLE_CLIENT_SECRET) {
+    console.error("[Google OAuth] ❌ GOOGLE_CLIENT_SECRET is not set in environment variables");
+  }
+
+  if (!GOOGLE_OAUTH_ENABLED) {
+    console.warn("[Google OAuth] ⚠️  OAuth is DISABLED - Missing required environment variables");
+    console.warn("[Google OAuth]    Required: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET");
+    console.log("=".repeat(60) + "\n");
+    return false;
+  }
+
+  // Log configuration (masked but with more detail for debugging)
+  const maskedClientId = GOOGLE_CLIENT_ID.length > 30 
+    ? `${GOOGLE_CLIENT_ID.substring(0, 25)}...${GOOGLE_CLIENT_ID.substring(GOOGLE_CLIENT_ID.length - 15)}`
+    : GOOGLE_CLIENT_ID;
+  const maskedSecret = GOOGLE_CLIENT_SECRET 
+    ? `***${GOOGLE_CLIENT_SECRET.substring(GOOGLE_CLIENT_SECRET.length - 4)}`
+    : "NOT SET";
+
+  console.log(`[Google OAuth] ✅ OAuth is ENABLED`);
+  console.log(`[Google OAuth]    Client ID: ${maskedClientId}`);
+  console.log(`[Google OAuth]    Client ID Length: ${GOOGLE_CLIENT_ID.length} characters`);
+  console.log(`[Google OAuth]    Client Secret: ${maskedSecret}`);
+  console.log(`[Google OAuth]    Client Secret Length: ${GOOGLE_CLIENT_SECRET.length} characters`);
+
+  const callbackURL = getCallbackUrl();
+  console.log(`[Google OAuth]    Callback URL: ${callbackURL}`);
+  console.log(`[Google OAuth]    Base URL: ${getBaseUrl()}`);
+  console.log(`[Google OAuth]    NODE_ENV: ${process.env.NODE_ENV || "not set"}`);
+
+  // Register Google Strategy
+  try {
+    // Register the Google Strategy
+    // Note: Passport will handle duplicate registrations gracefully
+    passport.use(new GoogleStrategy({
+      clientID: GOOGLE_CLIENT_ID,
+      clientSecret: GOOGLE_CLIENT_SECRET,
+      callbackURL: callbackURL,
+    }, async (accessToken: string, refreshToken: string, profile: any, done: any) => {
+      try {
+        const email = profile.emails?.[0]?.value?.toLowerCase();
+        if (!email) {
+          console.error("[Google OAuth] ❌ No email found in Google profile");
+          return done(null, false, { message: "No email found in Google profile" });
+        }
+        
+        console.log(`[Google OAuth] 🔍 Authenticating user: ${email}`);
+        
+        // ✅ RESTRICT: Only whitelisted emails can login via Google OAuth
+        const isAllowedEmail = MDO_EMAIL_WHITELIST.includes(email);
+        if (!isAllowedEmail) {
+          console.warn(`[Google OAuth] ❌ Access denied for email: ${email}. Email not in whitelist.`);
+          console.warn(`[Google OAuth]    Allowed emails: ${MDO_EMAIL_WHITELIST.join(", ")}`);
+          return done(null, false, { 
+            message: "Access denied. Your email is not authorized to sign in with Google." 
+          });
+        }
+        
+        // Find or create user by email (only if email is whitelisted)
+        let user = await prisma.user.findUnique({
+          where: { email },
+        });
+        
+        if (!user) {
+          // Create user automatically for whitelisted Google OAuth login
           const passwordHash = hashPassword(`google_oauth_${Date.now()}_${Math.random()}`);
           user = await prisma.user.create({
             data: {
@@ -103,31 +195,40 @@ if (GOOGLE_OAUTH_ENABLED) {
               isSuperAdmin: false, // MDO users don't need to be super admin
             },
           });
-          console.log(`[Google OAuth] Created new MDO user: ${email}`);
+          console.log(`[Google OAuth] ✅ Created new MDO user via Google OAuth: ${email}`);
         } else {
-          // For non-whitelisted emails, require existing account
-          return done(null, false, { message: "No account found with this email" });
+          console.log(`[Google OAuth] ✅ Found existing user: ${email}`);
         }
+        
+        return done(null, user);
+      } catch (error) {
+        console.error("[Google OAuth] ❌ Strategy callback error:", error);
+        return done(error as Error);
       }
-      
-      return done(null, user);
-    } catch (error) {
-      return done(error as Error);
-    }
-  }));
-  
-  passport.serializeUser((user: any, done: any) => {
-    done(null, user.id);
-  });
-  
-  passport.deserializeUser(async (id: any, done: any) => {
-    try {
-      const user = await prisma.user.findUnique({ where: { id: String(id) } });
-      done(null, user);
-    } catch (error) {
-      done(error);
-    }
-  });
+    }));
+    
+    passport.serializeUser((user: any, done: any) => {
+      done(null, user.id);
+    });
+    
+    passport.deserializeUser(async (id: any, done: any) => {
+      try {
+        const user = await prisma.user.findUnique({ where: { id: String(id) } });
+        done(null, user);
+      } catch (error) {
+        console.error("[Google OAuth] ❌ Deserialize user error:", error);
+        done(error);
+      }
+    });
+
+    console.log("[Google OAuth] ✅ Google Strategy registered successfully");
+    console.log("=".repeat(60) + "\n");
+    return true;
+  } catch (error) {
+    console.error("[Google OAuth] ❌ Failed to register Google Strategy:", error);
+    console.log("=".repeat(60) + "\n");
+    return false;
+  }
 }
 
 export async function registerRoutes(
@@ -140,46 +241,69 @@ export async function registerRoutes(
     res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
   });
   
-  // Initialize passport
+  // Initialize passport BEFORE registering strategies
   app.use(passport.initialize());
+  
+  // Initialize Google OAuth Strategy
+  const GOOGLE_OAUTH_ENABLED = initializeGoogleOAuth();
   
   app.use(loadUserFromSession);
   
   // Google OAuth routes
   if (GOOGLE_OAUTH_ENABLED) {
-    app.get("/api/auth/google", passport.authenticate("google", {
-      scope: ["profile", "email"],
-      session: false,
-    }));
+    console.log("[Google OAuth] 📍 Registering OAuth routes:");
+    console.log(`[Google OAuth]    GET /api/auth/google`);
+    console.log(`[Google OAuth]    GET /api/auth/google/callback`);
+    app.get("/api/auth/google", (req, res, next) => {
+      console.log(`[Google OAuth] 🚀 OAuth initiation request received from ${req.ip}`);
+      passport.authenticate("google", {
+        scope: ["profile", "email"],
+        session: false,
+      })(req, res, next);
+    });
     
     app.get("/api/auth/google/callback", (req, res, next) => {
+      console.log(`[Google OAuth] Callback received. Query params:`, Object.keys(req.query));
       passport.authenticate("google", { session: false }, async (err: any, user: any, info: any) => {
         try {
           if (err) {
-            console.error("Google OAuth error:", err);
+            console.error("[Google OAuth] ❌ Authentication error:", err);
+            // Check for specific invalid_client error
+            if (err.message?.includes("invalid_client") || err.oauthError === "invalid_client") {
+              console.error("[Google OAuth] ❌ Invalid client error detected!");
+              console.error("[Google OAuth] This usually means:");
+              console.error("  1. GOOGLE_CLIENT_ID is incorrect or not set");
+              console.error("  2. GOOGLE_CLIENT_SECRET is incorrect or not set");
+              console.error("  3. Callback URL doesn't match Google Cloud Console");
+              console.error(`[Google OAuth] Current callback URL: ${getCallbackUrl()}`);
+              return res.redirect("/login?error=invalid_client_config");
+            }
             return res.redirect("/login?error=oauth_error");
           }
           
           if (!user) {
             const message = info?.message || "Authentication failed";
+            console.error(`[Google OAuth] ❌ No user returned. Info:`, info);
             return res.redirect(`/login?error=${encodeURIComponent(message)}`);
           }
           
-          // Check if user email is in MDO whitelist
+          // ALL Google OAuth logins get MDO role
           const userEmail = user.email?.toLowerCase();
-          const isMDOEmail = MDO_EMAIL_WHITELIST.includes(userEmail);
           
-          // Create session for the user with appropriate loginType
+          // Create session for the user with MDO loginType
+          // All Google OAuth logins are treated as MDO users
+          const loginType = "mdo";
           const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
           const session = await prisma.session.create({
             data: {
               userId: user.id,
               expiresAt,
-              loginType: isMDOEmail ? "mdo" : "mdo", // Default to mdo for Google OAuth (non-employee login)
+              loginType: loginType,
             },
           });
           
-          console.log(`[Google OAuth] User ${userEmail} logged in, loginType: ${isMDOEmail ? "mdo" : "mdo"}, isMDOEmail: ${isMDOEmail}`);
+          console.log(`[Google OAuth] ✅ User ${userEmail} logged in successfully`);
+          console.log(`[Google OAuth]    loginType: ${loginType} (All Google OAuth users are MDO)`);
           
           // Redirect with token
           res.redirect(`/auth-callback?token=${session.id}`);
@@ -189,9 +313,13 @@ export async function registerRoutes(
         }
       })(req, res, next);
     });
+    
+    console.log("[Google OAuth] ✅ OAuth routes registered successfully\n");
   } else {
     // Fallback if Google OAuth is not configured
+    console.log("[Google OAuth] ⚠️  OAuth routes NOT registered - OAuth is disabled\n");
     app.get("/api/auth/google", (req, res) => {
+      console.log(`[Google OAuth] ❌ OAuth request received but OAuth is not configured`);
       res.status(503).json({ message: "Google OAuth is not configured. Please contact administrator." });
     });
   }

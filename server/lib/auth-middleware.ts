@@ -129,7 +129,7 @@ export function requireMDO(req: Request, res: Response, next: NextFunction) {
     return res.status(401).json({ message: "Authentication required" });
   }
 
-  // Check if user is employee login type (card-based login)
+  // Check if user is employee login type (card-based login) - block these
   if (req.user.loginType === "employee") {
     return res.status(403).json({ 
       message: "Access denied", 
@@ -137,7 +137,12 @@ export function requireMDO(req: Request, res: Response, next: NextFunction) {
     });
   }
 
-  // Check if user email is in MDO whitelist
+  // If loginType is "mdo", allow access (all Google OAuth users have loginType="mdo")
+  if (req.user.loginType === "mdo") {
+    return next();
+  }
+
+  // For other login types, check email whitelist (backward compatibility)
   const userEmail = req.user.email?.toLowerCase();
   const isMDOEmail = MDO_EMAIL_WHITELIST.includes(userEmail || "");
 
