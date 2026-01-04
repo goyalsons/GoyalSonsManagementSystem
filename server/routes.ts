@@ -68,11 +68,7 @@ const getAllowedGoogleEmails = (): string[] => {
   }
   // Default whitelist (ankush, abhishek, mukesh)
   return [
-    "ankush@goyalsons.com",
-    "abhishek@goyalsons.com",
-    "mukesh@goyalsons.com",
-    "akshat@goyalsons.com",
-  ].map(email => email.toLowerCase());
+  ];
 };
 
 const MDO_EMAIL_WHITELIST = getAllowedGoogleEmails();

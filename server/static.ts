@@ -12,6 +12,13 @@ export function serveStatic(app: Express) {
     );
   }
 
+  // Log available assets for debugging
+  const assetsPath = path.join(distPath, "assets");
+  if (fs.existsSync(assetsPath)) {
+    const assets = fs.readdirSync(assetsPath);
+    console.log(`[Static] Found ${assets.length} asset files in dist/public/assets`);
+  }
+
   // Serve static files with proper MIME types
   // This middleware will serve files from dist/public and call next() if file not found
   app.use(express.static(distPath, {
@@ -25,6 +32,8 @@ export function serveStatic(app: Express) {
     },
     // Don't redirect, just return 404 if file not found
     redirect: false,
+    // Fallthrough to next middleware if file not found (for SPA routing)
+    fallthrough: true,
   }));
 
   // fall through to index.html if the file doesn't exist (SPA routing)
