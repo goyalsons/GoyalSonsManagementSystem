@@ -347,7 +347,7 @@ export default function SalesExcelPivotTable({
                     <User className="h-4 w-4 text-indigo-500" />
                     <span className="truncate max-w-[140px]">
                       {selectedSmno === "all" 
-                        ? "All Salesmen" 
+                        ? "Select Salesman" 
                         : `${selectedSalesmanInfo?.sm || "Unknown"}`
                       }
                     </span>
@@ -356,18 +356,6 @@ export default function SalesExcelPivotTable({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="max-h-[300px] overflow-y-auto w-[280px]">
-                <DropdownMenuItem 
-                  onClick={() => setSelectedSmno("all")}
-                  className={selectedSmno === "all" ? "bg-indigo-50 text-indigo-700" : ""}
-                >
-                  <div className="flex items-center gap-2">
-                    <User className="h-4 w-4" />
-                    <span>All Salesmen</span>
-                    <Badge variant="secondary" className="ml-auto text-xs">
-                      {data.length}
-                    </Badge>
-                  </div>
-                </DropdownMenuItem>
                 {availableSalesmen.map((salesman) => {
                   const count = data.filter((d) => d.smno === salesman.smno).length;
                   return (
@@ -445,18 +433,17 @@ export default function SalesExcelPivotTable({
             </DropdownMenuContent>
           </DropdownMenu>
           
-          {/* Clear Filters Button */}
-          {(selectedDate !== "all" || (showSalesmanFilter && selectedSmno !== "all")) && (
+          {/* Clear Filters Button - Only show for date filter */}
+          {selectedDate !== "all" && (
             <Button 
               variant="ghost" 
               size="sm" 
               onClick={() => {
                 setSelectedDate("all");
-                if (showSalesmanFilter) setSelectedSmno("all");
               }}
               className="text-xs text-slate-500"
             >
-              Clear Filters
+              Clear Date Filter
             </Button>
           )}
         </div>
@@ -470,7 +457,15 @@ export default function SalesExcelPivotTable({
       </div>
 
       {/* ─────────────────── Pivot Table ─────────────────── */}
-      {filteredData.length === 0 ? (
+      {showSalesmanFilter && selectedSmno === "all" ? (
+        <div className="text-center py-12 text-slate-500 border border-slate-200 rounded-lg bg-slate-50">
+          <User className="h-10 w-10 mx-auto mb-3 text-slate-300" />
+          <p className="font-medium">Select a Salesman</p>
+          <p className="text-sm text-slate-400 mt-1">
+            Please select a salesman from the dropdown to view their sales data
+          </p>
+        </div>
+      ) : filteredData.length === 0 ? (
         <div className="text-center py-12 text-slate-500 border border-slate-200 rounded-lg bg-slate-50">
           <Search className="h-10 w-10 mx-auto mb-3 text-slate-300" />
           <p className="font-medium">No data found</p>
