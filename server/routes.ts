@@ -501,11 +501,21 @@ export async function registerRoutes(
 
   app.get("/api/org-units", requireAuth, async (req, res) => {
     try {
+      // Allowed unit codes - only these units will be shown
+      const allowedUnitCodes = [
+        "UNIT-1", "UNIT-2", "UNIT-3", "UNIT-4", 
+        "UNIT-5", "UNIT-6", "UNIT-7", "UNIT-8", 
+        "GSHO"
+      ];
+      
       const orgUnits = await prisma.orgUnit.findMany({
         where: {
           id: { in: req.user!.accessibleOrgUnitIds },
+          code: { in: allowedUnitCodes }, // Filter by allowed codes
         },
-        orderBy: { level: "asc" },
+        orderBy: [
+          { code: "asc" }, // Sort by code to get Unit 1, Unit 2, etc. in order
+        ],
       });
       res.json(orgUnits);
     } catch (error) {
@@ -742,9 +752,25 @@ export async function registerRoutes(
             shiftStart: true,
             shiftEnd: true,
             interviewDate: true,
+            employeeCode: true,
             orgUnit: { select: { id: true, name: true, code: true } },
             department: { select: { id: true, name: true, code: true } },
             designation: { select: { id: true, name: true, code: true } },
+            user: {
+              select: {
+                id: true,
+                roles: {
+                  include: {
+                    role: {
+                      select: {
+                        id: true,
+                        name: true,
+                      },
+                    },
+                  },
+                } as any,
+              } as any,
+            },
           },
           orderBy: { firstName: "asc" },
           skip,
@@ -824,7 +850,7 @@ export async function registerRoutes(
         });
       }
 
-      const role = await prisma.role.findUnique({
+      const role = await (prisma as any).role.findUnique({
         where: { id: roleId },
       });
 
@@ -852,7 +878,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: "An account with this email already exists" });
       }
 
-      const user = await prisma.user.create({
+      const user = await (prisma as any).user.create({
         data: {
           name: `${employee.firstName} ${employee.lastName || ''}`.trim(),
           email,
@@ -1828,36 +1854,35 @@ export async function registerRoutes(
 
   app.get("/api/users", requireAuth, requireMDO, requirePolicy("users.view"), async (req, res) => {
     try {
-      const envLoginEmail = process.env.ENV_LOGIN_EMAIL?.toLowerCase();
-      
-      if (!envLoginEmail) {
-        return res.json([]);
-      }
-
-      // Only return the MDO user (ENV_LOGIN_EMAIL user)
-      const user = await prisma.user.findUnique({
-        where: { email: envLoginEmail },
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          phone: true,
-          status: true,
-          createdAt: true,
-          orgUnit: { select: { name: true, code: true } },
+      const users = await (prisma as any).user.findMany({
+        include: {
+          roles: {
+            include: {
+              role: {
+                include: {
+                  policies: {
+                    include: {
+                      policy: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+          orgUnit: {
+            select: {
+              id: true,
+              name: true,
+              code: true,
+            },
+          },
+        },
+        orderBy: {
+          createdAt: "desc",
         },
       });
 
-      if (!user) {
-        return res.json([]);
-      }
-
-      // Return only this user with isDefaultMDO flag and empty roles array
-      res.json([{
-        ...user,
-        roles: [], // Roles table removed
-        isDefaultMDO: true,
-      }]);
+      res.json(users);
     } catch (error) {
       console.error("Users error:", error);
       res.status(500).json({ message: "Failed to fetch users" });
@@ -1987,14 +2012,488 @@ export async function registerRoutes(
     }
   });
 
+  // ==================== ROLES API ====================
+
+  // GET /api/roles - Get all roles with user count
   app.get("/api/roles", requireAuth, async (req, res) => {
-    // Role tables deleted - return empty array
-    res.json([]);
+    try {
+      const roles = await (prisma as any).role.findMany({
+        orderBy: { level: "desc" },
+        include: {
+          _count: {
+            select: { users: true }
+          }
+        }
+      });
+
+      const rolesWithCount = roles.map((role: any) => ({
+        id: role.id,
+        name: role.name,
+        description: role.description,
+        level: role.level,
+        userCount: role._count.users,
+        createdAt: role.createdAt
+      }));
+
+      res.json(rolesWithCount);
+    } catch (error) {
+      console.error("Roles error:", error);
+      res.status(500).json({ message: "Failed to fetch roles" });
+    }
   });
 
+  // GET /api/roles/:id - Get single role with policies
+  app.get("/api/roles/:id", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      const role = await (prisma as any).role.findUnique({
+        where: { id },
+        include: {
+          policies: {
+            include: {
+              policy: true
+            }
+          },
+          _count: {
+            select: { users: true }
+          }
+        }
+      });
+
+      if (!role) {
+        return res.status(404).json({ message: "Role not found" });
+      }
+
+      res.json({
+        id: role.id,
+        name: role.name,
+        description: role.description,
+        level: role.level,
+        userCount: role._count.users,
+        policies: (role.policies as any[]).map((rp: any) => rp.policy),
+        createdAt: role.createdAt
+      });
+    } catch (error) {
+      console.error("Role error:", error);
+      res.status(500).json({ message: "Failed to fetch role" });
+    }
+  });
+
+  // POST /api/roles - Create new role
+  app.post("/api/roles", requireAuth, requirePolicy("admin.roles"), async (req, res) => {
+    try {
+      const { name, description, level, policyIds } = req.body;
+
+      if (!name) {
+        return res.status(400).json({ message: "Role name is required" });
+      }
+
+      // Create role with policies in transaction
+      const role = await prisma.$transaction(async (tx: any) => {
+        const newRole = await tx.role.create({
+          data: {
+            name,
+            description: description || null,
+            level: level || 0
+          }
+        });
+
+        // Assign policies if provided
+        if (policyIds && Array.isArray(policyIds) && policyIds.length > 0) {
+          await tx.rolePolicy.createMany({
+            data: policyIds.map((policyId: string) => ({
+              roleId: newRole.id,
+              policyId
+            }))
+          });
+        }
+
+        return newRole;
+      });
+
+      res.status(201).json(role);
+    } catch (error: any) {
+      if (error.code === "P2002") {
+        return res.status(400).json({ message: "Role with this name already exists" });
+      }
+      console.error("Create role error:", error);
+      res.status(500).json({ message: "Failed to create role" });
+    }
+  });
+
+  // PUT /api/roles/:id - Update role and policies
+  app.put("/api/roles/:id", requireAuth, requirePolicy("admin.roles"), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { name, description, level, policyIds } = req.body;
+
+      // Check if role exists
+      const existingRole = await (prisma as any).role.findUnique({
+        where: { id }
+      });
+
+      if (!existingRole) {
+        return res.status(404).json({ message: "Role not found" });
+      }
+
+      // Update role and policies in transaction
+      await prisma.$transaction(async (tx: any) => {
+        // Update role
+        await tx.role.update({
+          where: { id },
+          data: {
+            name: name || existingRole.name,
+            description: description !== undefined ? description : existingRole.description,
+            level: level !== undefined ? level : existingRole.level
+          }
+        });
+
+        // Update policies if provided
+        if (policyIds && Array.isArray(policyIds)) {
+          // Delete existing policies
+          await tx.rolePolicy.deleteMany({
+            where: { roleId: id }
+          });
+
+          // Add new policies
+          if (policyIds.length > 0) {
+            await tx.rolePolicy.createMany({
+              data: policyIds.map((policyId: string) => ({
+                roleId: id,
+                policyId
+              }))
+            });
+          }
+        }
+      });
+
+      res.json({ message: "Role updated successfully" });
+    } catch (error: any) {
+      if (error.code === "P2002") {
+        return res.status(400).json({ message: "Role with this name already exists" });
+      }
+      console.error("Update role error:", error);
+      res.status(500).json({ message: "Failed to update role" });
+    }
+  });
+
+  // DELETE /api/roles/:id - Delete role
+  app.delete("/api/roles/:id", requireAuth, requirePolicy("admin.roles"), async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Check if role has users assigned
+      const userCount = await (prisma as any).userRole.count({
+        where: { roleId: id }
+      });
+
+      if (userCount > 0) {
+        return res.status(400).json({ 
+          message: `Cannot delete role. ${userCount} user(s) are assigned to this role.` 
+        });
+      }
+
+      await (prisma as any).role.delete({
+        where: { id }
+      });
+
+      res.json({ message: "Role deleted successfully" });
+    } catch (error) {
+      console.error("Delete role error:", error);
+      res.status(500).json({ message: "Failed to delete role" });
+    }
+  });
+
+  // ==================== ROLE WORKFLOW API ====================
+
+  // GET /api/roles/workflow - Get role hierarchy workflow
+  app.get("/api/roles/workflow", requireAuth, async (req, res) => {
+    try {
+      // Try to get workflow from a storage mechanism (could be database, file, etc.)
+      // For now, we'll use a simple in-memory storage or database table
+      // You can extend this to use Prisma if you add a workflow table
+      
+      // Check if there's a workflow stored in database (you may need to create a workflow table)
+      // For now, return empty workflow structure
+      const workflow = {
+        roles: [],
+        connections: [],
+      };
+
+      res.json(workflow);
+    } catch (error) {
+      console.error("Get workflow error:", error);
+      res.status(500).json({ message: "Failed to get workflow" });
+    }
+  });
+
+  // POST /api/roles/workflow - Save role hierarchy workflow
+  app.post("/api/roles/workflow", requireAuth, requirePolicy("admin.roles"), async (req, res) => {
+    try {
+      const { roles, connections } = req.body;
+
+      if (!roles || !Array.isArray(roles)) {
+        return res.status(400).json({ message: "Invalid workflow data: roles array is required" });
+      }
+
+      if (!connections || !Array.isArray(connections)) {
+        return res.status(400).json({ message: "Invalid workflow data: connections array is required" });
+      }
+
+      // Validate workflow structure
+      // Check for circular dependencies
+      const nodeMap = new Map<string, Set<string>>();
+      connections.forEach((conn: any) => {
+        if (!nodeMap.has(conn.source)) {
+          nodeMap.set(conn.source, new Set());
+        }
+        nodeMap.get(conn.source)!.add(conn.target);
+      });
+
+      // Simple cycle detection
+      const visited = new Set<string>();
+      const recStack = new Set<string>();
+      
+      const hasCycle = (node: string): boolean => {
+        if (recStack.has(node)) return true;
+        if (visited.has(node)) return false;
+        
+        visited.add(node);
+        recStack.add(node);
+        
+        const children = nodeMap.get(node) || new Set();
+        for (const child of children) {
+          if (hasCycle(child)) return true;
+        }
+        
+        recStack.delete(node);
+        return false;
+      };
+
+      for (const role of roles) {
+        if (!visited.has(role.id) && hasCycle(role.id)) {
+          return res.status(400).json({ 
+            message: "Circular hierarchy detected in workflow. Please fix the connections." 
+          });
+        }
+      }
+
+      // Store workflow (you can extend this to save to database)
+      // For now, we'll just return the saved workflow
+      // In production, you'd want to save this to a database table
+      const savedWorkflow = {
+        roles,
+        connections,
+        updatedAt: new Date().toISOString(),
+      };
+
+      // TODO: Save to database if you add a workflow table
+      // Example:
+      // await prisma.roleWorkflow.upsert({
+      //   where: { id: "default" },
+      //   update: { data: savedWorkflow, updatedAt: new Date() },
+      //   create: { id: "default", data: savedWorkflow, updatedAt: new Date() }
+      // });
+
+      res.json(savedWorkflow);
+    } catch (error) {
+      console.error("Save workflow error:", error);
+      res.status(500).json({ message: "Failed to save workflow" });
+    }
+  });
+
+  // ==================== POLICIES API ====================
+
+  // GET /api/policies - Get all policies grouped by category
   app.get("/api/policies", requireAuth, async (req, res) => {
-    // Policy tables deleted - return empty array
-    res.json([]);
+    try {
+      const policies = await (prisma as any).policy.findMany({
+        orderBy: [
+          { category: "asc" },
+          { key: "asc" }
+        ]
+      });
+
+      res.json(policies);
+    } catch (error) {
+      console.error("Policies error:", error);
+      res.status(500).json({ message: "Failed to fetch policies" });
+    }
+  });
+
+  // POST /api/policies - Create new policy (admin only)
+  app.post("/api/policies", requireAuth, requirePolicy("admin.roles"), async (req, res) => {
+    try {
+      const { key, description, category } = req.body;
+
+      if (!key) {
+        return res.status(400).json({ message: "Policy key is required" });
+      }
+
+      const policy = await (prisma as any).policy.create({
+        data: {
+          key,
+          description: description || null,
+          category: category || null
+        }
+      });
+
+      res.status(201).json(policy);
+    } catch (error: any) {
+      if (error.code === "P2002") {
+        return res.status(400).json({ message: "Policy with this key already exists" });
+      }
+      console.error("Create policy error:", error);
+      res.status(500).json({ message: "Failed to create policy" });
+    }
+  });
+
+  // ==================== USER ROLE ASSIGNMENT API ====================
+
+  // POST /api/users/assign-role - Assign role to user
+  app.post("/api/users/assign-role", requireAuth, requirePolicy("users.assign_role"), async (req, res) => {
+    try {
+      const { userId, roleId, policyIds } = req.body;
+
+      if (!userId || !roleId) {
+        return res.status(400).json({ message: "User ID and Role ID are required" });
+      }
+
+      // Check if user exists
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+      });
+
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      // Check if role exists
+      const role = await (prisma as any).role.findUnique({
+        where: { id: roleId },
+      });
+
+      if (!role) {
+        return res.status(404).json({ message: "Role not found" });
+      }
+
+      // Check if already assigned
+      const existing = await (prisma as any).userRole.findUnique({
+        where: {
+          userId_roleId: {
+            userId,
+            roleId,
+          },
+        },
+      });
+
+      if (existing) {
+        return res.status(400).json({ message: "Role is already assigned to this user" });
+      }
+
+      // Assign role
+      await (prisma as any).userRole.create({
+        data: {
+          userId,
+          roleId,
+        },
+      });
+
+      // Note: Custom policies per user can be added later if needed
+      // For now, user gets role's default policies
+
+      res.json({
+        message: "Role assigned successfully",
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+        },
+        role: {
+          id: role.id,
+          name: role.name,
+        },
+      });
+    } catch (error: any) {
+      if (error.code === "P2002") {
+        return res.status(400).json({ message: "Role is already assigned to this user" });
+      }
+      console.error("Assign role error:", error);
+      res.status(500).json({ message: "Failed to assign role" });
+    }
+  });
+
+  // DELETE /api/users/:userId/roles/:roleId - Remove role from user
+  app.delete("/api/users/:userId/roles/:roleId", requireAuth, requirePolicy("users.assign_role"), async (req, res) => {
+    try {
+      const { userId, roleId } = req.params;
+
+      await (prisma as any).userRole.delete({
+        where: {
+          userId_roleId: {
+            userId,
+            roleId,
+          },
+        },
+      });
+
+      res.json({ message: "Role removed successfully" });
+    } catch (error: any) {
+      if (error.code === "P2025") {
+        return res.status(404).json({ message: "Role assignment not found" });
+      }
+      console.error("Remove role error:", error);
+      res.status(500).json({ message: "Failed to remove role" });
+    }
+  });
+
+  // POST /api/users/update-role-permissions - Update role's policies (affects all users with that role)
+  app.post("/api/users/update-role-permissions", requireAuth, requirePolicy("users.assign_role"), async (req, res) => {
+    try {
+      const { userId, roleId, policyIds } = req.body;
+
+      if (!userId || !roleId || !Array.isArray(policyIds)) {
+        return res.status(400).json({ message: "Invalid request data" });
+      }
+
+      // Check if user has this role
+      const userRole = await (prisma as any).userRole.findUnique({
+        where: {
+          userId_roleId: {
+            userId,
+            roleId,
+          },
+        },
+      });
+
+      if (!userRole) {
+        return res.status(404).json({ message: "User does not have this role" });
+      }
+
+      // Update role policies (affects all users with this role)
+      await prisma.$transaction(async (tx: any) => {
+        // Delete existing role policies
+        await tx.rolePolicy.deleteMany({
+          where: { roleId },
+        });
+
+        // Add new policies
+        if (policyIds.length > 0) {
+          await tx.rolePolicy.createMany({
+            data: policyIds.map((policyId: string) => ({
+              roleId,
+              policyId,
+            })),
+          });
+        }
+      });
+
+      res.json({ message: "Permissions updated successfully" });
+    } catch (error) {
+      console.error("Update permissions error:", error);
+      res.status(500).json({ message: "Failed to update permissions" });
+    }
   });
 
   // ==================== SETTINGS API ====================
@@ -2701,6 +3200,11 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Employee not found" });
       }
 
+      // Check if employee is active - block inactive staff from login
+      if (employee.status !== "ACTIVE") {
+        return res.status(403).json({ message: "Your account is not active. Please contact HR." });
+      }
+
       if (!employee.phone) {
         return res.status(400).json({ message: "No phone number registered for this employee" });
       }
@@ -2791,6 +3295,11 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Employee not found" });
       }
 
+      // Check if employee is active - block inactive staff from login
+      if (employee.status !== "ACTIVE") {
+        return res.status(403).json({ message: "Your account is not active. Please contact HR." });
+      }
+
       if (!employee.phone) {
         return res.status(400).json({ message: "No phone number registered for this employee" });
       }
@@ -2861,6 +3370,11 @@ export async function registerRoutes(
 
       if (!employee) {
         return res.status(404).json({ message: "Employee not found" });
+      }
+
+      // Check if employee is active - block inactive staff from login
+      if (employee.status !== "ACTIVE") {
+        return res.status(403).json({ message: "Your account is not active. Please contact HR." });
       }
 
       if (!employee.phone) {
@@ -3757,29 +4271,39 @@ export async function registerRoutes(
 
   // In-memory cache for sales data (5 minute TTL)
   let salesCache: { data: any[]; timestamp: number; summary: any } | null = null;
-  const SALES_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+  const SALES_CACHE_TTL = 5 * 60 * 1000; // 5 minutes in milliseconds
 
+  // Sales API Configuration from Environment Variables
   const SALES_API_TIMEOUT_MS = parseInt(process.env.SALES_API_TIMEOUT_MS || "60000", 10);
+  const SALES_API_HOST = process.env.SALES_API_HOST || 'VENDOR.GOYALSONS.COM';
+  const SALES_API_PORT = parseInt(process.env.SALES_API_PORT || "99", 10);
+  const SALES_API_PATH = process.env.SALES_API_PATH || '/gsweb_v3/webform2.aspx';
+  const SALES_API_KEY = process.env.SALES_API_KEY || 'ank2024';
+  const SALES_API_SQL_QUERY = process.env.SALES_API_SQL_QUERY;
 
   async function fetchSalesDataFromAPI(): Promise<any[]> {
+    if (!SALES_API_SQL_QUERY) {
+      throw new Error('SALES_API_SQL_QUERY environment variable is required. Please set it in your .env file.');
+    }
+
     const salesApiToken = process.env.SALES_API_TOKEN;
     
-    const sqlQuery = `SELECT SHRTNAME, DEPT, SMNO, SM, EMAIL, BILL_MONTH, BRAND, TOTAL_SALE, PR_DAYS, INHOUSE_SAL, SYSDATE UPD_ON FROM GSMT.SM_MONTHLY Where SMNO IN (Select SMNO FROM GSMT.SM_MONTHLY where BILL_MONTH >= ADD_MONTHS(SYSDATE, -2) and TOTAL_SALE >= 100)`;
+    const sqlQuery = SALES_API_SQL_QUERY;
     const encodedSql = encodeURIComponent(sqlQuery);
-    const apiPath = `/gsweb_v3/webform2.aspx?sql=${encodedSql}&TYP=sql&key=ank2024`;
+    const apiPath = `${SALES_API_PATH}?sql=${encodedSql}&TYP=sql&key=${SALES_API_KEY}`;
     
     const options = {
       method: 'GET' as const,
-      hostname: 'VENDOR.GOYALSONS.COM',
-      port: 99,
+      hostname: SALES_API_HOST,
+      port: SALES_API_PORT,
       path: apiPath,
       headers: {
         'Authorization': `Bearer ${salesApiToken || ''}`,
-        'User-Agent': 'PostmanRuntime/7.43.4',
+        'User-Agent': process.env.SALES_API_USER_AGENT || 'PostmanRuntime/7.43.4',
         'Accept': '*/*',
       },
-      rejectUnauthorized: false,
-      maxRedirects: 20
+      rejectUnauthorized: process.env.SALES_API_REJECT_UNAUTHORIZED === 'true',
+      maxRedirects: parseInt(process.env.SALES_API_MAX_REDIRECTS || "20", 10)
     };
 
     const responseText = await new Promise<string>((resolve, reject) => {
@@ -4064,6 +4588,17 @@ export async function registerRoutes(
         .slice(-sliceCount)
         .map(([month, sale]) => ({ month, sale }));
 
+      // Calculate data date range
+      let minDate: Date | null = null;
+      let maxDate: Date | null = null;
+      data.forEach(r => {
+        if (r.BILL_MONTH) {
+          const billDate = new Date(r.BILL_MONTH);
+          if (!minDate || billDate < minDate) minDate = billDate;
+          if (!maxDate || billDate > maxDate) maxDate = billDate;
+        }
+      });
+
       res.json({
         success: true,
         kpis: {
@@ -4078,6 +4613,11 @@ export async function registerRoutes(
         trendData,
         availableMonths,
         selectedMonth: month || null,
+        lastUpdateTime: salesCache.timestamp,
+        dataDateRange: {
+          from: minDate ? minDate.toISOString() : null,
+          to: maxDate ? maxDate.toISOString() : null,
+        },
       });
     } catch (error: any) {
       console.error("Sales dashboard error:", error);
@@ -4467,19 +5007,20 @@ FROM GSMT.SM_MONTHLY_BILLSUMMARY a
 WHERE trunc(A.BILLDATE,'mon') = TRUNC(SYSDATE,'mon') AND A.BILLDATE <= SYSDATE and a.DIV <> 'NON-INVENTORY'
 Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV in ('BOYS','GIRLS','INFANTS') then 'KIDS' else a.DIV end,a.BTYPE`;
       const encodedSql = encodeURIComponent(sqlQuery);
-      const apiPath = `/gsweb_v3/webform2.aspx?sql=${encodedSql}&TYP=sql&key=ank2024`;
+      const apiPath = `${SALES_API_PATH}?sql=${encodedSql}&TYP=sql&key=${SALES_API_KEY}`;
 
       const options = {
         method: 'GET' as const,
-        hostname: 'vendor.goyalsons.com',
-        port: 99,
+        hostname: SALES_API_HOST.toLowerCase(),
+        port: SALES_API_PORT,
         path: apiPath,
         headers: {
-          'User-Agent': 'PostmanRuntime/7.43.4',
+          'Authorization': `Bearer ${process.env.SALES_API_TOKEN || ''}`,
+          'User-Agent': process.env.SALES_API_USER_AGENT || 'PostmanRuntime/7.43.4',
           'Accept': '*/*',
         },
-        rejectUnauthorized: false,
-        maxRedirects: 20
+        rejectUnauthorized: process.env.SALES_API_REJECT_UNAUTHORIZED === 'true',
+        maxRedirects: parseInt(process.env.SALES_API_MAX_REDIRECTS || "20", 10)
       };
 
       const responseText = await new Promise<string>((resolve, reject) => {
@@ -4552,7 +5093,7 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
   }
 
   // Parse date like "10-NOV-2025" to Date object
-  function parseBillDate(dateStr: string): Date | null {
+  function parseBillDate(dateStr: string | Date): Date | null {
     if (!dateStr) return null;
     
     // If it's already a Date object, return it normalized
@@ -5050,6 +5591,40 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
       // Filter by employee if employee login (MDO users see all data)
       if (isEmployeeLogin && employeeCardNo) {
         data = data.filter((r) => r.SMNO === employeeCardNo);
+      } else {
+        // For MDO users: Filter to show only sales employees (designation = "SM")
+        try {
+          const salesEmployees = await prisma.employee.findMany({
+            where: {
+              designation: {
+                code: "SM" // Salesman designation
+              },
+              status: "ACTIVE"
+            },
+            select: {
+              cardNumber: true
+            }
+          });
+          
+          const salesEmployeeCardNumbers = salesEmployees
+            .map(emp => emp.cardNumber)
+            .filter(cardNo => cardNo !== null && cardNo !== undefined)
+            .map(cardNo => cardNo!.toString());
+          
+          if (salesEmployeeCardNumbers.length > 0) {
+            // Filter data to only include sales employees
+            data = data.filter((r) => {
+              const smno = (r.SMNO || r.smno || "").toString();
+              return salesEmployeeCardNumbers.includes(smno);
+            });
+            console.log(`[Sales Pivot] Filtered to ${data.length} records for ${salesEmployeeCardNumbers.length} sales employees`);
+          } else {
+            console.warn('[Sales Pivot] No sales employees found with designation SM');
+          }
+        } catch (filterError: any) {
+          console.error('[Sales Pivot] Error filtering sales employees:', filterError);
+          // Continue with all data if filter fails
+        }
       }
 
       // NO MTD FILTERING for pivot table - show all historical data

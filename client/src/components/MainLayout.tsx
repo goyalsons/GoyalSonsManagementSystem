@@ -10,11 +10,7 @@ import {
   GraduationCap,
   LogOut,
   Menu,
-  CheckSquare,
-  FileText,
-  Megaphone,
   UserCog,
-  Target,
   Settings2,
   Shield,
   Settings,
@@ -74,7 +70,7 @@ const navItems: NavItem[] = [
   { href: "/", icon: LayoutDashboard, label: "Dashboard", policy: null },
   // Manager Dashboard (shown only for managers)
   { href: "/manager/dashboard", icon: TrendingUp, label: "Manager Dashboard", policy: null, managerOnly: true },
-  { href: "/users", icon: UserCog, label: "User Management", policy: "users.view" },
+  { href: "/roles-assigned", icon: Shield, label: "Roles Assigned", policy: "users.assign_role" },
   { 
     icon: Users, 
     label: "Members", 
@@ -98,42 +94,6 @@ const navItems: NavItem[] = [
     ]
   },
   { 
-    icon: Target, 
-    label: "Targets & Goals", 
-    policy: null,
-    subItems: [
-      { href: "/targets/my", icon: User, label: "My Targets" },
-      { href: "/targets/team", icon: UsersRound, label: "Team Targets" },
-    ]
-  },
-  { 
-    icon: CheckSquare, 
-    label: "Tasks", 
-    policy: "tasks.view",
-    subItems: [
-      { href: "/tasks/my", icon: User, label: "My Tasks" },
-      { href: "/tasks/team", icon: UsersRound, label: "Team Tasks" },
-    ]
-  },
-  { 
-    icon: FileText, 
-    label: "Claims", 
-    policy: "claims.view",
-    subItems: [
-      { href: "/claims/my", icon: User, label: "My Claims" },
-      { href: "/claims/team", icon: UsersRound, label: "Team Claims" },
-    ]
-  },
-  { 
-    icon: Megaphone, 
-    label: "Announcements", 
-    policy: "announcements.view",
-    subItems: [
-      { href: "/announcements/my", icon: User, label: "My Announcements" },
-      { href: "/announcements/team", icon: UsersRound, label: "Team Announcements" },
-    ]
-  },
-  { 
     icon: Settings2, 
     label: "Integrations", 
     policy: "admin.panel",
@@ -146,7 +106,7 @@ const navItems: NavItem[] = [
   { href: "/training", icon: GraduationCap, label: "Training", policy: null },
   { href: "/requests", icon: HelpCircle, label: "Requests", policy: null },
   { href: "/settings", icon: Settings, label: "Settings", policy: null },
-  // Standalone Sales Staff for employees (hidden for MDO who see it under Targets)
+  // Standalone Sales Staff for employees
   { href: "/sales-staff", icon: BarChart3, label: "Sales Staff", policy: null },
   // Manager Team Routes (shown only for managers)
   { href: "/assigned-manager", icon: UserCheck, label: "Assigned Manager", policy: null },
@@ -160,8 +120,6 @@ const adminItems: NavItem[] = [];
 const baseMobileNavItems = [
   { href: "/", icon: Home, label: "Home" },
   { href: "/attendance", icon: CalendarCheck, label: "Work Log" },
-  { href: "/targets/my", icon: Target, label: "Targets" },
-  { href: "/tasks/my", icon: CheckSquare, label: "Tasks" },
 ];
 
 const NavLink = React.memo(function NavLink({ 
@@ -424,7 +382,7 @@ function MobileBottomNav({ location }: { location: string }) {
   const isEmployee = isEmployeeLogin();
   const isMDO = user?.loginType === "mdo";
   
-  // Filter mobile nav items based on role - hide Targets, Tasks, and Work Log from members
+  // Filter mobile nav items based on role - hide Work Log from members
   const mobileNavItems = useMemo(() => {
     if (isEmployee) {
       // Members only see Home (Work Log is hidden)
@@ -458,21 +416,9 @@ function MobileBottomNav({ location }: { location: string }) {
             </div>
           </div>
           <div className="p-2 max-h-[50vh] overflow-y-auto">
-            {/* Hide Claims, Announcements, Training from members - MDO only */}
+            {/* Hide Training from members - MDO only */}
             {isMDO && (
               <>
-                <Link href="/claims/my" onClick={() => setShowMore(false)}>
-                  <div className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 touch-manipulation">
-                    <FileText className="h-5 w-5 text-muted-foreground" />
-                    <span className="text-slate-700 dark:text-slate-300">My Claims</span>
-                  </div>
-                </Link>
-                <Link href="/announcements/my" onClick={() => setShowMore(false)}>
-                  <div className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 touch-manipulation">
-                    <Megaphone className="h-5 w-5 text-muted-foreground" />
-                    <span className="text-slate-700 dark:text-slate-300">Announcements</span>
-                  </div>
-                </Link>
                 <Link href="/training" onClick={() => setShowMore(false)}>
                   <div className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 touch-manipulation">
                     <GraduationCap className="h-5 w-5 text-muted-foreground" />
@@ -592,13 +538,13 @@ export default function MainLayout({ children }: MainLayoutProps) {
     const managerOnlyItems = navItems.filter(item => item.managerOnly);
     console.log("[Nav Debug] Manager-only items:", managerOnlyItems.map(i => i.label));
     
-    // Items members/employees should see (restricted list - no Dashboard, Targets, Tasks, Claims, Announcements, Training)
+    // Items members/employees should see (restricted list - no Dashboard, Training)
     // Work Log is partially visible - members see only Task History
     // Sales Staff is visible to all members
     const employeeAllowedItems = ["Work Log", "Sales Staff"];
     
     // Items that are MDO-only (hidden from members)
-    const mdoOnlyItems = ["Targets & Goals", "Tasks", "Claims", "Announcements", "Training"];
+    const mdoOnlyItems = ["Training"];
     
     return navItems
       .filter(item => {
@@ -689,10 +635,6 @@ export default function MainLayout({ children }: MainLayoutProps) {
     // Map specific routes to custom titles
     const titleMap: Record<string, string> = {
       attendance: "Work log",
-      tasks: "Tasks",
-      claims: "Claims",
-      announcements: "Announcements",
-      targets: "Targets",
       users: "Users",
       employees: "Members",
       settings: "Settings",

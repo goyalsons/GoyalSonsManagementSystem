@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { 
   TrendingUp, Users, Building2, IndianRupee, ChevronRight, Store, 
-  ArrowUpRight, ArrowDownRight, Calendar
+  ArrowUpRight, ArrowDownRight, Calendar, RefreshCw, Clock
 } from "lucide-react";
 import { PieChart, Pie, Cell, BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { format } from "date-fns";
@@ -31,6 +31,11 @@ interface DashboardData {
   trendData: Array<{ month: string; sale: number }>;
   availableMonths: string[];
   selectedMonth: string | null;
+  lastUpdateTime?: number;
+  dataDateRange?: {
+    from: string | null;
+    to: string | null;
+  };
 }
 
 const CHART_COLORS = ['#10b981', '#6366f1', '#f59e0b', '#ef4444', '#8b5cf6'];
@@ -73,8 +78,20 @@ function KPICard({ title, value, icon: Icon, color, trend, isCurrency = true }: 
   );
 }
 
-function UnitCard({ unit, onClick }: { unit: DashboardData['units'][0]; onClick: () => void }) {
+function UnitCard({ unit, onClick, lastUpdateTime, dataDateRange }: { 
+  unit: DashboardData['units'][0]; 
+  onClick: () => void; 
+  lastUpdateTime?: number;
+  dataDateRange?: { from: string | null; to: string | null };
+}) {
   const inhousePercent = unit.totalSale > 0 ? (unit.inhouseSale / unit.totalSale * 100) : 0;
+  
+  const formatUnitDateRange = () => {
+    if (!dataDateRange?.from || !dataDateRange?.to) return null;
+    const from = format(new Date(dataDateRange.from), 'dd MMM');
+    const to = format(new Date(dataDateRange.to), 'dd MMM yyyy');
+    return `${from} - ${to}`;
+  };
   
   return (
     <motion.div
@@ -111,6 +128,20 @@ function UnitCard({ unit, onClick }: { unit: DashboardData['units'][0]; onClick:
           <span>In-House: {inhousePercent.toFixed(0)}%</span>
           <span>{formatCurrency(unit.inhouseSale)}</span>
         </div>
+        <div className="pt-1 border-t border-border/50 space-y-1">
+          {formatUnitDateRange() && (
+            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Calendar className="h-3 w-3" />
+              <span>Data: {formatUnitDateRange()}</span>
+            </div>
+          )}
+          {lastUpdateTime && (
+            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Clock className="h-3 w-3" />
+              <span>Updated: {format(new Date(lastUpdateTime), 'dd MMM, HH:mm')}</span>
+            </div>
+          )}
+        </div>
       </div>
     </motion.div>
   );
@@ -120,7 +151,7 @@ export default function SalesPage() {
   const [, setLocation] = useLocation();
   const [selectedMonth, setSelectedMonth] = useState<string>('');
 
-  const { data: dashboardData, isLoading, isError } = useQuery<DashboardData>({
+  const { data: dashboardData, isLoading, isError, refetch, isRefetching } = useQuery<DashboardData>({
     queryKey: ['/api/sales/dashboard', selectedMonth],
     queryFn: async () => {
       const params = new URLSearchParams();
@@ -156,30 +187,75 @@ export default function SalesPage() {
     );
   }
 
+  const formatDateRange = () => {
+    if (!dashboardData?.dataDateRange?.from || !dashboardData?.dataDateRange?.to) return null;
+    const from = format(new Date(dashboardData.dataDateRange.from), 'dd MMM yyyy');
+    const to = format(new Date(dashboardData.dataDateRange.to), 'dd MMM yyyy');
+    return { from, to, full: `${from} से ${to} तक` };
+  };
+
+  const dateRange = formatDateRange();
+
   return (
     <div className="p-4 sm:p-6 space-y-6 bg-background min-h-screen">
       <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
+        <div className="flex-1">
           <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Sales Dashboard</h1>
           <p className="text-muted-foreground text-sm sm:text-base">Executive overview of sales performance</p>
-        </div>
-        <Select value={selectedMonth || "all"} onValueChange={(v) => setSelectedMonth(v === "all" ? "" : v)}>
-          <SelectTrigger className={`w-full sm:w-[180px] ${GLASS_STYLE}`}>
-            <div className="flex items-center">
-            <Calendar className="h-4 w-4 mr-2" />
-            <SelectValue placeholder="All Months" />
+          {(dashboardData?.lastUpdateTime || dateRange) && (
+            <div className="flex flex-wrap items-center gap-3 mt-3">
+              {dateRange && (
+                <div className={`${GLASS_STYLE} rounded-lg px-3 py-1.5 flex items-center gap-2`}>
+                  <Calendar className="h-4 w-4 text-primary" />
+                  <div className="flex flex-col">
+                    <span className="text-xs text-muted-foreground">Data Period</span>
+                    <span className="text-sm font-semibold text-foreground">
+                      {dateRange.from} से {dateRange.to} तक
+                    </span>
+                  </div>
+                </div>
+              )}
+              {dashboardData.lastUpdateTime && (
+                <div className={`${GLASS_STYLE} rounded-lg px-3 py-1.5 flex items-center gap-2`}>
+                  <Clock className="h-4 w-4 text-primary" />
+                  <div className="flex flex-col">
+                    <span className="text-xs text-muted-foreground">Last Updated</span>
+                    <span className="text-sm font-semibold text-foreground">
+                      {format(new Date(dashboardData.lastUpdateTime), 'dd MMM yyyy, HH:mm')}
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Months</SelectItem>
-            {dashboardData?.availableMonths?.map(m => (
-              <SelectItem key={m} value={m}>{format(new Date(m + '-01'), 'MMM yyyy')}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => refetch()}
+            disabled={isRefetching}
+            className={`${GLASS_STYLE} rounded-xl px-4 py-2 flex items-center gap-2 hover:scale-105 transition-transform disabled:opacity-50 disabled:cursor-not-allowed`}
+          >
+            <RefreshCw className={`h-4 w-4 ${isRefetching ? 'animate-spin' : ''}`} />
+            <span className="text-sm font-medium">Refresh</span>
+          </button>
+          <Select value={selectedMonth || "all"} onValueChange={(v) => setSelectedMonth(v === "all" ? "" : v)}>
+            <SelectTrigger className={`w-full sm:w-[180px] ${GLASS_STYLE}`}>
+              <div className="flex items-center">
+              <Calendar className="h-4 w-4 mr-2" />
+              <SelectValue placeholder="All Months" />
+              </div>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Months</SelectItem>
+              {dashboardData?.availableMonths?.map(m => (
+                <SelectItem key={m} value={m}>{format(new Date(m + '-01'), 'MMM yyyy')}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </motion.div>
 
-      {hasApiError && (
+        {hasApiError && (
         <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center gap-3">
           <div className="h-10 w-10 rounded-full bg-amber-100 flex items-center justify-center">
             <TrendingUp className="h-5 w-5 text-amber-600" />
@@ -187,6 +263,37 @@ export default function SalesPage() {
           <div>
             <p className="font-medium text-amber-800">Sales data temporarily unavailable</p>
             <p className="text-sm text-amber-600">The vendor API is not responding. Data will refresh automatically when available.</p>
+          </div>
+        </motion.div>
+      )}
+
+      {/* Data Range Info Card */}
+      {dateRange && (
+        <motion.div 
+          initial={{ opacity: 0, y: -10 }} 
+          animate={{ opacity: 1, y: 0 }} 
+          className={`${GLASS_STYLE} rounded-xl p-4 border-2 border-primary/20`}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                <Calendar className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">आप जो डेटा देख रहे हैं वह इस अवधि का है:</p>
+                <p className="text-lg font-bold text-foreground mt-1">
+                  {dateRange.from} से {dateRange.to} तक
+                </p>
+              </div>
+            </div>
+            {dashboardData?.lastUpdateTime && (
+              <div className="text-right">
+                <p className="text-xs text-muted-foreground">अंतिम अपडेट</p>
+                <p className="text-sm font-semibold text-foreground">
+                  {format(new Date(dashboardData.lastUpdateTime), 'dd MMM yyyy, HH:mm')}
+                </p>
+              </div>
+            )}
           </div>
         </motion.div>
       )}
@@ -205,7 +312,13 @@ export default function SalesPage() {
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {dashboardData?.units?.map((unit) => (
-                  <UnitCard key={unit.name} unit={unit} onClick={() => handleUnitClick(unit.name)} />
+                  <UnitCard 
+                    key={unit.name} 
+                    unit={unit} 
+                    onClick={() => handleUnitClick(unit.name)}
+                    lastUpdateTime={dashboardData?.lastUpdateTime}
+                    dataDateRange={dashboardData?.dataDateRange}
+                  />
                 ))}
               </div>
             </CardContent>

@@ -11,7 +11,7 @@ export interface UserWithRoles {
   email: string;
   isSuperAdmin: boolean;
   orgUnitId: string | null;
-  roles: never[]; // Roles removed - always empty
+  roles: { id: string; name: string }[];
 }
 
 export async function isCEO(userId: string): Promise<boolean> {
@@ -50,30 +50,79 @@ export async function getUserWithRoles(userId: string): Promise<UserWithRoles | 
       email: true,
       isSuperAdmin: true,
       orgUnitId: true,
+      roles: {
+        include: {
+          role: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+      },
     },
   });
 
   if (!user) return null;
 
-  // Role tables removed - return user with empty roles array
   return {
-    ...user,
-    roles: [],
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    isSuperAdmin: user.isSuperAdmin,
+    orgUnitId: user.orgUnitId,
+    roles: user.roles.map((ur) => ({
+      id: ur.role.id,
+      name: ur.role.name,
+    })),
   };
 }
 
 export async function getUserPolicies(userId: string): Promise<string[]> {
-  // Policy tables removed - return empty array
-  return [];
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      isSuperAdmin: true,
+      roles: {
+        include: {
+          role: {
+            include: {
+              policies: {
+                include: {
+                  policy: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!user) return [];
+
+  // SuperAdmin gets all policies
+  if (user.isSuperAdmin) {
+    const allPolicies = await prisma.policy.findMany({
+      select: { key: true },
+    });
+    return allPolicies.map((p) => p.key);
+  }
+
+  // Get all policies from user's roles
+  const policyKeys = new Set<string>();
+  for (const userRole of user.roles) {
+    for (const rolePolicy of userRole.role.policies) {
+      policyKeys.add(rolePolicy.policy.key);
+    }
+  }
+
+  return Array.from(policyKeys);
 }
 
 export async function hasPolicy(userId: string, policyKey: string): Promise<boolean> {
-  // Policy tables removed - only superadmin has all policies
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { isSuperAdmin: true },
-  });
-  return user?.isSuperAdmin || false;
+  const policies = await getUserPolicies(userId);
+  return policies.includes(policyKey);
 }
 
 export async function authorize(params: {
@@ -201,8 +250,11 @@ export async function getUserAuthInfo(userId: string) {
     isSuperAdmin: user.isSuperAdmin,
     orgUnitId: user.orgUnitId,
     employeeId: fullUser?.employeeId || null,
-    roles: [], // Role tables removed - always empty
-    policies, // Policy tables removed - always empty
+    roles: user.roles.map((ur) => ({
+      id: ur.id,
+      name: ur.name,
+    })),
+    policies,
     accessibleOrgUnitIds,
     employee: fullUser?.employee ? {
       firstName: fullUser.employee.firstName,

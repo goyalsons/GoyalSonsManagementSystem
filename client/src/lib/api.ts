@@ -200,6 +200,12 @@ export const tasksApi = {
 
 export const usersApi = {
   getAll: () => apiGet<any[]>("/users"),
+  assignRole: (data: { userId: string; roleId: string; policyIds?: string[] }) =>
+    apiPost<any>("/users/assign-role", data),
+  removeRole: (userId: string, roleId: string) =>
+    apiDelete<any>(`/users/${userId}/roles/${roleId}`),
+  updateRolePermissions: (data: { userId: string; roleId: string; policyIds: string[] }) =>
+    apiPost<any>("/users/update-role-permissions", data),
 };
 
 export const claimsApi = {
@@ -212,10 +218,38 @@ export const claimsApi = {
 
 export const rolesApi = {
   getAll: () => apiGet<any[]>("/roles"),
+  getById: (id: string) => apiGet<any>(`/roles/${id}`),
+  create: (data: { name: string; description?: string; level?: number; policyIds?: string[] }) =>
+    apiPost<any>("/roles", data),
+  update: (id: string, data: { name?: string; description?: string; level?: number; policyIds?: string[] }) =>
+    apiPut<any>(`/roles/${id}`, data),
+  delete: (id: string) => apiDelete<any>(`/roles/${id}`),
+};
+
+export interface WorkflowData {
+  roles: Array<{
+    id: string;
+    name: string;
+    description?: string;
+    type?: string;
+    position?: { x: number; y: number };
+  }>;
+  connections: Array<{
+    id: string;
+    source: string;
+    target: string;
+  }>;
+}
+
+export const workflowApi = {
+  get: () => apiGet<WorkflowData>("/roles/workflow"),
+  save: (data: WorkflowData) => apiPost<WorkflowData>("/roles/workflow", data),
 };
 
 export const policiesApi = {
   getAll: () => apiGet<any[]>("/policies"),
+  create: (data: { key: string; description?: string; category?: string }) =>
+    apiPost<any>("/policies", data),
 };
 
 export const orgUnitsApi = {

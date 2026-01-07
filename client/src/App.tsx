@@ -19,24 +19,15 @@ const TodayAttendancePage = lazy(() => import("@/pages/attendance/today"));
 const FillAttendancePage = lazy(() => import("@/pages/attendance/fill"));
 const AttendanceHistoryPage = lazy(() => import("@/pages/attendance/history"));
 const TrainingPage = lazy(() => import("@/pages/training"));
-const UsersListPage = lazy(() => import("@/pages/users/index"));
-const CreateUserPage = lazy(() => import("@/pages/users/create"));
 const RolesPage = lazy(() => import("@/pages/roles/index"));
 const EditRolePage = lazy(() => import("@/pages/roles/[id]"));
 const AssignManagerPage = lazy(() => import("@/pages/roles/manager/assign"));
+const RolesAssignedPage = lazy(() => import("@/pages/roles-assigned/index"));
 const EmployeesPage = lazy(() => import("@/pages/employees/index"));
 const CreateEmployeePage = lazy(() => import("@/pages/employees/create"));
 const SettingsPage = lazy(() => import("@/pages/settings"));
 const ApiRoutingPage = lazy(() => import("@/pages/admin/routing"));
 const MasterSettingsPage = lazy(() => import("@/pages/admin/master-settings"));
-const MyTargetsPage = lazy(() => import("@/pages/targets/my"));
-const TeamTargetsPage = lazy(() => import("@/pages/targets/team"));
-const MyTasksPage = lazy(() => import("@/pages/tasks/my"));
-const TeamTasksPage = lazy(() => import("@/pages/tasks/team"));
-const MyClaimsPage = lazy(() => import("@/pages/claims/my"));
-const TeamClaimsPage = lazy(() => import("@/pages/claims/team"));
-const MyAnnouncementsPage = lazy(() => import("@/pages/announcements/my"));
-const TeamAnnouncementsPage = lazy(() => import("@/pages/announcements/team"));
 const FetchedDataPage = lazy(() => import("@/pages/integrations/fetched-data"));
 const SalesPage = lazy(() => import("@/pages/sales/index"));
 const SalesUnitPage = lazy(() => import("@/pages/sales/unit"));
@@ -150,22 +141,13 @@ function AuthenticatedRoutes() {
             </>
           )}
           
-          <Route path="/users" component={UsersListPage} />
-          <Route path="/users/create" component={CreateUserPage} />
+          <Route path="/roles-assigned" component={RolesAssignedPage} />
           <Route path="/roles" component={RolesPage} />
           <Route path="/roles/:id" component={EditRolePage} />
           <Route path="/roles/manager/assign" component={AssignManagerPage} />
           
           <Route path="/employees" component={EmployeesPage} />
           <Route path="/employees/create" component={CreateEmployeePage} />
-          
-          {/* MDO-only routes - redirect members */}
-          <Route path="/targets/my">
-            {() => <ProtectedRoute component={MyTargetsPage} isMDOOnly={true} />}
-          </Route>
-          <Route path="/targets/team">
-            {() => <ProtectedRoute component={TeamTargetsPage} isMDOOnly={true} />}
-          </Route>
           
           {/* Work Log routes - MDO only, but managers (who are employees) can also access */}
           <Route path="/attendance">
@@ -181,30 +163,6 @@ function AuthenticatedRoutes() {
           <Route path="/attendance/history" component={AttendanceHistoryPage} />
           {/* Work Log route - alias for attendance history */}
           <Route path="/work-log" component={AttendanceHistoryPage} />
-          
-          {/* MDO-only routes - redirect members */}
-          <Route path="/tasks/my">
-            {() => <ProtectedRoute component={MyTasksPage} isMDOOnly={true} />}
-          </Route>
-          <Route path="/tasks/team">
-            {() => <ProtectedRoute component={TeamTasksPage} isMDOOnly={true} />}
-          </Route>
-          
-          {/* MDO-only routes - redirect members */}
-          <Route path="/claims/my">
-            {() => <ProtectedRoute component={MyClaimsPage} isMDOOnly={true} />}
-          </Route>
-          <Route path="/claims/team">
-            {() => <ProtectedRoute component={TeamClaimsPage} isMDOOnly={true} />}
-          </Route>
-          
-          {/* MDO-only routes - redirect members */}
-          <Route path="/announcements/my">
-            {() => <ProtectedRoute component={MyAnnouncementsPage} isMDOOnly={true} />}
-          </Route>
-          <Route path="/announcements/team">
-            {() => <ProtectedRoute component={TeamAnnouncementsPage} isMDOOnly={true} />}
-          </Route>
           
           <Route path="/integrations/fetched-data" component={FetchedDataPage} />
           

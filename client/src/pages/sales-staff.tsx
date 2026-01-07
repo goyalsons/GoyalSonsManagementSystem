@@ -1,25 +1,13 @@
 import type React from "react";
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { motion, AnimatePresence } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { useAuth } from "@/lib/auth-context";
 import { 
-  Search, TrendingUp, TrendingDown, Calendar, 
-  User, BarChart3, Store, Hash, Loader2,
-  AlertCircle, Table2, Users, RefreshCw, Filter
+  Calendar, 
+  BarChart3, 
+  Loader2,
+  AlertCircle, Table2
 } from "lucide-react";
 import { format } from "date-fns";
 import SalesExcelPivotTable, { type SalesDataRow } from "@/components/SalesExcelPivotTable";
@@ -344,41 +332,7 @@ export default function SalesStaffPage() {
   const employeeCardNo = user?.employeeCardNo;
   const queryClient = useQueryClient();
 
-  const [searchInput, setSearchInput] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [selectedSmno, setSelectedSmno] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<string>("staff");
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [filterUnit, setFilterUnit] = useState<string | null>(null);
-  const [filterDivision, setFilterDivision] = useState<string | null>(null);
-
-  // Auto-load employee's own data
-  useEffect(() => {
-    if (isEmployee && employeeCardNo) {
-      setSearchInput(employeeCardNo);
-      setSearchQuery(employeeCardNo);
-    }
-  }, [isEmployee, employeeCardNo]);
-
-  const { data, isLoading, isError, error } = useQuery<SummaryData>({
-    queryKey: ["/api/sales/staff/summary", selectedSmno],
-    queryFn: async () => {
-      const params = new URLSearchParams();
-      if (selectedSmno) params.set("smno", selectedSmno);
-      const res = await fetch(`/api/sales/staff/summary?${params}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem("gms_token")}` },
-      });
-      const result = await res.json();
-      if (!res.ok || result.success === false) {
-        throw new Error(result.message || `HTTP ${res.status}: Failed to load sales data`);
-      }
-      return result;
-    },
-    staleTime: 5 * 60 * 1000,
-    refetchInterval: 60 * 60 * 1000, // Auto-refresh every 1 hour
-    retry: 1,
-    retryDelay: 2000,
-  });
+  const [lastRefreshTime, setLastRefreshTime] = useState<Date | null>(null);
 
   // Fetch pivot data from real API
   const { data: pivotResponse, isLoading: pivotLoading, isError: pivotError } = useQuery<PivotApiResponse>({
@@ -394,7 +348,7 @@ export default function SalesStaffPage() {
       return result;
     },
     staleTime: 5 * 60 * 1000,
-    refetchInterval: 60 * 60 * 1000, // Auto-refresh every 1 hour
+    refetchInterval: 2 * 60 * 60 * 1000, // Auto-refresh every 2 hours
     retry: 1,
     retryDelay: 2000,
   });
@@ -402,126 +356,35 @@ export default function SalesStaffPage() {
   // Extract pivot data or use empty array
   const pivotData: SalesDataRow[] = pivotResponse?.success ? (pivotResponse.data || []) : [];
 
-  // Extract available units and divisions from cards data
-  const availableUnits = useMemo(() => {
-    if (!data?.cards) return [];
-    const units = new Set<string>();
-    data.cards.forEach(card => {
-      if (card.unit) units.add(card.unit);
-    });
-    return Array.from(units).sort();
-  }, [data?.cards]);
-
-  // Filter cards based on search query, unit, and division
-  const filteredCards = useMemo(() => {
-    if (!data?.cards) return [];
-    
-    let filtered = data.cards;
-    
-    // Apply search query filter
-    if (searchQuery.trim()) {
-    const query = searchQuery.toLowerCase().trim();
-      filtered = filtered.filter(card => 
-      card.smno.toLowerCase().includes(query) ||
-      card.name.toLowerCase().includes(query) ||
-      (card.unit && card.unit.toLowerCase().includes(query))
-    );
-    }
-    
-    // Apply unit filter
-    if (filterUnit) {
-      filtered = filtered.filter(card => card.unit === filterUnit);
-    }
-    
-    // Note: Division filtering would require division data in cards, 
-    // which may not be available in the current API response
-    // For now, we'll just apply unit filter
-    
-    return filtered;
-  }, [data?.cards, searchQuery, filterUnit]);
-
-  const summaryTotals = useMemo(() => {
-    return filteredCards.reduce(
-      (acc, card) => {
-        acc.today += card.todaySale;
-        acc.last += card.lastSale;
-        acc.total += card.totalSale;
-        return acc;
-      },
-      { today: 0, last: 0, total: 0 }
-    );
-  }, [filteredCards]);
-
-  const handleSearch = () => {
-    setSearchQuery(searchInput.trim());
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") {
-      handleSearch();
-    }
-  };
-
-  const handleRefresh = async () => {
-    setIsRefreshing(true);
-    try {
-      const res = await fetch("/api/sales/staff/summary/refresh", {
-        method: "POST",
-        headers: { 
-          Authorization: `Bearer ${localStorage.getItem("gms_token")}` 
-        },
-      });
-      const result = await res.json();
-      
-      if (result.success) {
-        // Invalidate and refetch the summary data
-        await queryClient.invalidateQueries({ 
-          queryKey: ["/api/sales/staff/summary"] 
-        });
-        // Also invalidate pivot data
-        await queryClient.invalidateQueries({ 
-          queryKey: ["/api/sales/pivot"] 
-        });
-      } else {
-        throw new Error(result.message || "Refresh failed");
-      }
-    } catch (error: any) {
-      console.error("Refresh error:", error);
-      alert(`Failed to refresh: ${error.message}`);
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
-
-  // Get selected card details
-  const effectiveSelected = selectedSmno || data?.selectedSmno || null;
-  const selectedCard = data?.cards?.find((c) => c.smno === effectiveSelected) || null;
-
-  // Auto-select first filtered card if current selection is not in filtered list
+  // Track last refresh time when data is fetched
   useEffect(() => {
-    if (filteredCards.length > 0 && effectiveSelected) {
-      const isInFiltered = filteredCards.some(c => c.smno === effectiveSelected);
-      if (!isInFiltered) {
-        setSelectedSmno(filteredCards[0].smno);
-      }
+    if (pivotResponse?.data) {
+      setLastRefreshTime(new Date());
     }
-  }, [filteredCards, effectiveSelected]);
+  }, [pivotResponse]);
 
-  if (isLoading) {
+  // Track last refresh time when data is fetched
+  useEffect(() => {
+    if (pivotResponse?.data) {
+      setLastRefreshTime(new Date());
+    }
+  }, [pivotResponse]);
+
+  if (pivotLoading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="h-10 w-10 animate-spin text-indigo-500" />
-          <p className="text-slate-500">Loading sales staff data...</p>
+          <p className="text-slate-500">Loading pivot data...</p>
         </div>
       </div>
     );
   }
 
-  if (isError || data?.success === false) {
-    const errorMessage = error instanceof Error 
-      ? error.message 
-      : (data?.success === false ? (data as any).message : "Sales staff data is temporarily unavailable");
+  if (pivotError) {
+    const errorMessage = pivotError instanceof Error 
+      ? pivotError.message 
+      : "Pivot data is temporarily unavailable";
     
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -530,14 +393,6 @@ export default function SalesStaffPage() {
             <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
             <h3 className="font-semibold text-lg text-slate-800 mb-2">Unable to Load Data</h3>
             <p className="text-slate-600 mb-4">{errorMessage}</p>
-            <Button
-              onClick={handleRefresh}
-              disabled={isRefreshing}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white"
-            >
-              <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`} />
-              {isRefreshing ? "Refreshing..." : "Try Refresh"}
-            </Button>
           </CardContent>
         </Card>
       </div>
@@ -561,232 +416,17 @@ export default function SalesStaffPage() {
               : "View and analyze staff sales performance"
             }
           </p>
-          {data?.lastRefreshTime && (
+          {lastRefreshTime && (
             <p className="text-xs text-slate-400 mt-1 flex items-center gap-1">
               <Calendar className="h-3 w-3" />
-              Last Refresh: {format(new Date(data.lastRefreshTime), "dd MMM yyyy, hh:mm a")}
+              Last Refresh: {format(lastRefreshTime, "dd MMM yyyy, hh:mm a")}
             </p>
           )}
         </div>
-        <Button
-          onClick={handleRefresh}
-          disabled={isRefreshing}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white"
-        >
-          <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`} />
-          {isRefreshing ? "Refreshing..." : "Refresh Data"}
-        </Button>
       </div>
 
-      {/* Tabs for Staff View / Pivot View */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full max-w-md grid-cols-2 mb-6">
-          <TabsTrigger value="staff" className="flex items-center gap-2">
-            <Users className="h-4 w-4" />
-            Staff View
-          </TabsTrigger>
-          <TabsTrigger value="pivot" className="flex items-center gap-2">
-            <Table2 className="h-4 w-4" />
-            Pivot Table
-          </TabsTrigger>
-        </TabsList>
-
-        {/* ─────────────────── Staff View Tab ─────────────────── */}
-        <TabsContent value="staff" className="space-y-6 mt-0">
-          {/* Search Bar - Only for MDO */}
-          {!isEmployee && (
-            <Card className="border-slate-200 bg-white shadow-sm">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base font-medium flex items-center gap-2 text-slate-700">
-                  <Search className="h-4 w-4" /> Search Sales Staff
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <div className="flex-1">
-                    <Label htmlFor="search" className="text-sm text-slate-500 mb-1.5 block">
-                      Card Number or Name
-                    </Label>
-                    <div className="relative">
-                      <Input
-                        id="search"
-                        placeholder="Enter card number (e.g., 5195) or name..."
-                        value={searchInput}
-                        onChange={(e) => setSearchInput(e.target.value)}
-                        onKeyDown={handleKeyDown}
-                        className="pr-24 h-11"
-                      />
-                      <Button
-                        size="sm"
-                        className="absolute right-1.5 top-1/2 -translate-y-1/2 h-8 px-4 bg-indigo-600 hover:bg-indigo-700"
-                        onClick={handleSearch}
-                      >
-                        <Search className="h-4 w-4 mr-1.5" />
-                        Search
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-                
-                {searchQuery && (
-                  <div className="mt-3 flex items-center gap-2 text-sm text-slate-500">
-                    <span>Showing results for:</span>
-                    <Badge variant="secondary" className="font-mono">
-                      {searchQuery}
-                    </Badge>
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      className="h-6 px-2 text-xs"
-                      onClick={() => { setSearchInput(""); setSearchQuery(""); }}
-                    >
-                      Clear
-                    </Button>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Filters - Unit and Division */}
-          {!isEmployee && availableUnits.length > 0 && (
-            <Card className="border-slate-200 bg-white shadow-sm">
-              <CardContent className="pt-6">
-                <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
-                  <div className="flex items-center gap-2">
-                    <Filter className="h-4 w-4 text-slate-500" />
-                    <span className="text-sm font-medium text-slate-700">Filters:</span>
-                  </div>
-                  
-                  {/* Unit Filter */}
-                  <div className="flex items-center gap-2">
-                    <Label htmlFor="unit-filter" className="text-sm text-slate-600">
-                      Unit:
-                    </Label>
-                    <Select 
-                      value={filterUnit || "all"} 
-                      onValueChange={(value) => setFilterUnit(value === "all" ? null : value)}
-                    >
-                      <SelectTrigger id="unit-filter" className="w-[140px]">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Units</SelectItem>
-                        {availableUnits.map((unit) => (
-                          <SelectItem key={unit} value={unit}>
-                            {unit}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Summary Stats */}
-          {data?.cards && data.cards.length > 0 && (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <Card className="bg-emerald-500 border-emerald-500">
-                <CardContent className="p-4 text-center">
-                  <div className="text-2xl font-bold text-white">
-                    {formatCurrency(summaryTotals.today)}
-                  </div>
-                  <div className="text-xs text-white/80">Today's Total</div>
-                </CardContent>
-              </Card>
-              <Card className="bg-blue-500 border-blue-500">
-                <CardContent className="p-4 text-center">
-                  <div className="text-2xl font-bold text-white">
-                    {formatCurrency(summaryTotals.last)}
-                  </div>
-                  <div className="text-xs text-white/80">Last Sale Total</div>
-                </CardContent>
-              </Card>
-              <Card className="border-slate-200">
-                <CardContent className="p-4 text-center">
-                  <div className="text-2xl font-bold text-slate-700">
-                    {formatCurrency(summaryTotals.total)}
-                  </div>
-                  <div className="text-xs text-slate-500">
-                    {data.dateRange?.from && data.dateRange?.to 
-                      ? `${data.dateRange.from} to ${data.dateRange.to}`
-                      : "Total Sales"
-                    }
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          )}
-
-          {/* Main Content Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Staff Cards List */}
-            <div className="space-y-3">
-              <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-2">
-                <User className="h-4 w-4" />
-                Staff Members ({filteredCards.length})
-              </h2>
-              
-              {filteredCards.length === 0 ? (
-                <Card className="border-slate-200">
-                  <CardContent className="py-12 text-center">
-                    <Search className="h-12 w-12 mx-auto mb-3 text-slate-300" />
-                    <p className="text-slate-500 font-medium">No staff found</p>
-                    <p className="text-slate-400 text-sm mt-1">
-                      {searchQuery ? "Try a different search term" : "No sales data available"}
-                    </p>
-                  </CardContent>
-                </Card>
-              ) : (
-                <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2">
-                  {filteredCards.map((card) => (
-                    <StaffCardCompact
-                      key={card.smno}
-                      card={card}
-                      isSelected={effectiveSelected === card.smno}
-                      onClick={() => setSelectedSmno(card.smno)}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Detail Panel */}
-            <div>
-              <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-2 mb-3">
-                <BarChart3 className="h-4 w-4" />
-                Sales Breakdown
-              </h2>
-              
-              <Card className="border-slate-200 bg-white">
-                <CardContent className="p-6">
-                  <AnimatePresence mode="wait">
-                    <motion.div
-                      key={effectiveSelected || "empty"}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -10 }}
-                      transition={{ duration: 0.2 }}
-                    >
-                      <DetailTable
-                        card={selectedCard}
-                        month={data?.table?.month ?? null}
-                        rows={data?.table?.rows ?? []}
-                        grandTotal={data?.table?.grandTotal ?? 0}
-                        grandQty={data?.table?.grandQty ?? 0}
-                      />
-                    </motion.div>
-                  </AnimatePresence>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
-        </TabsContent>
-
-        {/* ─────────────────── Pivot Table Tab ─────────────────── */}
-        <TabsContent value="pivot" className="mt-0">
+      {/* Pivot Table Only - No Tabs */}
+      <div className="w-full">
           <Card className="border-slate-200 bg-white">
             <CardHeader className="pb-4">
               <CardTitle className="text-lg font-semibold flex items-center gap-2 text-slate-800">
@@ -818,8 +458,7 @@ export default function SalesStaffPage() {
               )}
             </CardContent>
           </Card>
-        </TabsContent>
-      </Tabs>
+      </div>
     </div>
   );
 }

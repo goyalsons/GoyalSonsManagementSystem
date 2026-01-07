@@ -37,7 +37,7 @@ model User {
   
   orgUnit       OrgUnit?      @relation(fields: [orgUnitId], references: [id])
   orgUnitId     String?
-  // roles         UserRole[]  // Removed - Role tables deleted
+  roles         UserRole[]
   
   employee      Employee?     @relation(fields: [employeeId], references: [id])
   employeeId    String?       @unique
@@ -49,43 +49,48 @@ model User {
   settings      UserSettings?
 }
 
-// Role, Policy, UserRole, and RolePolicy models removed - tables deleted from database
-// model Role {
-//   id          String       @id @default(uuid())
-//   name        String       @unique
-//   description String?
-//   level       Int          @default(0)
-//   users       UserRole[]
-//   policies    RolePolicy[]
-//   createdAt   DateTime     @default(now())
-// }
-//
-// model Policy {
-//   id          String       @id @default(uuid())
-//   key         String       @unique
-//   description String?
-//   category    String?
-//   roles       RolePolicy[]
-//   createdAt   DateTime     @default(now())
-// }
-//
-// model UserRole {
-//   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-//   userId    String
-//   role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
-//   roleId    String
-//   createdAt DateTime @default(now())
-//   @@id([userId, roleId])
-// }
-//
-// model RolePolicy {
-//   role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
-//   roleId    String
-//   policy    Policy   @relation(fields: [policyId], references: [id], onDelete: Cascade)
-//   policyId  String
-//   createdAt DateTime @default(now())
-//   @@id([roleId, policyId])
-// }
+model Role {
+  id          String       @id @default(uuid())
+  name        String       @unique
+  description String?
+  level       Int          @default(0)
+  users       UserRole[]
+  policies    RolePolicy[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model Policy {
+  id          String       @id @default(uuid())
+  key         String       @unique
+  description String?
+  category    String?
+  roles       RolePolicy[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model UserRole {
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  roleId    String
+  createdAt DateTime @default(now())
+  @@id([userId, roleId])
+  @@index([userId])
+  @@index([roleId])
+}
+
+model RolePolicy {
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  roleId    String
+  policy    Policy   @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  policyId  String
+  createdAt DateTime @default(now())
+  @@id([roleId, policyId])
+  @@index([roleId])
+  @@index([policyId])
+}
 
 model Employee {
   id              String      @id @default(uuid())
