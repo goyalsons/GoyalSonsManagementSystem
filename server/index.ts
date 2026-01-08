@@ -10,6 +10,7 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { startAutoSync } from "./auto-sync";
+import { createSalesDataTable } from "./create-sales-data-table";
 
 // ✅ ab yahan env check karo
 console.log(
@@ -75,6 +76,13 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Create SalesData table if it doesn't exist
+  try {
+    await createSalesDataTable();
+  } catch (error: any) {
+    console.warn('[Server] Could not create SalesData table (may already exist):', error.message);
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

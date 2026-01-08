@@ -419,6 +419,30 @@ model SalesStaffSummary {
   @@index([updatedAt])
 }
 
+model SalesData {
+  id          String    @id @default(uuid())
+  smno        String?   // Salesman number
+  sm          String?   // Salesman name
+  shrtname    String?   // Unit/Short name
+  dept        String?   // Department
+  brand       String?   // Brand
+  email       String?   // Email
+  totalSale   Float     @default(0)
+  inhouseSal  Float     @default(0)
+  prDays      Int       @default(0)
+  billMonth   DateTime? // Bill month
+  updOn       String?   // Update date string
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  @@index([smno])
+  @@index([shrtname])
+  @@index([dept])
+  @@index([brand])
+  @@index([billMonth])
+  @@index([updatedAt])
+}
+
 model EmpManager {
   mid            String   @id
   mcardno        String

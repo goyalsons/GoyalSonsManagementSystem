@@ -8,10 +8,12 @@ import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { ThemeProvider } from "@/lib/theme-context";
 import MainLayout from "@/components/MainLayout";
 
-// Lazy load all page components
+// Eagerly load critical above-the-fold routes (Login, Dashboard)
+import Dashboard from "@/pages/dashboard";
+import LoginPage from "@/pages/login";
+
+// Lazy load below-the-fold page components
 const NotFound = lazy(() => import("@/pages/not-found"));
-const Dashboard = lazy(() => import("@/pages/dashboard"));
-const LoginPage = lazy(() => import("@/pages/login"));
 const ApplyPage = lazy(() => import("@/pages/apply"));
 const AuthCallbackPage = lazy(() => import("@/pages/auth-callback"));
 const AttendancePage = lazy(() => import("@/pages/attendance"));
@@ -233,11 +235,7 @@ function Router() {
   
   // Always allow these public routes
   if (location === "/login") {
-    return (
-      <Suspense fallback={<FullPageLoader />}>
-        <LoginPage />
-      </Suspense>
-    );
+    return <LoginPage />;
   }
   
   if (location === "/apply") {
@@ -264,11 +262,7 @@ function Router() {
   // If not authenticated, redirect to login
   if (!user) {
     setLocation("/login");
-    return (
-      <Suspense fallback={<FullPageLoader />}>
-        <LoginPage />
-      </Suspense>
-    );
+    return <LoginPage />;
   }
   
   // User is authenticated, show protected routes

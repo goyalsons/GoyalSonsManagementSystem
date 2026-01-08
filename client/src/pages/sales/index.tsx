@@ -29,10 +29,10 @@ interface DashboardData {
   }>;
   topStaff: Array<{ name: string; totalSale: number; unit: string }>;
   trendData: Array<{ month: string; sale: number }>;
-  availableMonths: string[];
+  availableMonths: Array<{ monthKey: string; display: string; count: number }>;
   selectedMonth: string | null;
   lastUpdateTime?: number;
-  dataDateRange?: {
+  dataMonthRange?: {
     from: string | null;
     to: string | null;
   };
@@ -40,6 +40,54 @@ interface DashboardData {
 
 const CHART_COLORS = ['#10b981', '#6366f1', '#f59e0b', '#ef4444', '#8b5cf6'];
 const GLASS_STYLE = "backdrop-blur-xl bg-card/70 border border-border shadow-xl";
+
+// Helper function to parse BILL_MONTH and extract monthKey (yyyy-MM)
+// Handles multiple formats: DD-MON-YYYY, yyyy-MM-DD, ISO date strings
+function getMonthKey(billMonth: string | null | undefined): string | null {
+  if (!billMonth) return null;
+  try {
+    let monthDate: Date | null = null;
+    
+    // Handle DD-MON-YYYY format (e.g., "01-JAN-2026")
+    if (typeof billMonth === 'string' && billMonth.includes('-')) {
+      const parts = billMonth.split('-');
+      if (parts.length === 3) {
+        const monthNames = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+        const monthIndex = monthNames.indexOf(parts[1].toUpperCase());
+        const year = parseInt(parts[2], 10);
+        if (monthIndex !== -1 && !isNaN(year)) {
+          // BILL_MONTH represents the 1st day of the month
+          monthDate = new Date(year, monthIndex, 1);
+        }
+      }
+    }
+    
+    // Handle yyyy-MM-DD format (ignore day, treat as month)
+    if (!monthDate) {
+      const dateObj = new Date(billMonth);
+      if (!isNaN(dateObj.getTime())) {
+        // Normalize to 1st day of month (ignore day component)
+        monthDate = new Date(dateObj.getFullYear(), dateObj.getMonth(), 1);
+      }
+    }
+    
+    if (!monthDate || isNaN(monthDate.getTime())) return null;
+    
+    // Normalize to monthKey (yyyy-MM)
+    return format(monthDate, 'yyyy-MM');
+  } catch {
+    return null;
+  }
+}
+
+// Helper function to format month display (MMM yyyy)
+function formatMonthDisplay(billMonth: string | null | undefined): string | null {
+  if (!billMonth) return null;
+  const monthKey = getMonthKey(billMonth);
+  if (!monthKey) return null;
+  const monthDate = new Date(monthKey + '-01');
+  return format(monthDate, 'MMM yyyy');
+}
 
 function formatCurrency(value: number) {
   if (Math.abs(value) >= 10000000) {
@@ -78,18 +126,21 @@ function KPICard({ title, value, icon: Icon, color, trend, isCurrency = true }: 
   );
 }
 
-function UnitCard({ unit, onClick, lastUpdateTime, dataDateRange }: { 
+function UnitCard({ unit, onClick, lastUpdateTime, dataMonthRange }: { 
   unit: DashboardData['units'][0]; 
   onClick: () => void; 
   lastUpdateTime?: number;
-  dataDateRange?: { from: string | null; to: string | null };
+  dataMonthRange?: { from: string | null; to: string | null };
 }) {
   const inhousePercent = unit.totalSale > 0 ? (unit.inhouseSale / unit.totalSale * 100) : 0;
   
-  const formatUnitDateRange = () => {
-    if (!dataDateRange?.from || !dataDateRange?.to) return null;
-    const from = format(new Date(dataDateRange.from), 'dd MMM');
-    const to = format(new Date(dataDateRange.to), 'dd MMM yyyy');
+  const formatUnitMonthRange = () => {
+    if (!dataMonthRange?.from || !dataMonthRange?.to) return null;
+    // dataMonthRange contains monthKey (yyyy-MM)
+    const from = format(new Date(dataMonthRange.from + '-01'), 'MMM yyyy');
+    const to = format(new Date(dataMonthRange.to + '-01'), 'MMM yyyy');
+    // If same month, show only one
+    if (from === to) return from;
     return `${from} - ${to}`;
   };
   
@@ -129,10 +180,10 @@ function UnitCard({ unit, onClick, lastUpdateTime, dataDateRange }: {
           <span>{formatCurrency(unit.inhouseSale)}</span>
         </div>
         <div className="pt-1 border-t border-border/50 space-y-1">
-          {formatUnitDateRange() && (
+          {formatUnitMonthRange() && (
             <div className="flex items-center gap-1 text-xs text-muted-foreground">
               <Calendar className="h-3 w-3" />
-              <span>Data: {formatUnitDateRange()}</span>
+              <span>Data: {formatUnitMonthRange()}</span>
             </div>
           )}
           {lastUpdateTime && (
@@ -151,19 +202,213 @@ export default function SalesPage() {
   const [, setLocation] = useLocation();
   const [selectedMonth, setSelectedMonth] = useState<string>('');
 
-  const { data: dashboardData, isLoading, isError, refetch, isRefetching } = useQuery<DashboardData>({
-    queryKey: ['/api/sales/dashboard', selectedMonth],
+  // Fetch monthly sales data
+  const { data: monthlyData, isLoading: isLoadingMonthly, isError: isErrorMonthly, refetch: refetchMonthly, isRefetching: isRefetchingMonthly } = useQuery({
+    queryKey: ['/api/sales/monthly'],
     queryFn: async () => {
-      const params = new URLSearchParams();
-      if (selectedMonth) params.set('month', selectedMonth);
-      const res = await fetch(`/api/sales/dashboard?${params}`, {
+      const res = await fetch('/api/sales/monthly', {
         headers: { Authorization: `Bearer ${localStorage.getItem('gms_token')}` }
       });
       return res.json();
     },
-    staleTime: 5 * 60 * 1000,
+    staleTime: Infinity, // Don't auto-refetch, only on manual refresh
     retry: 1,
   });
+
+  // Process monthly data to create dashboard view
+  const dashboardData = useMemo<DashboardData | undefined>(() => {
+    if (!monthlyData?.success || !monthlyData?.data) return undefined;
+
+    const allRecords = monthlyData.data; // Keep original unfiltered data
+    
+    // Use backend-provided availableMonths if available, otherwise calculate from data
+    let availableMonths: Array<{ monthKey: string; display: string; count: number }>;
+    
+    if (monthlyData.availableMonths && Array.isArray(monthlyData.availableMonths)) {
+      // Use backend-provided month metadata
+      availableMonths = monthlyData.availableMonths;
+    } else {
+      // Calculate available months from ALL unfiltered data (for dropdown)
+      // This ensures the dropdown always shows all months available in the API response
+      const monthCountMap = new Map<string, number>();
+      allRecords.forEach((r: any) => {
+        const billMonth = r.BILL_MONTH || r.billMonth;
+        const monthKey = getMonthKey(billMonth);
+        if (monthKey) {
+          monthCountMap.set(monthKey, (monthCountMap.get(monthKey) || 0) + 1);
+        }
+      });
+      
+      // Create available months array with display names
+      // Format: MMM yyyy (e.g., "Jan 2026", "Dec 2025")
+      availableMonths = Array.from(monthCountMap.entries())
+        .map(([monthKey, count]) => {
+          const monthDate = new Date(monthKey + '-01');
+          return {
+            monthKey,
+            display: format(monthDate, 'MMM yyyy'), // Format: MMM yyyy (e.g., "Jan 2026")
+            count,
+          };
+        })
+        .sort((a, b) => b.monthKey.localeCompare(a.monthKey)); // Sort descending (newest first)
+    }
+
+    // Filter records by selected month if provided
+    let records = allRecords;
+    if (selectedMonth && selectedMonth !== 'all') {
+      records = records.filter((r: any) => {
+        const billMonth = r.BILL_MONTH || r.billMonth;
+        const monthKey = getMonthKey(billMonth);
+        return monthKey === selectedMonth;
+      });
+    }
+    
+    // Calculate KPIs
+    let totalSale = 0;
+    let inhouseSale = 0;
+    const staffSet = new Set<string>();
+    const unitSet = new Set<string>();
+    
+    records.forEach((r: any) => {
+      totalSale += parseFloat(r.TOTAL_SALE || r.totalSale || '0') || 0;
+      inhouseSale += parseFloat(r.INHOUSE_SAL || r.inhouseSal || '0') || 0;
+      if (r.SMNO || r.smno) staffSet.add(r.SMNO || r.smno);
+      if (r.SHRTNAME || r.shrtname) unitSet.add(r.SHRTNAME || r.shrtname);
+    });
+
+    // Aggregate by unit
+    const unitMap: Record<string, { totalSale: number; inhouseSale: number; staffCount: number; deptSet: Set<string> }> = {};
+    records.forEach((r: any) => {
+      const unit = r.SHRTNAME || r.shrtname || 'Unknown';
+      if (!unitMap[unit]) {
+        unitMap[unit] = { totalSale: 0, inhouseSale: 0, staffCount: 0, deptSet: new Set() };
+      }
+      unitMap[unit].totalSale += parseFloat(r.TOTAL_SALE || r.totalSale || '0') || 0;
+      unitMap[unit].inhouseSale += parseFloat(r.INHOUSE_SAL || r.inhouseSal || '0') || 0;
+      if (r.DEPT || r.dept) unitMap[unit].deptSet.add(r.DEPT || r.dept);
+    });
+
+    // Count unique staff per unit
+    const staffByUnit: Record<string, Set<string>> = {};
+    records.forEach((r: any) => {
+      const unit = r.SHRTNAME || r.shrtname || 'Unknown';
+      if (!staffByUnit[unit]) staffByUnit[unit] = new Set();
+      if (r.SMNO || r.smno) staffByUnit[unit].add(r.SMNO || r.smno);
+    });
+
+    const units = Object.entries(unitMap).map(([name, stats]) => ({
+      name,
+      totalSale: stats.totalSale,
+      inhouseSale: stats.inhouseSale,
+      staffCount: staffByUnit[name]?.size || 0,
+      departmentCount: stats.deptSet.size,
+    })).sort((a, b) => b.totalSale - a.totalSale);
+
+    // Top 5 staff
+    const staffSales: Record<string, { name: string; totalSale: number; unit: string }> = {};
+    records.forEach((r: any) => {
+      const smno = r.SMNO || r.smno || 'unknown';
+      if (!staffSales[smno]) {
+        staffSales[smno] = { name: r.SM || r.sm || r.SHRTNAME || r.shrtname || smno, totalSale: 0, unit: r.SHRTNAME || r.shrtname || '' };
+      }
+      staffSales[smno].totalSale += parseFloat(r.TOTAL_SALE || r.totalSale || '0') || 0;
+    });
+    const topStaff = Object.values(staffSales).sort((a, b) => b.totalSale - a.totalSale).slice(0, 5);
+
+    // Monthly trend
+    const monthlyTrend: Record<string, number> = {};
+    records.forEach((r: any) => {
+      const billMonth = r.BILL_MONTH || r.billMonth;
+      const monthKey = getMonthKey(billMonth);
+      if (monthKey) {
+        monthlyTrend[monthKey] = (monthlyTrend[monthKey] || 0) + (parseFloat(r.TOTAL_SALE || r.totalSale || '0') || 0);
+      }
+    });
+    const trendData = Object.entries(monthlyTrend)
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .slice(-6)
+      .map(([month, sale]) => ({ month, sale }));
+
+    // Calculate data month range
+    let minMonthKey: string | null = null;
+    let maxMonthKey: string | null = null;
+    records.forEach((r: any) => {
+      const billMonth = r.BILL_MONTH || r.billMonth;
+      const monthKey = getMonthKey(billMonth);
+      if (monthKey) {
+        if (!minMonthKey || monthKey < minMonthKey) minMonthKey = monthKey;
+        if (!maxMonthKey || monthKey > maxMonthKey) maxMonthKey = monthKey;
+      }
+    });
+
+    return {
+      success: true,
+      kpis: {
+        totalSale,
+        inhouseSale,
+        externalSale: totalSale - inhouseSale,
+        totalStaff: staffSet.size,
+        totalUnits: unitSet.size,
+      },
+      units,
+      topStaff,
+      trendData,
+      availableMonths,
+      selectedMonth: selectedMonth || null,
+      dataMonthRange: {
+        from: minMonthKey,
+        to: maxMonthKey,
+      },
+    };
+  }, [monthlyData, selectedMonth]);
+
+  const isLoading = isLoadingMonthly;
+  const isError = isErrorMonthly;
+  const refetch = refetchMonthly;
+  const isRefetching = isRefetchingMonthly;
+
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      // Call monthly refresh endpoint to fetch from API and update DB
+      const refreshRes = await fetch('/api/sales/monthly/refresh', {
+        method: 'POST',
+        headers: { 
+          Authorization: `Bearer ${localStorage.getItem('gms_token')}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!refreshRes.ok) {
+        const errorText = await refreshRes.text();
+        let errorMessage = `API returned status ${refreshRes.status}`;
+        try {
+          const errorJson = JSON.parse(errorText);
+          errorMessage = errorJson.message || errorMessage;
+        } catch {
+          errorMessage = errorText || errorMessage;
+        }
+        throw new Error(errorMessage);
+      }
+      
+      const refreshData = await refreshRes.json();
+      
+      if (refreshData.success) {
+        // After successful refresh, refetch monthly data
+        await refetchMonthly();
+      } else {
+        throw new Error(refreshData.message || 'Refresh failed');
+      }
+    } catch (error: any) {
+      console.error('Refresh error:', error);
+      const errorMessage = error?.message || 'Failed to refresh data. Please try again.';
+      alert(`Failed to refresh data: ${errorMessage}`);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   const pieData = useMemo(() => {
     if (!dashboardData?.kpis) return [];
@@ -187,14 +432,17 @@ export default function SalesPage() {
     );
   }
 
-  const formatDateRange = () => {
-    if (!dashboardData?.dataDateRange?.from || !dashboardData?.dataDateRange?.to) return null;
-    const from = format(new Date(dashboardData.dataDateRange.from), 'dd MMM yyyy');
-    const to = format(new Date(dashboardData.dataDateRange.to), 'dd MMM yyyy');
-    return { from, to, full: `${from} से ${to} तक` };
+  const formatMonthRange = () => {
+    if (!dashboardData?.dataMonthRange?.from || !dashboardData?.dataMonthRange?.to) return null;
+    // dataMonthRange contains monthKey (yyyy-MM)
+    const from = format(new Date(dashboardData.dataMonthRange.from + '-01'), 'MMM yyyy');
+    const to = format(new Date(dashboardData.dataMonthRange.to + '-01'), 'MMM yyyy');
+    // If same month, show only one
+    if (from === to) return { from, to, full: from };
+    return { from, to, full: `${from} to ${to}` };
   };
 
-  const dateRange = formatDateRange();
+  const monthRange = formatMonthRange();
 
   return (
     <div className="p-4 sm:p-6 space-y-6 bg-background min-h-screen">
@@ -202,54 +450,63 @@ export default function SalesPage() {
         <div className="flex-1">
           <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Sales Dashboard</h1>
           <p className="text-muted-foreground text-sm sm:text-base">Executive overview of sales performance</p>
-          {(dashboardData?.lastUpdateTime || dateRange) && (
+          {(dashboardData?.lastUpdateTime || monthRange) && (
             <div className="flex flex-wrap items-center gap-3 mt-3">
-              {dateRange && (
-                <div className={`${GLASS_STYLE} rounded-lg px-3 py-1.5 flex items-center gap-2`}>
-                  <Calendar className="h-4 w-4 text-primary" />
-                  <div className="flex flex-col">
-                    <span className="text-xs text-muted-foreground">Data Period</span>
-                    <span className="text-sm font-semibold text-foreground">
-                      {dateRange.from} से {dateRange.to} तक
-                    </span>
-                  </div>
-                </div>
-              )}
-              {dashboardData.lastUpdateTime && (
-                <div className={`${GLASS_STYLE} rounded-lg px-3 py-1.5 flex items-center gap-2`}>
-                  <Clock className="h-4 w-4 text-primary" />
-                  <div className="flex flex-col">
-                    <span className="text-xs text-muted-foreground">Last Updated</span>
-                    <span className="text-sm font-semibold text-foreground">
-                      {format(new Date(dashboardData.lastUpdateTime), 'dd MMM yyyy, HH:mm')}
-                    </span>
-                  </div>
-                </div>
-              )}
+               {monthRange && (
+                 <div className={`${GLASS_STYLE} rounded-lg px-3 py-1.5 flex items-center gap-2`}>
+                   <Calendar className="h-4 w-4 text-primary" />
+                   <div className="flex flex-col">
+                     <span className="text-xs text-muted-foreground">Data Period</span>
+                     <span className="text-sm font-semibold text-foreground">
+                       {monthRange.from} to {monthRange.to}
+                       {dashboardData?.lastUpdateTime && ` • ${format(new Date(dashboardData.lastUpdateTime), 'HH:mm')}`}
+                     </span>
+                   </div>
+                 </div>
+               )}
             </div>
           )}
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => refetch()}
-            disabled={isRefetching}
+            onClick={handleRefresh}
+            disabled={isRefreshing || isRefetching}
             className={`${GLASS_STYLE} rounded-xl px-4 py-2 flex items-center gap-2 hover:scale-105 transition-transform disabled:opacity-50 disabled:cursor-not-allowed`}
           >
-            <RefreshCw className={`h-4 w-4 ${isRefetching ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`h-4 w-4 ${(isRefreshing || isRefetching) ? 'animate-spin' : ''}`} />
             <span className="text-sm font-medium">Refresh</span>
           </button>
-          <Select value={selectedMonth || "all"} onValueChange={(v) => setSelectedMonth(v === "all" ? "" : v)}>
-            <SelectTrigger className={`w-full sm:w-[180px] ${GLASS_STYLE}`}>
+          <Select 
+            value={selectedMonth || "all"} 
+            onValueChange={(v) => {
+              setSelectedMonth(v === "all" ? "" : v);
+            }}
+          >
+            <SelectTrigger className={`w-full sm:w-[200px] ${GLASS_STYLE}`}>
               <div className="flex items-center">
-              <Calendar className="h-4 w-4 mr-2" />
-              <SelectValue placeholder="All Months" />
+                <Calendar className="h-4 w-4 mr-2" />
+                <SelectValue placeholder="All Months">
+                  {selectedMonth && selectedMonth !== "all" && dashboardData?.availableMonths ? (
+                    dashboardData.availableMonths.find(m => m.monthKey === selectedMonth)?.display || "All Months"
+                  ) : (
+                    "All Months"
+                  )}
+                </SelectValue>
               </div>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Months</SelectItem>
-              {dashboardData?.availableMonths?.map(m => (
-                <SelectItem key={m} value={m}>{format(new Date(m + '-01'), 'MMM yyyy')}</SelectItem>
-              ))}
+              <SelectItem value="all">
+                All Months {dashboardData && `(${monthlyData?.data?.length || 0} records)`}
+              </SelectItem>
+              {dashboardData?.availableMonths && dashboardData.availableMonths.length > 0 ? (
+                dashboardData.availableMonths.map(m => (
+                  <SelectItem key={m.monthKey} value={m.monthKey}>
+                    {m.display} ({m.count} records)
+                  </SelectItem>
+                ))
+              ) : (
+                <SelectItem value="no-data" disabled>No months available</SelectItem>
+              )}
             </SelectContent>
           </Select>
         </div>
@@ -267,36 +524,6 @@ export default function SalesPage() {
         </motion.div>
       )}
 
-      {/* Data Range Info Card */}
-      {dateRange && (
-        <motion.div 
-          initial={{ opacity: 0, y: -10 }} 
-          animate={{ opacity: 1, y: 0 }} 
-          className={`${GLASS_STYLE} rounded-xl p-4 border-2 border-primary/20`}
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                <Calendar className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">आप जो डेटा देख रहे हैं वह इस अवधि का है:</p>
-                <p className="text-lg font-bold text-foreground mt-1">
-                  {dateRange.from} से {dateRange.to} तक
-                </p>
-              </div>
-            </div>
-            {dashboardData?.lastUpdateTime && (
-              <div className="text-right">
-                <p className="text-xs text-muted-foreground">अंतिम अपडेट</p>
-                <p className="text-sm font-semibold text-foreground">
-                  {format(new Date(dashboardData.lastUpdateTime), 'dd MMM yyyy, HH:mm')}
-                </p>
-              </div>
-            )}
-          </div>
-        </motion.div>
-      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <KPICard title="Total Sale" value={dashboardData?.kpis?.totalSale || 0} icon={IndianRupee} color="text-green-600" />
@@ -317,7 +544,7 @@ export default function SalesPage() {
                     unit={unit} 
                     onClick={() => handleUnitClick(unit.name)}
                     lastUpdateTime={dashboardData?.lastUpdateTime}
-                    dataDateRange={dashboardData?.dataDateRange}
+                    dataMonthRange={dashboardData?.dataMonthRange}
                   />
                 ))}
               </div>
@@ -334,7 +561,7 @@ export default function SalesPage() {
                   <Pie data={pieData} cx="50%" cy="50%" innerRadius={40} outerRadius={70} paddingAngle={5} dataKey="value">
                     {pieData.map((_, idx) => <Cell key={idx} fill={CHART_COLORS[idx]} />)}
                   </Pie>
-                  <Tooltip formatter={(v: number) => formatCurrency(v)} />
+                   <Tooltip formatter={(v: number | undefined) => v !== undefined ? formatCurrency(v) : ''} />
                   <Legend />
                 </PieChart>
               </ResponsiveContainer>
@@ -348,7 +575,7 @@ export default function SalesPage() {
                 <BarChart data={dashboardData?.topStaff || []} layout="vertical">
                   <XAxis type="number" tickFormatter={(v) => `₹${(v/100000).toFixed(0)}L`} />
                   <YAxis type="category" dataKey="name" width={80} tick={{ fontSize: 11 }} />
-                  <Tooltip formatter={(v: number) => formatCurrency(v)} />
+                   <Tooltip formatter={(v: number | undefined) => v !== undefined ? formatCurrency(v) : ''} />
                   <Bar dataKey="totalSale" fill="#10b981" radius={[0, 4, 4, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -365,7 +592,7 @@ export default function SalesPage() {
               <LineChart data={dashboardData?.trendData || []}>
                 <XAxis dataKey="month" tickFormatter={(v) => format(new Date(v + '-01'), 'MMM')} />
                 <YAxis tickFormatter={(v) => `₹${(v/10000000).toFixed(1)}Cr`} />
-                <Tooltip formatter={(v: number) => formatCurrency(v)} labelFormatter={(v) => format(new Date(v + '-01'), 'MMMM yyyy')} />
+                <Tooltip formatter={(v: number | undefined) => v !== undefined ? formatCurrency(v) : ''} labelFormatter={(v) => format(new Date(v + '-01'), 'MMM yyyy')} />
                 <Line type="monotone" dataKey="sale" stroke="#6366f1" strokeWidth={3} dot={{ fill: '#6366f1', r: 6 }} />
               </LineChart>
             </ResponsiveContainer>
@@ -375,3 +602,4 @@ export default function SalesPage() {
     </div>
   );
 }
+

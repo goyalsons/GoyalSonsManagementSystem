@@ -35,6 +35,9 @@ const allowlist = [
 async function buildAll() {
   await rm("dist", { recursive: true, force: true });
 
+  // Ensure production mode for client build
+  process.env.NODE_ENV = "production";
+  
   console.log("building client...");
   await viteBuild();
 

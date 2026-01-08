@@ -2,12 +2,21 @@ import type React from "react";
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/lib/auth-context";
+import { motion } from "framer-motion";
 import { 
   Calendar, 
   BarChart3, 
   Loader2,
-  AlertCircle, Table2
+  AlertCircle, 
+  Table2,
+  RefreshCw,
+  TrendingUp,
+  TrendingDown,
+  Hash,
+  Store,
+  User
 } from "lucide-react";
 import { format } from "date-fns";
 import SalesExcelPivotTable, { type SalesDataRow } from "@/components/SalesExcelPivotTable";
@@ -333,9 +342,10 @@ export default function SalesStaffPage() {
   const queryClient = useQueryClient();
 
   const [lastRefreshTime, setLastRefreshTime] = useState<Date | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Fetch pivot data from real API
-  const { data: pivotResponse, isLoading: pivotLoading, isError: pivotError } = useQuery<PivotApiResponse>({
+  const { data: pivotResponse, isLoading: pivotLoading, isError: pivotError, refetch: refetchPivot } = useQuery<PivotApiResponse>({
     queryKey: ["/api/sales/pivot"],
     queryFn: async () => {
       const res = await fetch("/api/sales/pivot", {
@@ -352,6 +362,34 @@ export default function SalesStaffPage() {
     retry: 1,
     retryDelay: 2000,
   });
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      // Call refresh endpoint to fetch from API and update DB
+      const refreshRes = await fetch('/api/sales/staff/summary/refresh', {
+        method: 'POST',
+        headers: { 
+          Authorization: `Bearer ${localStorage.getItem('gms_token')}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      const refreshData = await refreshRes.json();
+      
+      if (refreshData.success) {
+        // After successful refresh, refetch pivot data
+        await refetchPivot();
+        setLastRefreshTime(new Date());
+      } else {
+        throw new Error(refreshData.message || 'Refresh failed');
+      }
+    } catch (error: any) {
+      console.error('Refresh error:', error);
+      alert(`Failed to refresh data: ${error.message}`);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   // Extract pivot data or use empty array
   const pivotData: SalesDataRow[] = pivotResponse?.success ? (pivotResponse.data || []) : [];
@@ -382,9 +420,7 @@ export default function SalesStaffPage() {
   }
 
   if (pivotError) {
-    const errorMessage = pivotError instanceof Error 
-      ? pivotError.message 
-      : "Pivot data is temporarily unavailable";
+    const errorMessage = "Pivot data is temporarily unavailable";
     
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -423,6 +459,14 @@ export default function SalesStaffPage() {
             </p>
           )}
         </div>
+        <button
+          onClick={handleRefresh}
+          disabled={isRefreshing || pivotLoading}
+          className="flex items-center gap-2 px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm hover:shadow-md"
+        >
+          <RefreshCw className={`h-4 w-4 ${(isRefreshing || pivotLoading) ? 'animate-spin' : ''}`} />
+          <span>Refresh</span>
+        </button>
       </div>
 
       {/* Pivot Table Only - No Tabs */}

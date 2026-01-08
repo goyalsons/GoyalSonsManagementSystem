@@ -317,6 +317,11 @@ export default function LoginPage() {
               src={shopmaxLogo} 
               alt="Shopmax" 
               className="h-16 w-auto object-contain"
+              width="64"
+              height="64"
+              loading="eager"
+              fetchPriority="high"
+              decoding="async"
             />
           </div>
           <h1 className="text-3xl font-bold text-white mb-2">Welcome Back</h1>

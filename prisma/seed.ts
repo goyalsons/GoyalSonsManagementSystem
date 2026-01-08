@@ -145,38 +145,66 @@ async function main() {
   // ==================== SEED ROLES AND POLICIES ====================
   console.log("🌱 Seeding Roles and Policies...");
 
-  // Create Policies
+  // Create Policies based on application routes
   const policies = [
-    // Users Management
+    // Dashboard Routes
+    { key: "dashboard.view", description: "Access main dashboard (/)", category: "Dashboard" },
+    { key: "manager.dashboard.view", description: "Access manager dashboard (/manager/dashboard)", category: "Dashboard" },
+
+    // Member Management Routes
+    { key: "employees.view", description: "View all members (/employees)", category: "Member Management" },
+    { key: "employees.create", description: "Create new employee (/employees/create)", category: "Member Management" },
+    { key: "roles-assigned.view", description: "View roles assigned page (/roles-assigned)", category: "Member Management" },
+    { key: "roles.view", description: "View roles page (/roles)", category: "Member Management" },
+    { key: "roles.edit", description: "Edit role permissions (/roles/:id)", category: "Member Management" },
+
+    // Work Log/Attendance Routes
+    { key: "attendance.view", description: "View my work log (/attendance)", category: "Work Log/Attendance" },
+    { key: "attendance.today.view", description: "View today's work log (/attendance/today)", category: "Work Log/Attendance" },
+    { key: "attendance.fill", description: "Fill work log (/attendance/fill)", category: "Work Log/Attendance" },
+    { key: "attendance.history.view", description: "View attendance history (/attendance/history)", category: "Work Log/Attendance" },
+    { key: "work-log.view", description: "View task history (/work-log)", category: "Work Log/Attendance" },
+
+    // Sales Routes
+    { key: "sales.view", description: "View sales page (/sales)", category: "Sales" },
+    { key: "sales.unit.view", description: "View sales unit page (/sales/unit/:unitName)", category: "Sales" },
+    { key: "sales-staff.view", description: "View sales staff page (/sales-staff)", category: "Sales" },
+
+    // Manager Routes
+    { key: "assigned-manager.view", description: "View assigned manager page (/assigned-manager)", category: "Manager" },
+    { key: "manager.team-task-history.view", description: "View team task history (/manager/team-task-history)", category: "Manager" },
+    { key: "manager.team-sales-staff.view", description: "View team sales staff (/manager/team-sales-staff)", category: "Manager" },
+
+    // Admin/Integrations Routes
+    { key: "admin.routing.view", description: "Access API routing page (/admin/routing)", category: "Admin/Integrations" },
+    { key: "admin.master-settings.view", description: "Access master settings (/admin/master-settings)", category: "Admin/Integrations" },
+    { key: "integrations.fetched-data.view", description: "View fetched data (/integrations/fetched-data)", category: "Admin/Integrations" },
+
+    // Other Routes
+    { key: "training.view", description: "Access training page (/training)", category: "Other" },
+    { key: "requests.view", description: "View requests page (/requests)", category: "Other" },
+    { key: "settings.view", description: "Access settings page (/settings)", category: "Other" },
+    { key: "login.view", description: "Access login page (/login)", category: "Other" },
+    { key: "apply.view", description: "Access apply page (/apply)", category: "Other" },
+
+    // Legacy/Additional Policies (for backward compatibility and API access)
     { key: "users.view", description: "View users", category: "users" },
     { key: "users.create", description: "Create users", category: "users" },
     { key: "users.edit", description: "Edit users", category: "users" },
     { key: "users.delete", description: "Delete users", category: "users" },
     { key: "users.assign_role", description: "Assign roles to users", category: "users" },
-
-    // Employees Management
-    { key: "employees.view", description: "View employees", category: "employees" },
-    { key: "employees.create", description: "Create employees", category: "employees" },
     { key: "employees.edit", description: "Edit employees", category: "employees" },
     { key: "employees.delete", description: "Delete employees", category: "employees" },
     { key: "employees.export", description: "Export employee data", category: "employees" },
-
-    // Attendance (from routes: /api/attendance, /api/attendance/checkin, /api/attendance/today)
-    { key: "attendance.view", description: "View attendance", category: "attendance" },
     { key: "attendance.create", description: "Check in/out and create attendance records", category: "attendance" },
     { key: "attendance.manage", description: "Manage attendance records", category: "attendance" },
     { key: "attendance.approve", description: "Approve attendance corrections", category: "attendance" },
-    { key: "attendance.fill", description: "Fill attendance for others", category: "attendance" },
-
-    // Tasks (from routes: /api/tasks)
     { key: "tasks.view", description: "View tasks", category: "tasks" },
     { key: "tasks.create", description: "Create tasks", category: "tasks" },
     { key: "tasks.edit", description: "Edit tasks", category: "tasks" },
     { key: "tasks.delete", description: "Delete tasks", category: "tasks" },
     { key: "tasks.assign", description: "Assign tasks to others", category: "tasks" },
     { key: "tasks.view_team", description: "View team tasks", category: "tasks" },
-
-    // Claims (from routes: /api/claims)
     { key: "claims.view", description: "View claims", category: "claims" },
     { key: "claims.create", description: "Create claims", category: "claims" },
     { key: "claims.edit", description: "Edit claims", category: "claims" },
@@ -184,44 +212,29 @@ async function main() {
     { key: "claims.approve", description: "Approve claims", category: "claims" },
     { key: "claims.reject", description: "Reject claims", category: "claims" },
     { key: "claims.view_team", description: "View team claims", category: "claims" },
-
-    // Help Tickets (from routes: /api/help-tickets)
     { key: "help_tickets.view", description: "View help tickets", category: "help_tickets" },
     { key: "help_tickets.create", description: "Create help tickets", category: "help_tickets" },
     { key: "help_tickets.edit", description: "Edit help tickets", category: "help_tickets" },
     { key: "help_tickets.resolve", description: "Resolve help tickets", category: "help_tickets" },
     { key: "help_tickets.view_team", description: "View team help tickets", category: "help_tickets" },
-
-    // Announcements (from routes: /api/announcements)
     { key: "announcements.view", description: "View announcements", category: "announcements" },
     { key: "announcements.create", description: "Create announcements", category: "announcements" },
     { key: "announcements.edit", description: "Edit announcements", category: "announcements" },
     { key: "announcements.delete", description: "Delete announcements", category: "announcements" },
-
-    // Targets (from routes: /api/targets)
     { key: "targets.view", description: "View targets", category: "targets" },
     { key: "targets.create", description: "Create targets", category: "targets" },
     { key: "targets.edit", description: "Edit targets", category: "targets" },
     { key: "targets.delete", description: "Delete targets", category: "targets" },
     { key: "targets.view_team", description: "View team targets", category: "targets" },
-
-    // Sales (from routes: /api/sales, /api/sales/dashboard, /api/sales/staff)
-    { key: "sales.view", description: "View sales data", category: "sales" },
     { key: "sales.manage", description: "Manage sales data", category: "sales" },
     { key: "sales.export", description: "Export sales data", category: "sales" },
-
-    // Store/Inventory
     { key: "store.view", description: "View store/inventory", category: "store" },
     { key: "store.manage", description: "Manage store/inventory", category: "store" },
-    
-    // Purchase
     { key: "purchase.view", description: "View purchase data", category: "purchase" },
     { key: "purchase.create", description: "Create purchase requests", category: "purchase" },
     { key: "purchase.edit", description: "Edit purchase requests", category: "purchase" },
     { key: "purchase.approve", description: "Approve purchases", category: "purchase" },
     { key: "purchase.reject", description: "Reject purchase requests", category: "purchase" },
-
-    // Admin (from routes: /api/admin/*, /api/roles, /api/policies)
     { key: "admin.roles", description: "Manage roles and permissions", category: "admin" },
     { key: "admin.panel", description: "Access admin panel and integrations (API Routing, Master Settings, Data Fetcher)", category: "admin" },
     { key: "admin.settings", description: "Access system settings", category: "admin" },
