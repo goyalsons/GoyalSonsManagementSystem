@@ -1,0 +1,5 @@
+-- AlterTable
+ALTER TABLE "Employee" ADD COLUMN IF NOT EXISTS "weeklyOffCalculation" TEXT,
+ADD COLUMN IF NOT EXISTS "mobileOtp" TEXT,
+ADD COLUMN IF NOT EXISTS "lastInterviewDate" TIMESTAMP(3),
+ADD COLUMN IF NOT EXISTS "personelImage" TEXT;

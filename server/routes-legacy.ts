@@ -1241,14 +1241,122 @@ export async function registerLegacyRoutes(
   // Manager Dashboard - Attendance Overview for Today or Last Day
   app.get("/api/manager/dashboard/attendance", requireAuth, async (req, res) => {
     try {
-      const accessibleOrgUnitIds = req.user!.accessibleOrgUnitIds;
+      const employeeCardNo = req.user!.employeeCardNo;
       const { dateType = "today" } = req.query; // "today" or "lastday"
 
-      // Build employee filter - only active employees (status: ACTIVE and interviewDate: null)
+      if (!employeeCardNo) {
+        console.log("[Manager Dashboard] ❌ No employee card number found");
+        return res.status(403).json({ 
+          message: "Manager card number not found. Please login as a manager." 
+        });
+      }
+
+      // Normalize card number for consistent matching
+      const normalizedCardNo = normalizeCardNumber(employeeCardNo);
+      console.log(`[Manager Dashboard] Normalized card number: ${employeeCardNo} -> ${normalizedCardNo}`);
+
+      // Get manager assignments from emp_manager table
+      const managers = await prisma.$queryRaw<Array<{
+        mid: string;
+        mcardno: string;
+        mdepartmentId: string | null;
+        mdesignationId: string | null;
+        morgUnitId: string | null;
+        mis_extinct: boolean;
+      }>>`
+        SELECT "mid", "mcardno", "mdepartmentId", "mdesignationId", "morgUnitId", "mis_extinct"
+        FROM "emp_manager"
+        WHERE "mcardno" = ${normalizedCardNo} AND "mis_extinct" = false
+      `;
+
+      console.log(`[Manager Dashboard] Manager assignments found: ${managers.length} for card ${normalizedCardNo}`);
+      
+      if (managers.length === 0) {
+        console.log("[Manager Dashboard] ❌ No manager assignments found");
+        return res.json({
+          date: getTodayDateIST(),
+          dateType,
+          summary: {
+            total: 0,
+            present: 0,
+            absent: 0,
+            mis: 0,
+            half: 0,
+            late: 0,
+            earlyOut: 0,
+          },
+          data: [],
+        });
+      }
+
+      // Build where conditions based on manager's scope
+      // Each manager assignment creates an AND condition (all specified fields must match)
+      // Multiple assignments are combined with OR (any assignment can match)
+      const whereConditions: any[] = [];
+      
+      managers.forEach((manager, idx) => {
+        console.log(`[Manager Dashboard] Processing manager assignment ${idx + 1}:`, {
+          mid: manager.mid,
+          mcardno: manager.mcardno,
+          departmentId: manager.mdepartmentId,
+          designationId: manager.mdesignationId,
+          orgUnitId: manager.morgUnitId,
+        });
+
+        const condition: any = {};
+        if (manager.mdepartmentId) {
+          condition.departmentId = manager.mdepartmentId;
+          console.log(`[Manager Dashboard]   → Adding department filter: ${manager.mdepartmentId}`);
+        }
+        if (manager.mdesignationId) {
+          condition.designationId = manager.mdesignationId;
+          console.log(`[Manager Dashboard]   → Adding designation filter: ${manager.mdesignationId}`);
+        }
+        if (manager.morgUnitId) {
+          condition.orgUnitId = manager.morgUnitId;
+          console.log(`[Manager Dashboard]   → Adding orgUnit filter: ${manager.morgUnitId}`);
+        }
+        
+        // Only add condition if at least one scope is defined
+        if (manager.mdepartmentId || manager.mdesignationId || manager.morgUnitId) {
+          whereConditions.push(condition);
+          console.log(`[Manager Dashboard]   ✅ Added condition ${whereConditions.length}:`, condition);
+        } else {
+          console.log(`[Manager Dashboard]   ⚠️ Skipped condition - all fields are null`);
+        }
+      });
+      
+      console.log(`[Manager Dashboard] Total whereConditions built: ${whereConditions.length}`);
+
+      if (whereConditions.length === 0) {
+        console.log("[Manager Dashboard] ❌ No valid where conditions");
+        return res.json({
+          date: getTodayDateIST(),
+          dateType,
+          summary: {
+            total: 0,
+            present: 0,
+            absent: 0,
+            mis: 0,
+            half: 0,
+            late: 0,
+            earlyOut: 0,
+          },
+          data: [],
+        });
+      }
+
+      // Build employee filter - only active employees matching manager's scope
       const employeeWhere: any = {
-        orgUnitId: { in: accessibleOrgUnitIds },
-        status: "ACTIVE",
-        interviewDate: null, // Only employees who haven't exited
+        AND: [
+          {
+            status: "ACTIVE",
+            interviewDate: null, // Only employees who haven't exited
+          },
+          {
+            OR: whereConditions, // Match any of the manager's assignments
+          }
+        ]
       };
 
       // Determine date range
@@ -1280,6 +1388,8 @@ export async function registerLegacyRoutes(
       }
 
       console.log(`[Manager Dashboard] Fetching attendance for ${dateType}, Date: ${targetDate}`);
+      console.log(`[Manager Dashboard] Employee where conditions:`, JSON.stringify(employeeWhere, null, 2));
+      console.log(`[Manager Dashboard] Total where conditions: ${whereConditions.length}`);
 
       // Get all employees with their attendance
       const employees = await prisma.employee.findMany({
@@ -1739,7 +1849,17 @@ export async function registerLegacyRoutes(
       res.json(result);
     } catch (error: any) {
       console.error("Attendance history error:", error);
-      res.status(500).json({ message: error.message || "Failed to fetch attendance history" });
+      
+      // Check for specific decoder errors related to BigQuery credentials
+      const errorMessage = error.message || String(error);
+      if (errorMessage.includes("DECODER") || errorMessage.includes("decoder") || errorMessage.includes("1E08010C")) {
+        console.error("[Attendance History] BigQuery credentials decoder error detected");
+        res.status(500).json({ 
+          message: "BigQuery credentials error: Please check BIGQUERY_CREDENTIALS environment variable format. Private key may have incorrect newline encoding." 
+        });
+      } else {
+        res.status(500).json({ message: errorMessage || "Failed to fetch attendance history" });
+      }
     }
   });
 
@@ -4044,9 +4164,9 @@ export async function registerLegacyRoutes(
             const lastName = nameParts.slice(1).join(" ") || null;
 
             let interviewDate = null;
-            if (emp["Last_INTERVIEW_DATE"]) {
+            if (emp["Date_of_Interview"]) {
               try {
-                const parts = emp["Last_INTERVIEW_DATE"].split("-");
+                const parts = emp["Date_of_Interview"].split("-");
                 if (parts.length === 3) {
                   const months: { [key: string]: string } = {
                     "Jan": "01", "Feb": "02", "Mar": "03", "Apr": "04",
@@ -4063,6 +4183,26 @@ export async function registerLegacyRoutes(
               }
             }
 
+            let lastInterviewDate = null;
+            if (emp["Last_INTERVIEW_DATE"] && emp["Last_INTERVIEW_DATE"].trim() !== "") {
+              try {
+                const parts = emp["Last_INTERVIEW_DATE"].split("-");
+                if (parts.length === 3) {
+                  const months: { [key: string]: string } = {
+                    "Jan": "01", "Feb": "02", "Mar": "03", "Apr": "04",
+                    "May": "05", "Jun": "06", "Jul": "07", "Aug": "08",
+                    "Sep": "09", "Oct": "10", "Nov": "11", "Dec": "12"
+                  };
+                  const day = parts[0].padStart(2, "0");
+                  const month = months[parts[1]] || "01";
+                  const year = parts[2];
+                  lastInterviewDate = new Date(`${year}-${month}-${day}`);
+                }
+              } catch (e) {
+                console.error("Last interview date parse error:", e);
+              }
+            }
+
             await prisma.employee.upsert({
               where: { cardNumber: emp["CARD_NO"] },
               update: {
@@ -4074,23 +4214,53 @@ export async function registerLegacyRoutes(
                 companyEmail: emp["COMPANY_EMAIL"] || null,
                 gender: emp["GENDER"] || null,
                 aadhaar: emp["ADHAR_CARD"] || null,
-                profileImageUrl: emp["person_img_cdn_url"] || emp["personel_image"] || null,
+                profileImageUrl: emp["person_img_cdn_url"] || null,
+                personelImage: emp["personel_image"] || null,
                 status: emp["STATUS"] || "ACTIVE",
                 weeklyOff: emp["WEEKLY_OFF"] || null,
+                weeklyOffCalculation: emp["weekly_off_calculation"] || null,
                 shiftStart: emp["INTIME"] || null,
                 shiftEnd: emp["OUTTIME"] || null,
                 interviewDate,
+                lastInterviewDate,
                 externalId: emp["ID"] || null,
                 autoNumber: emp["Auto_Number"] || null,
                 zohoId: emp["zohobooksid"] || null,
+                mobileOtp: emp["Mobile_Otp"] || null,
                 departmentId,
                 designationId,
                 timePolicyId,
                 orgUnitId,
                 metadata: {
-                  weekly_off_calculation: emp["weekly_off_calculation"],
-                  last_interview_date: emp["Last_INTERVIEW_DATE"],
-                  mobile_otp: emp["Mobile_Otp"],
+                  // Store all original fields with exact field names as they come from API
+                  "CARD_NO": emp["CARD_NO"],
+                  "TIMEPOLICY.IS_SINGLE_PUNCH": emp["TIMEPOLICY.IS_SINGLE_PUNCH"],
+                  "Phone_NO_1": emp["Phone_NO_1"],
+                  "weekly_off_calculation": emp["weekly_off_calculation"],
+                  "Name": emp["Name"],
+                  "Date_of_Interview": emp["Date_of_Interview"],
+                  "STATUS": emp["STATUS"],
+                  "DESIGNATION.DESIGN_NAME": emp["DESIGNATION.DESIGN_NAME"],
+                  "zohobooksid": emp["zohobooksid"],
+                  "GENDER": emp["GENDER"],
+                  "ID": emp["ID"],
+                  "ADHAR_CARD": emp["ADHAR_CARD"],
+                  "WEEKLY_OFF": emp["WEEKLY_OFF"],
+                  "UNIT.BRANCH_CODE": emp["UNIT.BRANCH_CODE"],
+                  "person_img_cdn_url": emp["person_img_cdn_url"],
+                  "OUTTIME": emp["OUTTIME"],
+                  "Mobile_Otp": emp["Mobile_Otp"],
+                  "Last_INTERVIEW_DATE": emp["Last_INTERVIEW_DATE"],
+                  "Auto_Number": emp["Auto_Number"],
+                  "TIMEPOLICY.POLICY_NAME": emp["TIMEPOLICY.POLICY_NAME"],
+                  "PERSONAL_Email": emp["PERSONAL_Email"],
+                  "DEPARTMENT.DEPT_CODE": emp["DEPARTMENT.DEPT_CODE"],
+                  "DEPARTMENT.DEPARTMENT": emp["DEPARTMENT.DEPARTMENT"],
+                  "PHONE_NO_2": emp["PHONE_NO_2"],
+                  "DESIGNATION.DESIGN_CODE": emp["DESIGNATION.DESIGN_CODE"],
+                  "INTIME": emp["INTIME"],
+                  "COMPANY_EMAIL": emp["COMPANY_EMAIL"],
+                  "personel_image": emp["personel_image"],
                 },
               },
               create: {
@@ -4103,23 +4273,53 @@ export async function registerLegacyRoutes(
                 companyEmail: emp["COMPANY_EMAIL"] || null,
                 gender: emp["GENDER"] || null,
                 aadhaar: emp["ADHAR_CARD"] || null,
-                profileImageUrl: emp["person_img_cdn_url"] || emp["personel_image"] || null,
+                profileImageUrl: emp["person_img_cdn_url"] || null,
+                personelImage: emp["personel_image"] || null,
                 status: emp["STATUS"] || "ACTIVE",
                 weeklyOff: emp["WEEKLY_OFF"] || null,
+                weeklyOffCalculation: emp["weekly_off_calculation"] || null,
                 shiftStart: emp["INTIME"] || null,
                 shiftEnd: emp["OUTTIME"] || null,
                 interviewDate,
+                lastInterviewDate,
                 externalId: emp["ID"] || null,
                 autoNumber: emp["Auto_Number"] || null,
                 zohoId: emp["zohobooksid"] || null,
+                mobileOtp: emp["Mobile_Otp"] || null,
                 departmentId,
                 designationId,
                 timePolicyId,
                 orgUnitId,
                 metadata: {
-                  weekly_off_calculation: emp["weekly_off_calculation"],
-                  last_interview_date: emp["Last_INTERVIEW_DATE"],
-                  mobile_otp: emp["Mobile_Otp"],
+                  // Store all original fields with exact field names as they come from API
+                  "CARD_NO": emp["CARD_NO"],
+                  "TIMEPOLICY.IS_SINGLE_PUNCH": emp["TIMEPOLICY.IS_SINGLE_PUNCH"],
+                  "Phone_NO_1": emp["Phone_NO_1"],
+                  "weekly_off_calculation": emp["weekly_off_calculation"],
+                  "Name": emp["Name"],
+                  "Date_of_Interview": emp["Date_of_Interview"],
+                  "STATUS": emp["STATUS"],
+                  "DESIGNATION.DESIGN_NAME": emp["DESIGNATION.DESIGN_NAME"],
+                  "zohobooksid": emp["zohobooksid"],
+                  "GENDER": emp["GENDER"],
+                  "ID": emp["ID"],
+                  "ADHAR_CARD": emp["ADHAR_CARD"],
+                  "WEEKLY_OFF": emp["WEEKLY_OFF"],
+                  "UNIT.BRANCH_CODE": emp["UNIT.BRANCH_CODE"],
+                  "person_img_cdn_url": emp["person_img_cdn_url"],
+                  "OUTTIME": emp["OUTTIME"],
+                  "Mobile_Otp": emp["Mobile_Otp"],
+                  "Last_INTERVIEW_DATE": emp["Last_INTERVIEW_DATE"],
+                  "Auto_Number": emp["Auto_Number"],
+                  "TIMEPOLICY.POLICY_NAME": emp["TIMEPOLICY.POLICY_NAME"],
+                  "PERSONAL_Email": emp["PERSONAL_Email"],
+                  "DEPARTMENT.DEPT_CODE": emp["DEPARTMENT.DEPT_CODE"],
+                  "DEPARTMENT.DEPARTMENT": emp["DEPARTMENT.DEPARTMENT"],
+                  "PHONE_NO_2": emp["PHONE_NO_2"],
+                  "DESIGNATION.DESIGN_CODE": emp["DESIGNATION.DESIGN_CODE"],
+                  "INTIME": emp["INTIME"],
+                  "COMPANY_EMAIL": emp["COMPANY_EMAIL"],
+                  "personel_image": emp["personel_image"],
                 },
               },
             });

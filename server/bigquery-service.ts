@@ -88,12 +88,73 @@ function loadCredentials(): {
 
   if (typeof credentials.private_key === "string") {
     // Fix escaped newlines (common in Railway environment variables)
-    if (credentials.private_key.includes("\\r\\n")) {
-      credentials.private_key = credentials.private_key.replace(/\\r\\n/g, "\n");
-    } else if (credentials.private_key.includes("\\n")) {
-      credentials.private_key = credentials.private_key.replace(/\\n/g, "\n");
+    // Handle multiple levels of escaping that can occur
+    let privateKey = credentials.private_key;
+    
+    // Check if key is already properly formatted (has actual newlines)
+    const hasActualNewlines = privateKey.includes('\n') && !privateKey.includes('\\n');
+    
+    if (!hasActualNewlines) {
+      // First, handle double-escaped newlines (when JSON.stringify is called on already escaped strings)
+      // This happens when credentials are double-encoded
+      privateKey = privateKey.replace(/\\\\n/g, "\n");
+      privateKey = privateKey.replace(/\\\\r\\\\n/g, "\n");
+      privateKey = privateKey.replace(/\\\\r/g, "");
+      
+      // Then handle single-escaped newlines (common in JSON strings stored in env vars)
+      // Replace literal \n and \r\n strings with actual newlines
+      if (privateKey.includes("\\r\\n")) {
+        privateKey = privateKey.replace(/\\r\\n/g, "\n");
+      }
+      if (privateKey.includes("\\n")) {
+        privateKey = privateKey.replace(/\\n/g, "\n");
+      }
+      if (privateKey.includes("\\r")) {
+        privateKey = privateKey.replace(/\\r/g, "");
+      }
+      
+      // Handle actual carriage returns + newlines (Windows-style)
+      privateKey = privateKey.replace(/\r\n/g, "\n");
+      privateKey = privateKey.replace(/\r/g, "");
     }
-    credentials.private_key = credentials.private_key.replace(/\r\n/g, "\n");
+    
+    // Ensure BEGIN and END markers are on separate lines (if they're not already)
+    if (!privateKey.match(/-----BEGIN PRIVATE KEY-----\n/)) {
+      privateKey = privateKey.replace(/-----BEGIN PRIVATE KEY-----/g, "-----BEGIN PRIVATE KEY-----\n");
+    }
+    if (!privateKey.match(/\n-----END PRIVATE KEY-----/)) {
+      privateKey = privateKey.replace(/-----END PRIVATE KEY-----/g, "\n-----END PRIVATE KEY-----");
+    }
+    
+    // Clean up any excessive newlines (more than 2 consecutive)
+    privateKey = privateKey.replace(/\n{3,}/g, "\n\n");
+    
+    // Remove leading/trailing whitespace but preserve structure
+    privateKey = privateKey.trim();
+    
+    // Validate the key has the proper markers
+    if (!privateKey.includes("-----BEGIN PRIVATE KEY-----") || !privateKey.includes("-----END PRIVATE KEY-----")) {
+      console.error("[BigQuery] Private key format validation failed - missing BEGIN/END markers");
+      throw new Error("Invalid private key format: missing BEGIN or END markers");
+    }
+    
+    // Validate the key structure (should have BEGIN, content, END)
+    const beginIndex = privateKey.indexOf("-----BEGIN PRIVATE KEY-----");
+    const endIndex = privateKey.indexOf("-----END PRIVATE KEY-----");
+    if (beginIndex >= endIndex || beginIndex === -1 || endIndex === -1) {
+      console.error("[BigQuery] Private key format validation failed - invalid structure");
+      throw new Error("Invalid private key format: BEGIN and END markers in wrong order");
+    }
+    
+    // Extract the key content to verify it's not empty
+    const keyContent = privateKey.substring(beginIndex + "-----BEGIN PRIVATE KEY-----".length, endIndex).trim();
+    if (keyContent.length < 100) {
+      console.error("[BigQuery] Private key format validation failed - key content too short");
+      throw new Error("Invalid private key format: key content appears to be empty or corrupted");
+    }
+    
+    credentials.private_key = privateKey;
+    console.log(`[BigQuery] Private key normalized: length=${privateKey.length}, has actual newlines=${privateKey.includes('\n')}, key content length=${keyContent.length}`);
   }
 
   if (!credentials.project_id || !credentials.private_key || !credentials.client_email) {

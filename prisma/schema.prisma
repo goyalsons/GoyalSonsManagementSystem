@@ -108,13 +108,17 @@ model Employee {
   profileImageUrl String?
   status          String      @default("ACTIVE")
   weeklyOff       String?
+  weeklyOffCalculation String?
   shiftStart      String?
   shiftEnd        String?
   interviewDate   DateTime?
+  lastInterviewDate DateTime?
   joiningDate     DateTime?
   externalId      String?     @unique
   autoNumber      String?
   zohoId          String?
+  mobileOtp       String?
+  personelImage   String?
   metadata        Json?
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt

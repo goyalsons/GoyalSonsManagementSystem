@@ -146,9 +146,9 @@ export function registerDataFetcherRoutes(app: Express): void {
             const lastName = nameParts.slice(1).join(" ") || null;
 
             let interviewDate = null;
-            if (emp["Last_INTERVIEW_DATE"]) {
+            if (emp["Date_of_Interview"]) {
               try {
-                const parts = emp["Last_INTERVIEW_DATE"].split("-");
+                const parts = emp["Date_of_Interview"].split("-");
                 if (parts.length === 3) {
                   const months: { [key: string]: string } = {
                     "Jan": "01", "Feb": "02", "Mar": "03", "Apr": "04",
@@ -165,6 +165,26 @@ export function registerDataFetcherRoutes(app: Express): void {
               }
             }
 
+            let lastInterviewDate = null;
+            if (emp["Last_INTERVIEW_DATE"] && emp["Last_INTERVIEW_DATE"].trim() !== "") {
+              try {
+                const parts = emp["Last_INTERVIEW_DATE"].split("-");
+                if (parts.length === 3) {
+                  const months: { [key: string]: string } = {
+                    "Jan": "01", "Feb": "02", "Mar": "03", "Apr": "04",
+                    "May": "05", "Jun": "06", "Jul": "07", "Aug": "08",
+                    "Sep": "09", "Oct": "10", "Nov": "11", "Dec": "12"
+                  };
+                  const day = parts[0].padStart(2, "0");
+                  const month = months[parts[1]] || "01";
+                  const year = parts[2];
+                  lastInterviewDate = new Date(`${year}-${month}-${day}`);
+                }
+              } catch (e) {
+                console.error("Last interview date parse error:", e);
+              }
+            }
+
             await prisma.employee.upsert({
               where: { cardNumber: emp["CARD_NO"] },
               update: {
@@ -176,23 +196,53 @@ export function registerDataFetcherRoutes(app: Express): void {
                 companyEmail: emp["COMPANY_EMAIL"] || null,
                 gender: emp["GENDER"] || null,
                 aadhaar: emp["ADHAR_CARD"] || null,
-                profileImageUrl: emp["person_img_cdn_url"] || emp["personel_image"] || null,
+                profileImageUrl: emp["person_img_cdn_url"] || null,
+                personelImage: emp["personel_image"] || null,
                 status: emp["STATUS"] || "ACTIVE",
                 weeklyOff: emp["WEEKLY_OFF"] || null,
+                weeklyOffCalculation: emp["weekly_off_calculation"] || null,
                 shiftStart: emp["INTIME"] || null,
                 shiftEnd: emp["OUTTIME"] || null,
                 interviewDate,
+                lastInterviewDate,
                 externalId: emp["ID"] || null,
                 autoNumber: emp["Auto_Number"] || null,
                 zohoId: emp["zohobooksid"] || null,
+                mobileOtp: emp["Mobile_Otp"] || null,
                 departmentId,
                 designationId,
                 timePolicyId,
                 orgUnitId,
                 metadata: {
-                  weekly_off_calculation: emp["weekly_off_calculation"],
-                  last_interview_date: emp["Last_INTERVIEW_DATE"],
-                  mobile_otp: emp["Mobile_Otp"],
+                  // Store all original fields with exact field names as they come from API
+                  "CARD_NO": emp["CARD_NO"],
+                  "TIMEPOLICY.IS_SINGLE_PUNCH": emp["TIMEPOLICY.IS_SINGLE_PUNCH"],
+                  "Phone_NO_1": emp["Phone_NO_1"],
+                  "weekly_off_calculation": emp["weekly_off_calculation"],
+                  "Name": emp["Name"],
+                  "Date_of_Interview": emp["Date_of_Interview"],
+                  "STATUS": emp["STATUS"],
+                  "DESIGNATION.DESIGN_NAME": emp["DESIGNATION.DESIGN_NAME"],
+                  "zohobooksid": emp["zohobooksid"],
+                  "GENDER": emp["GENDER"],
+                  "ID": emp["ID"],
+                  "ADHAR_CARD": emp["ADHAR_CARD"],
+                  "WEEKLY_OFF": emp["WEEKLY_OFF"],
+                  "UNIT.BRANCH_CODE": emp["UNIT.BRANCH_CODE"],
+                  "person_img_cdn_url": emp["person_img_cdn_url"],
+                  "OUTTIME": emp["OUTTIME"],
+                  "Mobile_Otp": emp["Mobile_Otp"],
+                  "Last_INTERVIEW_DATE": emp["Last_INTERVIEW_DATE"],
+                  "Auto_Number": emp["Auto_Number"],
+                  "TIMEPOLICY.POLICY_NAME": emp["TIMEPOLICY.POLICY_NAME"],
+                  "PERSONAL_Email": emp["PERSONAL_Email"],
+                  "DEPARTMENT.DEPT_CODE": emp["DEPARTMENT.DEPT_CODE"],
+                  "DEPARTMENT.DEPARTMENT": emp["DEPARTMENT.DEPARTMENT"],
+                  "PHONE_NO_2": emp["PHONE_NO_2"],
+                  "DESIGNATION.DESIGN_CODE": emp["DESIGNATION.DESIGN_CODE"],
+                  "INTIME": emp["INTIME"],
+                  "COMPANY_EMAIL": emp["COMPANY_EMAIL"],
+                  "personel_image": emp["personel_image"],
                 },
               },
               create: {
@@ -205,23 +255,53 @@ export function registerDataFetcherRoutes(app: Express): void {
                 companyEmail: emp["COMPANY_EMAIL"] || null,
                 gender: emp["GENDER"] || null,
                 aadhaar: emp["ADHAR_CARD"] || null,
-                profileImageUrl: emp["person_img_cdn_url"] || emp["personel_image"] || null,
+                profileImageUrl: emp["person_img_cdn_url"] || null,
+                personelImage: emp["personel_image"] || null,
                 status: emp["STATUS"] || "ACTIVE",
                 weeklyOff: emp["WEEKLY_OFF"] || null,
+                weeklyOffCalculation: emp["weekly_off_calculation"] || null,
                 shiftStart: emp["INTIME"] || null,
                 shiftEnd: emp["OUTTIME"] || null,
                 interviewDate,
+                lastInterviewDate,
                 externalId: emp["ID"] || null,
                 autoNumber: emp["Auto_Number"] || null,
                 zohoId: emp["zohobooksid"] || null,
+                mobileOtp: emp["Mobile_Otp"] || null,
                 departmentId,
                 designationId,
                 timePolicyId,
                 orgUnitId,
                 metadata: {
-                  weekly_off_calculation: emp["weekly_off_calculation"],
-                  last_interview_date: emp["Last_INTERVIEW_DATE"],
-                  mobile_otp: emp["Mobile_Otp"],
+                  // Store all original fields with exact field names as they come from API
+                  "CARD_NO": emp["CARD_NO"],
+                  "TIMEPOLICY.IS_SINGLE_PUNCH": emp["TIMEPOLICY.IS_SINGLE_PUNCH"],
+                  "Phone_NO_1": emp["Phone_NO_1"],
+                  "weekly_off_calculation": emp["weekly_off_calculation"],
+                  "Name": emp["Name"],
+                  "Date_of_Interview": emp["Date_of_Interview"],
+                  "STATUS": emp["STATUS"],
+                  "DESIGNATION.DESIGN_NAME": emp["DESIGNATION.DESIGN_NAME"],
+                  "zohobooksid": emp["zohobooksid"],
+                  "GENDER": emp["GENDER"],
+                  "ID": emp["ID"],
+                  "ADHAR_CARD": emp["ADHAR_CARD"],
+                  "WEEKLY_OFF": emp["WEEKLY_OFF"],
+                  "UNIT.BRANCH_CODE": emp["UNIT.BRANCH_CODE"],
+                  "person_img_cdn_url": emp["person_img_cdn_url"],
+                  "OUTTIME": emp["OUTTIME"],
+                  "Mobile_Otp": emp["Mobile_Otp"],
+                  "Last_INTERVIEW_DATE": emp["Last_INTERVIEW_DATE"],
+                  "Auto_Number": emp["Auto_Number"],
+                  "TIMEPOLICY.POLICY_NAME": emp["TIMEPOLICY.POLICY_NAME"],
+                  "PERSONAL_Email": emp["PERSONAL_Email"],
+                  "DEPARTMENT.DEPT_CODE": emp["DEPARTMENT.DEPT_CODE"],
+                  "DEPARTMENT.DEPARTMENT": emp["DEPARTMENT.DEPARTMENT"],
+                  "PHONE_NO_2": emp["PHONE_NO_2"],
+                  "DESIGNATION.DESIGN_CODE": emp["DESIGNATION.DESIGN_CODE"],
+                  "INTIME": emp["INTIME"],
+                  "COMPANY_EMAIL": emp["COMPANY_EMAIL"],
+                  "personel_image": emp["personel_image"],
                 },
               },
             });
