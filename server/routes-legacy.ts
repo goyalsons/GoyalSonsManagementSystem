@@ -606,7 +606,10 @@ export async function registerLegacyRoutes(
 
       const [employeeCount, todayAttendance, pendingTasks, myPendingTasks] = await Promise.all([
         prisma.employee.count({
-          where: { orgUnitId: { in: accessibleOrgUnitIds } },
+          where: { 
+            orgUnitId: { in: accessibleOrgUnitIds },
+            lastInterviewDate: null, // Only active employees
+          },
         }),
         prisma.attendance.count({
           where: {
@@ -615,13 +618,19 @@ export async function registerLegacyRoutes(
               lt: new Date(new Date().setHours(23, 59, 59, 999)),
             },
             status: { in: ["present", "late"] },
-            employee: { orgUnitId: { in: accessibleOrgUnitIds } },
+            employee: { 
+              orgUnitId: { in: accessibleOrgUnitIds },
+              lastInterviewDate: null, // Only active employees
+            },
           },
         }),
         prisma.task.count({
           where: {
             status: { in: ["open", "in_progress"] },
-            assignee: { orgUnitId: { in: accessibleOrgUnitIds } },
+            assignee: { 
+              orgUnitId: { in: accessibleOrgUnitIds },
+              lastInterviewDate: null, // Only active employees
+            },
           },
         }),
         prisma.task.count({
@@ -659,7 +668,10 @@ export async function registerLegacyRoutes(
         where: {
           date: { gte: today },
           checkInAt: { not: null },
-          employee: { orgUnitId: { in: accessibleOrgUnitIds } },
+          employee: { 
+            orgUnitId: { in: accessibleOrgUnitIds },
+            lastInterviewDate: null, // Only active employees
+          },
         },
         include: {
           employee: {
@@ -725,12 +737,13 @@ export async function registerLegacyRoutes(
       // Filter by active/inactive status based on lastInterviewDate
       // Active = lastInterviewDate is null
       // Inactive = lastInterviewDate has a value
-      if (statusFilter === 'active') {
-        where.lastInterviewDate = null;
-      } else if (statusFilter === 'inactive') {
+      // Default: Only show active employees (inactive employees are hidden everywhere)
+      if (statusFilter === 'inactive') {
         where.lastInterviewDate = { not: null };
+      } else {
+        // Default behavior: Only active employees (statusFilter === 'active' or 'all' or not provided)
+        where.lastInterviewDate = null;
       }
-      // If statusFilter is 'all' or not provided, show all employees
       
       // Search filter - Prisma ANDs top-level conditions automatically
       // So: externalId AND lastInterviewDate filter AND (search OR conditions)
@@ -935,7 +948,10 @@ export async function registerLegacyRoutes(
       const { from, to, employeeId } = req.query;
 
       const where: any = {
-        employee: { orgUnitId: { in: accessibleOrgUnitIds } },
+        employee: { 
+          orgUnitId: { in: accessibleOrgUnitIds },
+          lastInterviewDate: null, // Only active employees can have attendance records
+        },
       };
 
       if (from) {
@@ -981,13 +997,14 @@ export async function registerLegacyRoutes(
         where: { 
           id: employeeId,
           orgUnitId: { in: accessibleOrgUnitIds },
+          lastInterviewDate: null, // Only active employees can check in
         },
       });
 
       if (!employee) {
         return res.status(403).json({ 
-          message: "Access denied", 
-          reason: "org_out_of_scope" 
+          message: "Access denied or employee is inactive", 
+          reason: "org_out_of_scope_or_inactive" 
         });
       }
 
@@ -1031,10 +1048,10 @@ export async function registerLegacyRoutes(
       const accessibleOrgUnitIds = req.user!.accessibleOrgUnitIds;
       const { unitId, departmentId, designationId, status: filterStatus, page = "1", limit = "50" } = req.query;
 
-      // Build employee filter
+      // Build employee filter - Only active employees (lastInterviewDate is null)
       const employeeWhere: any = {
         orgUnitId: { in: accessibleOrgUnitIds },
-        status: "ACTIVE",
+        lastInterviewDate: null, // Only active employees can participate
       };
 
       if (unitId) {
@@ -1354,8 +1371,7 @@ export async function registerLegacyRoutes(
       const employeeWhere: any = {
         AND: [
           {
-            status: "ACTIVE",
-            interviewDate: null, // Only employees who haven't exited
+            lastInterviewDate: null, // Only active employees (haven't exited)
           },
           {
             OR: whereConditions, // Match any of the manager's assignments
@@ -1899,7 +1915,10 @@ export async function registerLegacyRoutes(
       const { status, priority } = req.query;
 
       const where: any = {
-        assignee: { orgUnitId: { in: accessibleOrgUnitIds } },
+        assignee: { 
+          orgUnitId: { in: accessibleOrgUnitIds },
+          lastInterviewDate: null, // Only active employees can have tasks
+        },
       };
 
       // Employee login: show only self-assigned tasks
@@ -1954,6 +1973,7 @@ export async function registerLegacyRoutes(
           where: { 
             id: assigneeId,
             orgUnitId: { in: accessibleOrgUnitIds },
+            lastInterviewDate: null, // Only active employees can be assigned tasks
           },
         });
 
@@ -2027,7 +2047,10 @@ export async function registerLegacyRoutes(
       const { status } = req.query;
 
       const where: any = {
-        employee: { orgUnitId: { in: accessibleOrgUnitIds } },
+        employee: { 
+          orgUnitId: { in: accessibleOrgUnitIds },
+          lastInterviewDate: null, // Only active employees can have claims
+        },
       };
 
       // Employee login: show only self claims
@@ -2112,7 +2135,10 @@ export async function registerLegacyRoutes(
       const accessibleOrgUnitIds = req.user!.accessibleOrgUnitIds;
 
       const where: any = {
-        employee: { orgUnitId: { in: accessibleOrgUnitIds } },
+        employee: { 
+          orgUnitId: { in: accessibleOrgUnitIds },
+          lastInterviewDate: null, // Only active employees can have targets
+        },
       };
 
       // Employee login: show only self targets
@@ -5622,14 +5648,13 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
       const uniqueSmnos = cards.map(c => c.smno);
       const designationMap = await getEmployeeDesignations(uniqueSmnos);
 
-      // Filter to only include active employees (status: "ACTIVE" AND interviewDate: null)
+      // Filter to only include active employees (lastInterviewDate is null)
       let activeEmployeeCardNos: Set<string> = new Set();
       try {
         const activeEmployees = await prisma.employee.findMany({
           where: {
             cardNumber: { in: uniqueSmnos },
-            status: "ACTIVE",
-            interviewDate: null, // Only active employees (not exited)
+            lastInterviewDate: null, // Only active employees (not exited)
           },
           select: { cardNumber: true },
         });
@@ -5833,7 +5858,7 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
               designation: {
                 code: "SM" // Salesman designation
               },
-              status: "ACTIVE"
+              lastInterviewDate: null // Only active employees
             },
             select: {
               cardNumber: true
@@ -6271,13 +6296,12 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
         return res.json([]);
       }
 
-      // Get team members - interviewDate: null is ALWAYS applied (only active employees)
+      // Get team members - lastInterviewDate: null is ALWAYS applied (only active employees)
       const teamMembers = await prisma.employee.findMany({
         where: {
           AND: [
             {
-              status: "ACTIVE",
-              interviewDate: null, // ALWAYS applied - only employees who haven't exited
+              lastInterviewDate: null, // ALWAYS applied - only active employees who haven't exited
             },
             {
           OR: whereConditions,
@@ -6391,11 +6415,14 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
         return res.json([]);
       }
 
-      // Get team member IDs with detailed logging
+      // Get team member IDs with detailed logging - Only active employees
       console.log("[Team Tasks] Executing employee query with OR conditions...");
       const teamMembers = await prisma.employee.findMany({
         where: {
-          OR: whereConditions,
+          AND: [
+            { lastInterviewDate: null }, // Only active employees
+            { OR: whereConditions },
+          ],
         },
         select: { 
           id: true,
@@ -6421,7 +6448,7 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
         
         // Debug: Check a few employees to see their actual values
         const sampleEmployees = await prisma.employee.findMany({
-          where: { status: "ACTIVE" },
+          where: { lastInterviewDate: null }, // Only active employees
           take: 5,
           select: {
             firstName: true,

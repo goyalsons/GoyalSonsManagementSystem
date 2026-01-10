@@ -64,7 +64,7 @@ export function registerHelpTicketsRoutes(app: Express) {
             if (managers.length > 0) {
               const whereConditions: any[] = [];
               managers.forEach((manager) => {
-                const condition: any = { status: "ACTIVE", interviewDate: null };
+                const condition: any = {}; // Remove status check from condition, will apply globally
                 if (manager.mdepartmentId) condition.departmentId = manager.mdepartmentId;
                 if (manager.mdesignationId) condition.designationId = manager.mdesignationId;
                 if (manager.morgUnitId) condition.orgUnitId = manager.morgUnitId;
@@ -75,7 +75,7 @@ export function registerHelpTicketsRoutes(app: Express) {
 
               if (whereConditions.length > 0) {
                 const teamMembers = await prisma.employee.findMany({
-                  where: { AND: [{ status: "ACTIVE", interviewDate: null }, { OR: whereConditions }] },
+                  where: { AND: [{ lastInterviewDate: null }, { OR: whereConditions }] }, // Only active employees
                   select: { id: true },
                 });
                 const teamMemberIds = teamMembers.map(e => e.id);

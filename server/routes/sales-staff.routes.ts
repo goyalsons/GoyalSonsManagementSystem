@@ -645,14 +645,13 @@ export function registerSalesStaffRoutes(app: Express) {
       const uniqueSmnos = cards.map(c => c.smno);
       const designationMap = await getEmployeeDesignations(uniqueSmnos);
 
-      // Filter to only include active employees (status: "ACTIVE" AND interviewDate: null)
+      // Filter to only include active employees (lastInterviewDate is null)
       let activeEmployeeCardNos: Set<string> = new Set();
       try {
         const activeEmployees = await prisma.employee.findMany({
           where: {
             cardNumber: { in: uniqueSmnos },
-            status: "ACTIVE",
-            interviewDate: null, // Only active employees (not exited)
+            lastInterviewDate: null, // Only active employees (not exited)
           },
           select: { cardNumber: true },
         });
@@ -1091,7 +1090,7 @@ export function registerSalesStaffRoutes(app: Express) {
               designation: {
                 code: "SM"
               },
-              status: "ACTIVE"
+              lastInterviewDate: null // Only active employees
             },
             select: {
               cardNumber: true
