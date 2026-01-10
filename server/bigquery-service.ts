@@ -61,19 +61,33 @@ function loadCredentials(): {
 } {
   const envValue = process.env.BIGQUERY_CREDENTIALS || process.env.GOOGLE_APPLICATION_CREDENTIALS;
   if (!envValue) {
-    throw new Error("BIGQUERY_CREDENTIALS environment variable is not set");
+    console.error("[BigQuery] No credentials found in environment variables");
+    console.error("[BigQuery] Checked: BIGQUERY_CREDENTIALS and GOOGLE_APPLICATION_CREDENTIALS");
+    throw new Error("BIGQUERY_CREDENTIALS environment variable is not set. Please add it in Railway environment variables.");
   }
 
   let raw = envValue.trim();
+  console.log(`[BigQuery] Found credentials, length: ${raw.length} chars, starts with: ${raw.substring(0, 20)}...`);
 
-  // If env points to a file path, read it
+  // If env points to a file path, read it (for local development)
   const asPath = path.resolve(raw);
   if (!raw.startsWith("{") && fs.existsSync(asPath)) {
+    console.log(`[BigQuery] Reading credentials from file: ${asPath}`);
     raw = fs.readFileSync(asPath, "utf8").trim();
   }
 
-  const credentials = JSON.parse(raw);
+  let credentials;
+  try {
+    credentials = JSON.parse(raw);
+  } catch (parseError: unknown) {
+    const parseMsg = parseError instanceof Error ? parseError.message : String(parseError);
+    console.error("[BigQuery] JSON parse error:", parseMsg);
+    console.error("[BigQuery] First 100 chars of raw value:", raw.substring(0, 100));
+    throw new Error(`Failed to parse BIGQUERY_CREDENTIALS as JSON: ${parseMsg}`);
+  }
+
   if (typeof credentials.private_key === "string") {
+    // Fix escaped newlines (common in Railway environment variables)
     if (credentials.private_key.includes("\\r\\n")) {
       credentials.private_key = credentials.private_key.replace(/\\r\\n/g, "\n");
     } else if (credentials.private_key.includes("\\n")) {
@@ -83,9 +97,15 @@ function loadCredentials(): {
   }
 
   if (!credentials.project_id || !credentials.private_key || !credentials.client_email) {
+    console.error("[BigQuery] Missing required fields:", {
+      hasProjectId: !!credentials.project_id,
+      hasPrivateKey: !!credentials.private_key,
+      hasClientEmail: !!credentials.client_email
+    });
     throw new Error("Missing required fields in credentials (project_id, private_key, or client_email)");
   }
 
+  console.log(`[BigQuery] Credentials loaded successfully for project: ${credentials.project_id}`);
   return credentials;
 }
 
@@ -93,13 +113,22 @@ export function getBigQueryClient(): BigQuery {
   if (!bigQueryClient) {
     try {
       const credentials = loadCredentials();
+      console.log(`[BigQuery] Initializing client for project: ${credentials.project_id}`);
+      console.log(`[BigQuery] Service account: ${credentials.client_email}`);
       bigQueryClient = new BigQuery({
         projectId: credentials.project_id,
         credentials,
       });
+      console.log(`[BigQuery] Client initialized successfully`);
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error("BigQuery credentials error:", error);
+      console.error("[BigQuery] Credentials error:", errorMessage);
+      console.error("[BigQuery] Available env vars:", {
+        hasBIGQUERY_CREDENTIALS: !!process.env.BIGQUERY_CREDENTIALS,
+        hasGOOGLE_APPLICATION_CREDENTIALS: !!process.env.GOOGLE_APPLICATION_CREDENTIALS,
+        BIGQUERY_CREDENTIALS_length: process.env.BIGQUERY_CREDENTIALS?.length || 0,
+        GOOGLE_APPLICATION_CREDENTIALS_value: process.env.GOOGLE_APPLICATION_CREDENTIALS || "not set"
+      });
       throw new Error(`Invalid BIGQUERY_CREDENTIALS: ${errorMessage}`);
     }
   }
@@ -205,25 +234,63 @@ export async function getEmployeeAttendance(
 export function isBigQueryConfigured(): boolean {
   try {
     const envValue = process.env.BIGQUERY_CREDENTIALS || process.env.GOOGLE_APPLICATION_CREDENTIALS;
-    if (!envValue) return false;
+    if (!envValue) {
+      console.log("[BigQuery Config Check] ❌ No credentials found in environment variables");
+      return false;
+    }
+    
+    console.log(`[BigQuery Config Check] ✅ Found credentials, length: ${envValue.length} chars`);
     
     // Check if it's a file path
-    const asPath = path.resolve(envValue.trim());
-    if (!envValue.trim().startsWith("{") && fs.existsSync(asPath)) {
-      // It's a file path, try to read and parse it
+    const trimmed = envValue.trim();
+    const asPath = path.resolve(trimmed);
+    if (!trimmed.startsWith("{") && fs.existsSync(asPath)) {
+      // It's a file path, try to read and parse it (for local development)
+      console.log(`[BigQuery Config Check] 📁 Reading from file: ${asPath}`);
       try {
         const raw = fs.readFileSync(asPath, "utf8").trim();
         const creds = JSON.parse(raw);
-        return !!(creds.project_id && creds.client_email && creds.private_key);
-      } catch {
+        const hasRequired = !!(creds.project_id && creds.client_email && creds.private_key);
+        console.log(`[BigQuery Config Check] ${hasRequired ? "✅" : "❌"} Required fields:`, {
+          hasProjectId: !!creds.project_id,
+          hasClientEmail: !!creds.client_email,
+          hasPrivateKey: !!creds.private_key
+        });
+        return hasRequired;
+      } catch (fileError: unknown) {
+        const errMsg = fileError instanceof Error ? fileError.message : String(fileError);
+        console.error(`[BigQuery Config Check] ❌ File read/parse error: ${errMsg}`);
         return false;
       }
     }
     
-    // It's a JSON string
-    const creds = JSON.parse(envValue);
-    return !!(creds.project_id && creds.client_email && creds.private_key);
-  } catch {
+    // It's a JSON string (expected format for Railway)
+    console.log(`[BigQuery Config Check] 📝 Parsing JSON string (starts with: ${trimmed.substring(0, 30)}...)`);
+    try {
+      const creds = JSON.parse(trimmed);
+      const hasRequired = !!(creds.project_id && creds.client_email && creds.private_key);
+      console.log(`[BigQuery Config Check] ${hasRequired ? "✅" : "❌"} Required fields:`, {
+        hasProjectId: !!creds.project_id,
+        hasClientEmail: !!creds.client_email,
+        hasPrivateKey: !!creds.private_key,
+        projectId: creds.project_id || "missing",
+        clientEmail: creds.client_email || "missing"
+      });
+      if (hasRequired) {
+        console.log(`[BigQuery Config Check] ✅ BigQuery is configured for project: ${creds.project_id}`);
+      } else {
+        console.error(`[BigQuery Config Check] ❌ Missing required credential fields`);
+      }
+      return hasRequired;
+    } catch (parseError: unknown) {
+      const errMsg = parseError instanceof Error ? parseError.message : String(parseError);
+      console.error(`[BigQuery Config Check] ❌ JSON parse error: ${errMsg}`);
+      console.error(`[BigQuery Config Check] First 100 chars of value: ${trimmed.substring(0, 100)}`);
+      return false;
+    }
+  } catch (error: unknown) {
+    const errMsg = error instanceof Error ? error.message : String(error);
+    console.error(`[BigQuery Config Check] ❌ Unexpected error: ${errMsg}`);
     return false;
   }
 }

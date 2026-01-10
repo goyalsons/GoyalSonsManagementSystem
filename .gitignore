@@ -14,7 +14,9 @@ build/
 
 # API Keys and credentials
 bigquery-key.json
+bigquery-credentials-railway.txt
 *-key.json
+*-credentials*.txt
 *.pem
 *.key
 

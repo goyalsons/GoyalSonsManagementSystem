@@ -32,7 +32,8 @@ import {
   Sun,
   Moon,
   UserCheck,
-  HelpCircle
+  HelpCircle,
+  IndianRupee
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
@@ -105,6 +106,7 @@ const navItems: NavItem[] = [
   },
   { href: "/training", icon: GraduationCap, label: "Training", policy: null },
   { href: "/requests", icon: HelpCircle, label: "Requests", policy: null },
+  { href: "/salary", icon: IndianRupee, label: "Salary", policy: null },
   { href: "/settings", icon: Settings, label: "Settings", policy: null },
   // Standalone Sales Staff for employees
   { href: "/sales-staff", icon: BarChart3, label: "Sales Staff", policy: null },
