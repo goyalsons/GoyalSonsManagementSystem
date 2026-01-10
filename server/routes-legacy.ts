@@ -3286,14 +3286,11 @@ export async function registerLegacyRoutes(
         return res.status(404).json({ message: "Employee not found. Please check your employee code." });
       }
 
-      // Check if employee is active (left employees have lastInterviewDate set or status != ACTIVE)
-      if (employee.status !== "ACTIVE") {
+      // Only active employees can login - Check if lastInterviewDate is null
+      // If lastInterviewDate is null → Employee is ACTIVE → Can login
+      // If lastInterviewDate has a date → Employee is INACTIVE → Cannot login
+      if (employee.lastInterviewDate !== null) {
         return res.status(403).json({ message: "Your account is not active. Please contact HR." });
-      }
-
-      // Check if employee has left (lastInterviewDate indicates exit interview)
-      if ((employee as any).lastInterviewDate) {
-        return res.status(404).json({ message: "Employee not found. Please check your employee code." });
       }
 
       if (!employee.phone) {
@@ -3332,8 +3329,10 @@ export async function registerLegacyRoutes(
         return res.status(404).json({ message: "Employee not found" });
       }
 
-      // Check if employee is active - block inactive staff from login
-      if (employee.status !== "ACTIVE") {
+      // Only active employees can login - Check if lastInterviewDate is null
+      // If lastInterviewDate is null → Employee is ACTIVE → Can login
+      // If lastInterviewDate has a date → Employee is INACTIVE → Cannot login
+      if (employee.lastInterviewDate !== null) {
         return res.status(403).json({ message: "Your account is not active. Please contact HR." });
       }
 
@@ -3427,8 +3426,10 @@ export async function registerLegacyRoutes(
         return res.status(404).json({ message: "Employee not found" });
       }
 
-      // Check if employee is active - block inactive staff from login
-      if (employee.status !== "ACTIVE") {
+      // Only active employees can login - Check if lastInterviewDate is null
+      // If lastInterviewDate is null → Employee is ACTIVE → Can login
+      // If lastInterviewDate has a date → Employee is INACTIVE → Cannot login
+      if (employee.lastInterviewDate !== null) {
         return res.status(403).json({ message: "Your account is not active. Please contact HR." });
       }
 
@@ -3504,8 +3505,10 @@ export async function registerLegacyRoutes(
         return res.status(404).json({ message: "Employee not found" });
       }
 
-      // Check if employee is active - block inactive staff from login
-      if (employee.status !== "ACTIVE") {
+      // Only active employees can login - Check if lastInterviewDate is null
+      // If lastInterviewDate is null → Employee is ACTIVE → Can login
+      // If lastInterviewDate has a date → Employee is INACTIVE → Cannot login
+      if (employee.lastInterviewDate !== null) {
         return res.status(403).json({ message: "Your account is not active. Please contact HR." });
       }
 
