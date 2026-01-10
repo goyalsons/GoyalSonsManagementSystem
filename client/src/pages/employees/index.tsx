@@ -66,6 +66,7 @@ interface Employee {
   shiftStart: string | null;
   shiftEnd: string | null;
   interviewDate: string | null;
+  lastInterviewDate: string | null;
   profileImageUrl: string | null;
   orgUnit?: { id: string; name: string; code: string } | null;
   department?: { name: string; code: string } | null;
@@ -157,7 +158,9 @@ export default function EmployeesPage() {
   });
 
   const getEmployeeActiveStatus = (employee: Employee) => {
-    return employee.interviewDate === null;
+    // Simple logic: If Last_INTERVIEW_DATE is null/empty → Employee is ACTIVE
+    // If Last_INTERVIEW_DATE has a date → Employee is INACTIVE
+    return employee.lastInterviewDate === null;
   };
 
   const getStatusDisplay = (employee: Employee) => {

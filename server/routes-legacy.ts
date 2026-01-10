@@ -763,6 +763,7 @@ export async function registerLegacyRoutes(
             shiftStart: true,
             shiftEnd: true,
             interviewDate: true,
+            lastInterviewDate: true,
             employeeCode: true,
             orgUnit: { select: { id: true, name: true, code: true } },
             department: { select: { id: true, name: true, code: true } },
