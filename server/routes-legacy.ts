@@ -703,6 +703,11 @@ export async function registerLegacyRoutes(
       // MDO users (superadmin or ENV_LOGIN_EMAIL) should see all employees
       // Only filter by orgUnit if not superadmin and accessibleOrgUnitIds is not empty
       const where: any = {};
+      
+      // Filter: Only show employees fetched from API (have externalId or metadata with API fields)
+      // This excludes demo/test employees that were created manually
+      where.externalId = { not: null };
+      
       if (!req.user!.isSuperAdmin && accessibleOrgUnitIds.length > 0) {
         where.orgUnitId = { in: accessibleOrgUnitIds };
       }
@@ -717,20 +722,18 @@ export async function registerLegacyRoutes(
         where.designationId = designationId;
       }
       
-      // Filter by active/inactive status based on interviewDate AND status field
-      // Active = status: "ACTIVE" AND interviewDate is null (employee hasn't exited)
-      // Inactive = status: "INACTIVE" OR interviewDate has a value (employee has exited)
+      // Filter by active/inactive status based on lastInterviewDate
+      // Active = lastInterviewDate is null
+      // Inactive = lastInterviewDate has a value
       if (statusFilter === 'active') {
-        where.status = "ACTIVE";
-        where.interviewDate = null;
+        where.lastInterviewDate = null;
       } else if (statusFilter === 'inactive') {
-        where.OR = [
-          { status: "INACTIVE" },
-          { interviewDate: { not: null } },
-        ];
+        where.lastInterviewDate = { not: null };
       }
       // If statusFilter is 'all' or not provided, show all employees
       
+      // Search filter - Prisma ANDs top-level conditions automatically
+      // So: externalId AND lastInterviewDate filter AND (search OR conditions)
       if (search && typeof search === 'string' && search.trim()) {
         where.OR = [
           { firstName: { contains: search, mode: 'insensitive' } },

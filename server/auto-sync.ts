@@ -292,6 +292,10 @@ async function syncApiSource(routeId: string): Promise<void> {
             } catch (e) {}
           }
 
+          // Simple logic: If Last_INTERVIEW_DATE is null/empty → Employee is ACTIVE
+          // If Last_INTERVIEW_DATE has a date → Employee is INACTIVE
+          const employeeStatus = lastInterviewDate ? "INACTIVE" : "ACTIVE";
+
           await prisma.employee.upsert({
             where: { cardNumber: emp["CARD_NO"] },
             update: {
@@ -305,7 +309,7 @@ async function syncApiSource(routeId: string): Promise<void> {
               aadhaar: emp["ADHAR_CARD"] || null,
               profileImageUrl: emp["person_img_cdn_url"] || null,
               personelImage: emp["personel_image"] || null,
-              status: emp["STATUS"] || "ACTIVE",
+              status: employeeStatus, // Set based on Last_INTERVIEW_DATE logic
               weeklyOff: emp["WEEKLY_OFF"] || null,
               weeklyOffCalculation: emp["weekly_off_calculation"] || null,
               shiftStart: emp["INTIME"] || null,
@@ -364,7 +368,7 @@ async function syncApiSource(routeId: string): Promise<void> {
               aadhaar: emp["ADHAR_CARD"] || null,
               profileImageUrl: emp["person_img_cdn_url"] || null,
               personelImage: emp["personel_image"] || null,
-              status: emp["STATUS"] || "ACTIVE",
+              status: employeeStatus, // Set based on Last_INTERVIEW_DATE logic
               weeklyOff: emp["WEEKLY_OFF"] || null,
               weeklyOffCalculation: emp["weekly_off_calculation"] || null,
               shiftStart: emp["INTIME"] || null,
