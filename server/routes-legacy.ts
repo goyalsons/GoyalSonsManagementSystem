@@ -1864,22 +1864,70 @@ export async function registerLegacyRoutes(
         return res.status(400).json({ message: "Card number is required" });
       }
 
-      const result = await getEmployeeAttendance(cardNo, month as string | undefined);
-      console.log(`[API] Returning ${result.records.length} records, summary:`, result.summary);
+      // Safely get BigQuery client with proper error handling
+      let result;
+      try {
+        result = await getEmployeeAttendance(cardNo, month as string | undefined);
+        console.log(`[API] Returning ${result.records.length} records, summary:`, result.summary);
+      } catch (bqError: any) {
+        const bqErrorMessage = bqError?.message || String(bqError);
+        console.error("[Attendance History] BigQuery query error:", bqErrorMessage);
+        
+        // Check for credentials-related errors
+        if (bqErrorMessage.includes("BIGQUERY_CREDENTIALS") || 
+            bqErrorMessage.includes("credentials") ||
+            bqErrorMessage.includes("not set") ||
+            bqErrorMessage.includes("DECODER") ||
+            bqErrorMessage.includes("decoder") ||
+            bqErrorMessage.includes("1E08010C") ||
+            bqErrorMessage.includes("newline encoding")) {
+          return res.status(503).json({ 
+            message: "BigQuery is not configured or credentials are invalid. Please check BIGQUERY_CREDENTIALS environment variable.",
+            error: "BIGQUERY_CONFIG_ERROR"
+          });
+        }
+        
+        // Re-throw to be caught by outer catch block
+        throw bqError;
+      }
+      
       res.json(result);
     } catch (error: any) {
-      console.error("Attendance history error:", error);
+      console.error("[Attendance History] Error:", error);
       
       // Check for specific decoder errors related to BigQuery credentials
-      const errorMessage = error.message || String(error);
-      if (errorMessage.includes("DECODER") || errorMessage.includes("decoder") || errorMessage.includes("1E08010C")) {
-        console.error("[Attendance History] BigQuery credentials decoder error detected");
-        res.status(500).json({ 
-          message: "BigQuery credentials error: Please check BIGQUERY_CREDENTIALS environment variable format. Private key may have incorrect newline encoding." 
+      const errorMessage = error?.message || String(error);
+      const errorName = error?.name || "";
+      
+      // Handle BigQuery authentication/credentials errors
+      if (errorMessage.includes("DECODER") || 
+          errorMessage.includes("decoder") || 
+          errorMessage.includes("1E08010C") ||
+          errorMessage.includes("BIGQUERY_CREDENTIALS") ||
+          errorMessage.includes("credentials") ||
+          errorMessage.includes("newline encoding") ||
+          errorName === "Error" && errorMessage.includes("BigQuery")) {
+        console.error("[Attendance History] BigQuery credentials error detected");
+        return res.status(503).json({ 
+          message: "BigQuery credentials error: Please check BIGQUERY_CREDENTIALS environment variable format. Private key may have incorrect newline encoding.",
+          error: "BIGQUERY_CREDENTIALS_ERROR"
         });
-      } else {
-        res.status(500).json({ message: errorMessage || "Failed to fetch attendance history" });
       }
+      
+      // Handle other errors
+      const statusCode = error?.statusCode || 500;
+      const safeMessage = errorMessage || "Failed to fetch attendance history";
+      
+      // Don't expose internal error details in production
+      const isProduction = process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT;
+      const responseMessage = isProduction && statusCode === 500 
+        ? "An internal error occurred while fetching attendance history"
+        : safeMessage;
+      
+      res.status(statusCode).json({ 
+        message: responseMessage,
+        ...(isProduction ? {} : { error: safeMessage })
+      });
     }
   });
 

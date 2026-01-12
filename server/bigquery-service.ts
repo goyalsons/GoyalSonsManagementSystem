@@ -58,6 +58,12 @@ function loadCredentials(): {
   project_id: string;
   private_key: string;
   client_email: string;
+  private_key_id?: string;
+  client_id?: string;
+  auth_uri?: string;
+  token_uri?: string;
+  auth_provider_x509_cert_url?: string;
+  client_x509_cert_url?: string;
 } {
   const envValue = process.env.BIGQUERY_CREDENTIALS || process.env.GOOGLE_APPLICATION_CREDENTIALS;
   if (!envValue) {
@@ -69,11 +75,21 @@ function loadCredentials(): {
   let raw = envValue.trim();
   console.log(`[BigQuery] Found credentials, length: ${raw.length} chars, starts with: ${raw.substring(0, 20)}...`);
 
-  // If env points to a file path, read it (for local development)
-  const asPath = path.resolve(raw);
-  if (!raw.startsWith("{") && fs.existsSync(asPath)) {
-    console.log(`[BigQuery] Reading credentials from file: ${asPath}`);
-    raw = fs.readFileSync(asPath, "utf8").trim();
+  // For Railway/production: Only use JSON string from env var (no filesystem access)
+  // For local development: Allow file path if it exists and doesn't start with JSON
+  // This ensures Railway compatibility while allowing local dev flexibility
+  const isProduction = process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT || process.env.VERCEL;
+  if (!isProduction) {
+    // Only check filesystem in non-production environments
+    const asPath = path.resolve(raw);
+    if (!raw.startsWith("{") && fs.existsSync(asPath)) {
+      console.log(`[BigQuery] Reading credentials from file: ${asPath}`);
+      raw = fs.readFileSync(asPath, "utf8").trim();
+    }
+  } else if (!raw.startsWith("{")) {
+    // In production, if it doesn't look like JSON, it's an error
+    console.error("[BigQuery] Credentials must be JSON string in production (no file paths allowed)");
+    throw new Error("BIGQUERY_CREDENTIALS must be a JSON string in production environments. File paths are not supported.");
   }
 
   let credentials;
@@ -229,19 +245,39 @@ export function getBigQueryClient(): BigQuery {
   if (!bigQueryClient) {
     try {
       const credentials = loadCredentials();
-      console.log(`[BigQuery] Initializing client for project: ${credentials.project_id}`);
-      console.log(`[BigQuery] Service account: ${credentials.client_email}`);
+      console.log(`[BigQuery] ✅ Initializing client for project: ${credentials.project_id}`);
+      console.log(`[BigQuery] ✅ Service account: ${credentials.client_email}`);
+      console.log(`[BigQuery] ✅ Credentials loaded successfully`);
+      
+      // Initialize BigQuery client with explicit projectId and credentials
+      // This ensures Railway/production compatibility (no ADC, no file system)
+      const creds: any = {
+        type: "service_account",
+        project_id: credentials.project_id,
+        private_key: credentials.private_key,
+        client_email: credentials.client_email,
+      };
+      
+      // Add optional fields if present
+      if (credentials.private_key_id) creds.private_key_id = credentials.private_key_id;
+      if (credentials.client_id) creds.client_id = credentials.client_id;
+      if (credentials.auth_uri) creds.auth_uri = credentials.auth_uri;
+      if (credentials.token_uri) creds.token_uri = credentials.token_uri;
+      if (credentials.auth_provider_x509_cert_url) creds.auth_provider_x509_cert_url = credentials.auth_provider_x509_cert_url;
+      if (credentials.client_x509_cert_url) creds.client_x509_cert_url = credentials.client_x509_cert_url;
+      
       bigQueryClient = new BigQuery({
         projectId: credentials.project_id,
-        credentials,
+        credentials: creds,
       });
-      console.log(`[BigQuery] Client initialized successfully`);
+      console.log(`[BigQuery] ✅ Client initialized successfully`);
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       const errorStack = error instanceof Error ? error.stack : undefined;
       
-      console.error("[BigQuery] Credentials error:", errorMessage);
-      if (errorStack) {
+      console.error("[BigQuery] ❌ Credentials error:", errorMessage);
+      if (errorStack && process.env.NODE_ENV !== 'production') {
+        // Only log full stack in non-production
         console.error("[BigQuery] Error stack:", errorStack);
       }
       
@@ -252,25 +288,23 @@ export function getBigQueryClient(): BigQuery {
         errorMessage.includes("1E08010C") ||
         errorMessage.includes("error:1E08010C") ||
         errorMessage.includes("PEM") ||
-        errorMessage.includes("private key") ||
-        errorMessage.includes("parse");
+        (errorMessage.includes("private key") && errorMessage.includes("parse"));
       
       if (isDecoderError) {
-        console.error("[BigQuery] Detected decoder/parsing error - likely newline encoding issue");
+        console.error("[BigQuery] ❌ Detected decoder/parsing error - likely newline encoding issue");
         console.error("[BigQuery] Available env vars:", {
           hasBIGQUERY_CREDENTIALS: !!process.env.BIGQUERY_CREDENTIALS,
           hasGOOGLE_APPLICATION_CREDENTIALS: !!process.env.GOOGLE_APPLICATION_CREDENTIALS,
           BIGQUERY_CREDENTIALS_length: process.env.BIGQUERY_CREDENTIALS?.length || 0,
-          GOOGLE_APPLICATION_CREDENTIALS_value: process.env.GOOGLE_APPLICATION_CREDENTIALS || "not set"
         });
         throw new Error(`BigQuery credentials error: Please check BIGQUERY_CREDENTIALS environment variable format. Private key may have incorrect newline encoding. Original error: ${errorMessage}`);
       }
       
+      // Log diagnostic info (without exposing secrets)
       console.error("[BigQuery] Available env vars:", {
         hasBIGQUERY_CREDENTIALS: !!process.env.BIGQUERY_CREDENTIALS,
         hasGOOGLE_APPLICATION_CREDENTIALS: !!process.env.GOOGLE_APPLICATION_CREDENTIALS,
         BIGQUERY_CREDENTIALS_length: process.env.BIGQUERY_CREDENTIALS?.length || 0,
-        GOOGLE_APPLICATION_CREDENTIALS_value: process.env.GOOGLE_APPLICATION_CREDENTIALS || "not set"
       });
       throw new Error(`Invalid BIGQUERY_CREDENTIALS: ${errorMessage}`);
     }
@@ -325,8 +359,22 @@ export async function getMemberAttendance(
   };
 
   console.log(`[BigQuery] Querying attendance for card ${cardNo}, month: ${monthDate || 'all'}`);
+  console.log(`[BigQuery] Using parameterized query with params:`, { 
+    cardNo: cardNo.substring(0, 3) + '***', // Log partial card number for security
+    monthDate: monthDate || 'all' 
+  });
 
-  const [rows] = await client.query(options);
+  let rows;
+  try {
+    const [queryResult] = await client.query(options);
+    rows = queryResult;
+    console.log(`[BigQuery] ✅ Query executed successfully, returned ${rows.length} rows`);
+  } catch (queryError: any) {
+    const errorMessage = queryError?.message || String(queryError);
+    console.error(`[BigQuery] ❌ Query execution failed:`, errorMessage);
+    // Don't log the full query or params to avoid exposing sensitive data
+    throw new Error(`BigQuery query failed: ${errorMessage}`);
+  }
   
   const records = (rows as unknown[]).map((row: any) => {
     const normalized: Partial<AttendanceRecord> = { ...row };
