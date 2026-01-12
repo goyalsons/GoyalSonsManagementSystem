@@ -432,27 +432,36 @@ export function isBigQueryConfigured(): boolean {
     
     console.log(`[BigQuery Config Check] ✅ Found credentials, length: ${envValue.length} chars`);
     
-    // Check if it's a file path
+    // For production (Railway/Vercel), only check JSON string format
+    const isProduction = process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT || process.env.VERCEL;
     const trimmed = envValue.trim();
-    const asPath = path.resolve(trimmed);
-    if (!trimmed.startsWith("{") && fs.existsSync(asPath)) {
-      // It's a file path, try to read and parse it (for local development)
-      console.log(`[BigQuery Config Check] 📁 Reading from file: ${asPath}`);
-      try {
-        const raw = fs.readFileSync(asPath, "utf8").trim();
-        const creds = JSON.parse(raw);
-        const hasRequired = !!(creds.project_id && creds.client_email && creds.private_key);
-        console.log(`[BigQuery Config Check] ${hasRequired ? "✅" : "❌"} Required fields:`, {
-          hasProjectId: !!creds.project_id,
-          hasClientEmail: !!creds.client_email,
-          hasPrivateKey: !!creds.private_key
-        });
-        return hasRequired;
-      } catch (fileError: unknown) {
-        const errMsg = fileError instanceof Error ? fileError.message : String(fileError);
-        console.error(`[BigQuery Config Check] ❌ File read/parse error: ${errMsg}`);
-        return false;
+    
+    // Check if it's a file path (only in non-production)
+    if (!isProduction) {
+      const asPath = path.resolve(trimmed);
+      if (!trimmed.startsWith("{") && fs.existsSync(asPath)) {
+        // It's a file path, try to read and parse it (for local development)
+        console.log(`[BigQuery Config Check] 📁 Reading from file: ${asPath}`);
+        try {
+          const raw = fs.readFileSync(asPath, "utf8").trim();
+          const creds = JSON.parse(raw);
+          const hasRequired = !!(creds.project_id && creds.client_email && creds.private_key);
+          console.log(`[BigQuery Config Check] ${hasRequired ? "✅" : "❌"} Required fields:`, {
+            hasProjectId: !!creds.project_id,
+            hasClientEmail: !!creds.client_email,
+            hasPrivateKey: !!creds.private_key
+          });
+          return hasRequired;
+        } catch (fileError: unknown) {
+          const errMsg = fileError instanceof Error ? fileError.message : String(fileError);
+          console.error(`[BigQuery Config Check] ❌ File read/parse error: ${errMsg}`);
+          return false;
+        }
       }
+    } else if (!trimmed.startsWith("{")) {
+      // In production, if it doesn't look like JSON, it's an error
+      console.error(`[BigQuery Config Check] ❌ Credentials must be JSON string in production (no file paths allowed)`);
+      return false;
     }
     
     // It's a JSON string (expected format for Railway)
@@ -467,12 +476,24 @@ export function isBigQueryConfigured(): boolean {
         projectId: creds.project_id || "missing",
         clientEmail: creds.client_email || "missing"
       });
-      if (hasRequired) {
-        console.log(`[BigQuery Config Check] ✅ BigQuery is configured for project: ${creds.project_id}`);
-      } else {
+      
+      if (!hasRequired) {
         console.error(`[BigQuery Config Check] ❌ Missing required credential fields`);
+        return false;
       }
-      return hasRequired;
+      
+      // Try to validate the private key format (check for BEGIN/END markers)
+      if (creds.private_key && typeof creds.private_key === 'string') {
+        const hasBeginMarker = creds.private_key.includes("-----BEGIN PRIVATE KEY-----");
+        const hasEndMarker = creds.private_key.includes("-----END PRIVATE KEY-----");
+        if (!hasBeginMarker || !hasEndMarker) {
+          console.error(`[BigQuery Config Check] ❌ Private key format invalid (missing BEGIN/END markers)`);
+          return false;
+        }
+      }
+      
+      console.log(`[BigQuery Config Check] ✅ BigQuery is configured for project: ${creds.project_id}`);
+      return true;
     } catch (parseError: unknown) {
       const errMsg = parseError instanceof Error ? parseError.message : String(parseError);
       console.error(`[BigQuery Config Check] ❌ JSON parse error: ${errMsg}`);
@@ -490,6 +511,47 @@ export function isBigQueryConfigured(): boolean {
 export function clearAttendanceCache(): void {
   attendanceCache.clear();
   console.log('[BigQuery] Cache cleared');
+}
+
+/**
+ * Validate BigQuery credentials by attempting to initialize the client
+ * This is a more thorough check than isBigQueryConfigured()
+ * Returns true if credentials are valid and can be used
+ */
+export async function validateBigQueryCredentials(): Promise<{ valid: boolean; error?: string }> {
+  try {
+    // Reset the client to force re-initialization
+    const oldClient = bigQueryClient;
+    bigQueryClient = null;
+    
+    try {
+      const client = getBigQueryClient();
+      // If we get here, the client initialized successfully
+      console.log('[BigQuery Validation] ✅ Credentials are valid');
+      return { valid: true };
+    } catch (initError: any) {
+      const errorMsg = initError?.message || String(initError);
+      console.error('[BigQuery Validation] ❌ Credentials validation failed:', errorMsg);
+      
+      // Restore old client if it existed
+      bigQueryClient = oldClient;
+      
+      return { 
+        valid: false, 
+        error: errorMsg.includes('newline encoding') 
+          ? 'Private key has incorrect newline encoding. Ensure BIGQUERY_CREDENTIALS uses \\n for newlines.'
+          : errorMsg.includes('not set')
+          ? 'BIGQUERY_CREDENTIALS environment variable is not set.'
+          : errorMsg.includes('parse')
+          ? 'BIGQUERY_CREDENTIALS is not valid JSON.'
+          : 'Credentials are invalid or service account lacks permissions.'
+      };
+    }
+  } catch (error: any) {
+    const errorMsg = error?.message || String(error);
+    console.error('[BigQuery Validation] ❌ Unexpected error during validation:', errorMsg);
+    return { valid: false, error: errorMsg };
+  }
 }
 
 // Cache for today's attendance - DISABLED for real-time accuracy
