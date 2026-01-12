@@ -91,54 +91,97 @@ function loadCredentials(): {
     // Handle multiple levels of escaping that can occur
     let privateKey = credentials.private_key;
     
-    // Check if key is already properly formatted (has actual newlines)
-    const hasActualNewlines = privateKey.includes('\n') && !privateKey.includes('\\n');
+    // Store original for debugging
+    const originalKey = privateKey;
+    const hadEscapedNewlines = privateKey.includes('\\n') || privateKey.includes('\\r');
     
-    if (!hasActualNewlines) {
-      // First, handle double-escaped newlines (when JSON.stringify is called on already escaped strings)
-      // This happens when credentials are double-encoded
-      privateKey = privateKey.replace(/\\\\n/g, "\n");
-      privateKey = privateKey.replace(/\\\\r\\\\n/g, "\n");
-      privateKey = privateKey.replace(/\\\\r/g, "");
+    // Step 1: Handle all possible escape sequences (in order of specificity)
+    // Handle triple-escaped (rare but possible)
+    privateKey = privateKey.replace(/\\\\\\n/g, "\n");
+    privateKey = privateKey.replace(/\\\\\\r\\\\\\n/g, "\n");
+    privateKey = privateKey.replace(/\\\\\\r/g, "");
+    
+    // Handle double-escaped (when JSON.stringify is called on already escaped strings)
+    privateKey = privateKey.replace(/\\\\n/g, "\n");
+    privateKey = privateKey.replace(/\\\\r\\\\n/g, "\n");
+    privateKey = privateKey.replace(/\\\\r/g, "");
+    
+    // Handle single-escaped (common in JSON strings stored in env vars)
+    privateKey = privateKey.replace(/\\r\\n/g, "\n");
+    privateKey = privateKey.replace(/\\n/g, "\n");
+    privateKey = privateKey.replace(/\\r/g, "");
+    
+    // Handle actual carriage returns + newlines (Windows-style)
+    privateKey = privateKey.replace(/\r\n/g, "\n");
+    privateKey = privateKey.replace(/\r/g, "");
+    
+    // Step 2: Handle cases where spaces might be used instead of newlines
+    // Some systems might replace newlines with spaces in the private key
+    // Look for patterns like "BEGIN PRIVATE KEY----- " followed by base64-like content
+    if (!privateKey.includes('\n') && privateKey.includes('-----BEGIN PRIVATE KEY-----')) {
+      // Try to restore newlines by looking for the pattern
+      privateKey = privateKey.replace(/-----BEGIN PRIVATE KEY-----\s+/g, "-----BEGIN PRIVATE KEY-----\n");
+      privateKey = privateKey.replace(/\s+-----END PRIVATE KEY-----/g, "\n-----END PRIVATE KEY-----");
+      // Base64 lines are typically 64 characters, try to insert newlines every 64 chars in the key content
+      const beginMarker = "-----BEGIN PRIVATE KEY-----";
+      const endMarker = "-----END PRIVATE KEY-----";
+      const beginIdx = privateKey.indexOf(beginMarker);
+      const endIdx = privateKey.indexOf(endMarker);
+      if (beginIdx !== -1 && endIdx !== -1 && beginIdx < endIdx) {
+        const beforeBegin = privateKey.substring(0, beginIdx + beginMarker.length);
+        const keyContent = privateKey.substring(beginIdx + beginMarker.length, endIdx).trim();
+        const afterEnd = privateKey.substring(endIdx);
+        // Insert newlines every 64 characters in the key content
+        const formattedContent = keyContent.replace(/(.{64})/g, '$1\n').trim();
+        privateKey = beforeBegin + '\n' + formattedContent + '\n' + afterEnd;
+      }
+    }
+    
+    // Step 3: Ensure BEGIN and END markers are on separate lines
+    // Remove any whitespace around markers first
+    privateKey = privateKey.replace(/\s*-----BEGIN PRIVATE KEY-----\s*/g, "-----BEGIN PRIVATE KEY-----\n");
+    privateKey = privateKey.replace(/\s*-----END PRIVATE KEY-----\s*/g, "\n-----END PRIVATE KEY-----");
+    
+    // Step 4: Clean up the key content - ensure proper line breaks
+    // The key content should be base64-encoded and typically has newlines every 64 characters
+    const beginMarker = "-----BEGIN PRIVATE KEY-----";
+    const endMarker = "-----END PRIVATE KEY-----";
+    const beginIdx = privateKey.indexOf(beginMarker);
+    const endIdx = privateKey.indexOf(endMarker);
+    
+    if (beginIdx !== -1 && endIdx !== -1 && beginIdx < endIdx) {
+      const beforeBegin = privateKey.substring(0, beginIdx + beginMarker.length);
+      let keyContent = privateKey.substring(beginIdx + beginMarker.length, endIdx).trim();
+      const afterEnd = privateKey.substring(endIdx);
       
-      // Then handle single-escaped newlines (common in JSON strings stored in env vars)
-      // Replace literal \n and \r\n strings with actual newlines
-      if (privateKey.includes("\\r\\n")) {
-        privateKey = privateKey.replace(/\\r\\n/g, "\n");
-      }
-      if (privateKey.includes("\\n")) {
-        privateKey = privateKey.replace(/\\n/g, "\n");
-      }
-      if (privateKey.includes("\\r")) {
-        privateKey = privateKey.replace(/\\r/g, "");
+      // Remove all existing whitespace/newlines from key content
+      keyContent = keyContent.replace(/\s+/g, '');
+      
+      // Re-format with newlines every 64 characters (standard PEM format)
+      // Split into chunks of 64 characters
+      let formattedContent = '';
+      for (let i = 0; i < keyContent.length; i += 64) {
+        if (i > 0) formattedContent += '\n';
+        formattedContent += keyContent.substring(i, i + 64);
       }
       
-      // Handle actual carriage returns + newlines (Windows-style)
-      privateKey = privateKey.replace(/\r\n/g, "\n");
-      privateKey = privateKey.replace(/\r/g, "");
+      privateKey = beforeBegin + '\n' + formattedContent + '\n' + afterEnd;
     }
     
-    // Ensure BEGIN and END markers are on separate lines (if they're not already)
-    if (!privateKey.match(/-----BEGIN PRIVATE KEY-----\n/)) {
-      privateKey = privateKey.replace(/-----BEGIN PRIVATE KEY-----/g, "-----BEGIN PRIVATE KEY-----\n");
-    }
-    if (!privateKey.match(/\n-----END PRIVATE KEY-----/)) {
-      privateKey = privateKey.replace(/-----END PRIVATE KEY-----/g, "\n-----END PRIVATE KEY-----");
-    }
-    
-    // Clean up any excessive newlines (more than 2 consecutive)
+    // Step 5: Clean up any excessive newlines (more than 2 consecutive)
     privateKey = privateKey.replace(/\n{3,}/g, "\n\n");
     
-    // Remove leading/trailing whitespace but preserve structure
+    // Step 6: Remove leading/trailing whitespace but preserve structure
     privateKey = privateKey.trim();
     
-    // Validate the key has the proper markers
+    // Step 7: Validate the key has the proper markers
     if (!privateKey.includes("-----BEGIN PRIVATE KEY-----") || !privateKey.includes("-----END PRIVATE KEY-----")) {
       console.error("[BigQuery] Private key format validation failed - missing BEGIN/END markers");
+      console.error("[BigQuery] Original key preview:", originalKey.substring(0, 100));
       throw new Error("Invalid private key format: missing BEGIN or END markers");
     }
     
-    // Validate the key structure (should have BEGIN, content, END)
+    // Step 8: Validate the key structure (should have BEGIN, content, END)
     const beginIndex = privateKey.indexOf("-----BEGIN PRIVATE KEY-----");
     const endIndex = privateKey.indexOf("-----END PRIVATE KEY-----");
     if (beginIndex >= endIndex || beginIndex === -1 || endIndex === -1) {
@@ -146,15 +189,27 @@ function loadCredentials(): {
       throw new Error("Invalid private key format: BEGIN and END markers in wrong order");
     }
     
-    // Extract the key content to verify it's not empty
+    // Step 9: Extract the key content to verify it's not empty
     const keyContent = privateKey.substring(beginIndex + "-----BEGIN PRIVATE KEY-----".length, endIndex).trim();
     if (keyContent.length < 100) {
       console.error("[BigQuery] Private key format validation failed - key content too short");
+      console.error("[BigQuery] Key content length:", keyContent.length);
       throw new Error("Invalid private key format: key content appears to be empty or corrupted");
     }
     
+    // Step 10: Final validation - ensure proper PEM format
+    // PEM format should be: BEGIN marker, newline, base64 content (with newlines), newline, END marker
+    if (!privateKey.match(/-----BEGIN PRIVATE KEY-----\n/)) {
+      console.error("[BigQuery] Private key format validation failed - missing newline after BEGIN marker");
+      throw new Error("Invalid private key format: missing newline after BEGIN marker");
+    }
+    if (!privateKey.match(/\n-----END PRIVATE KEY-----/)) {
+      console.error("[BigQuery] Private key format validation failed - missing newline before END marker");
+      throw new Error("Invalid private key format: missing newline before END marker");
+    }
+    
     credentials.private_key = privateKey;
-    console.log(`[BigQuery] Private key normalized: length=${privateKey.length}, has actual newlines=${privateKey.includes('\n')}, key content length=${keyContent.length}`);
+    console.log(`[BigQuery] Private key normalized: length=${privateKey.length}, had escaped newlines=${hadEscapedNewlines}, key content length=${keyContent.length}`);
   }
 
   if (!credentials.project_id || !credentials.private_key || !credentials.client_email) {
@@ -183,7 +238,34 @@ export function getBigQueryClient(): BigQuery {
       console.log(`[BigQuery] Client initialized successfully`);
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      
       console.error("[BigQuery] Credentials error:", errorMessage);
+      if (errorStack) {
+        console.error("[BigQuery] Error stack:", errorStack);
+      }
+      
+      // Check for specific decoder errors (PEM/DER decoding failures)
+      const isDecoderError = 
+        errorMessage.includes("DECODER") || 
+        errorMessage.includes("decoder") || 
+        errorMessage.includes("1E08010C") ||
+        errorMessage.includes("error:1E08010C") ||
+        errorMessage.includes("PEM") ||
+        errorMessage.includes("private key") ||
+        errorMessage.includes("parse");
+      
+      if (isDecoderError) {
+        console.error("[BigQuery] Detected decoder/parsing error - likely newline encoding issue");
+        console.error("[BigQuery] Available env vars:", {
+          hasBIGQUERY_CREDENTIALS: !!process.env.BIGQUERY_CREDENTIALS,
+          hasGOOGLE_APPLICATION_CREDENTIALS: !!process.env.GOOGLE_APPLICATION_CREDENTIALS,
+          BIGQUERY_CREDENTIALS_length: process.env.BIGQUERY_CREDENTIALS?.length || 0,
+          GOOGLE_APPLICATION_CREDENTIALS_value: process.env.GOOGLE_APPLICATION_CREDENTIALS || "not set"
+        });
+        throw new Error(`BigQuery credentials error: Please check BIGQUERY_CREDENTIALS environment variable format. Private key may have incorrect newline encoding. Original error: ${errorMessage}`);
+      }
+      
       console.error("[BigQuery] Available env vars:", {
         hasBIGQUERY_CREDENTIALS: !!process.env.BIGQUERY_CREDENTIALS,
         hasGOOGLE_APPLICATION_CREDENTIALS: !!process.env.GOOGLE_APPLICATION_CREDENTIALS,
