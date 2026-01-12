@@ -1,6 +1,6 @@
 import { BigQuery } from "@google-cloud/bigquery";
-import fs from "fs";
-import path from "path";
+import dotenv from "dotenv";
+dotenv.config();
 
 interface AttendanceRecord {
   card_no: string;
@@ -75,21 +75,10 @@ function loadCredentials(): {
   let raw = envValue.trim();
   console.log(`[BigQuery] Found credentials, length: ${raw.length} chars, starts with: ${raw.substring(0, 20)}...`);
 
-  // For Railway/production: Only use JSON string from env var (no filesystem access)
-  // For local development: Allow file path if it exists and doesn't start with JSON
-  // This ensures Railway compatibility while allowing local dev flexibility
-  const isProduction = process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT || process.env.VERCEL;
-  if (!isProduction) {
-    // Only check filesystem in non-production environments
-    const asPath = path.resolve(raw);
-    if (!raw.startsWith("{") && fs.existsSync(asPath)) {
-      console.log(`[BigQuery] Reading credentials from file: ${asPath}`);
-      raw = fs.readFileSync(asPath, "utf8").trim();
-    }
-  } else if (!raw.startsWith("{")) {
-    // In production, if it doesn't look like JSON, it's an error
-    console.error("[BigQuery] Credentials must be JSON string in production (no file paths allowed)");
-    throw new Error("BIGQUERY_CREDENTIALS must be a JSON string in production environments. File paths are not supported.");
+  // Railway-only: credentials must always be a JSON string in env (no file paths)
+  if (!raw.startsWith("{")) {
+    console.error("[BigQuery] Credentials must be JSON string in env (no file paths allowed)");
+    throw new Error("BIGQUERY_CREDENTIALS must be a JSON string in environment variables. File paths are not supported.");
   }
 
   let credentials;
@@ -432,35 +421,11 @@ export function isBigQueryConfigured(): boolean {
     
     console.log(`[BigQuery Config Check] ✅ Found credentials, length: ${envValue.length} chars`);
     
-    // For production (Railway/Vercel), only check JSON string format
-    const isProduction = process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT || process.env.VERCEL;
     const trimmed = envValue.trim();
     
-    // Check if it's a file path (only in non-production)
-    if (!isProduction) {
-      const asPath = path.resolve(trimmed);
-      if (!trimmed.startsWith("{") && fs.existsSync(asPath)) {
-        // It's a file path, try to read and parse it (for local development)
-        console.log(`[BigQuery Config Check] 📁 Reading from file: ${asPath}`);
-        try {
-          const raw = fs.readFileSync(asPath, "utf8").trim();
-          const creds = JSON.parse(raw);
-          const hasRequired = !!(creds.project_id && creds.client_email && creds.private_key);
-          console.log(`[BigQuery Config Check] ${hasRequired ? "✅" : "❌"} Required fields:`, {
-            hasProjectId: !!creds.project_id,
-            hasClientEmail: !!creds.client_email,
-            hasPrivateKey: !!creds.private_key
-          });
-          return hasRequired;
-        } catch (fileError: unknown) {
-          const errMsg = fileError instanceof Error ? fileError.message : String(fileError);
-          console.error(`[BigQuery Config Check] ❌ File read/parse error: ${errMsg}`);
-          return false;
-        }
-      }
-    } else if (!trimmed.startsWith("{")) {
-      // In production, if it doesn't look like JSON, it's an error
-      console.error(`[BigQuery Config Check] ❌ Credentials must be JSON string in production (no file paths allowed)`);
+    // Railway-only: must be JSON string; no file path fallback
+    if (!trimmed.startsWith("{")) {
+      console.error(`[BigQuery Config Check] ❌ Credentials must be JSON string in environment (no file paths allowed)`);
       return false;
     }
     
