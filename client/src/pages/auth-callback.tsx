@@ -22,7 +22,7 @@ export default function AuthCallbackPage() {
       // Fetch user data to check role and redirect accordingly
       fetch("/api/auth/me", {
         headers: {
-          Authorization: `Bearer ${token}`,
+          "X-Session-Id": token,
         },
       })
         .then((res) => {

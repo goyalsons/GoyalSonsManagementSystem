@@ -32,6 +32,7 @@ model User {
   passwordHash  String
   status        String        @default("active")
   isSuperAdmin  Boolean       @default(false)
+  policyVersion Int           @default(1) // Increments when policies change, forces JWT refresh
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
   
@@ -65,9 +66,30 @@ model Policy {
   key         String       @unique
   description String?
   category    String?
+  isActive    Boolean      @default(true) // Admin can enable/disable policies
+  pageId      String?      // FK to UiPage (if auto-generated from page)
+  page        UiPage?      @relation(fields: [pageId], references: [id], onDelete: SetNull)
   roles       RolePolicy[]
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
+  @@index([pageId])
+}
+
+model UiPage {
+  id              String    @id @default(uuid())
+  pageKey         String    @unique // Unique identifier (e.g., "help-tickets")
+  pageName        String    // Display name (e.g., "Help Tickets")
+  path            String    @unique // Route path (e.g., "/help-tickets")
+  policyPrefix    String    // Policy prefix (e.g., "help_tickets")
+  autoGenerate    Boolean   @default(true) // Auto-generate policies for this page
+  icon            String?   // Icon identifier
+  order           Int       @default(0) // Display order
+  isActive        Boolean   @default(true) // Show in navigation
+  policies        Policy[]  // Auto-generated policies
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  @@index([isActive])
+  @@index([order])
 }
 
 model UserRole {

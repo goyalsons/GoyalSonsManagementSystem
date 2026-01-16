@@ -40,6 +40,7 @@ const TeamSalesStaffPage = lazy(() => import("@/pages/manager/team-sales-staff")
 const ManagerDashboardPage = lazy(() => import("@/pages/manager/dashboard"));
 const RequestsPage = lazy(() => import("@/pages/requests/index"));
 const SalaryPage = lazy(() => import("@/pages/salary"));
+const NoPolicyPage = lazy(() => import("@/pages/no-policy"));
 
 // Loading spinner component for Suspense fallback
 function PageLoader() {
@@ -123,73 +124,61 @@ function ProtectedRoute({
 }
 
 function AuthenticatedRoutes() {
-  const { user, hasRole } = useAuth();
+  const { user } = useAuth();
   const [location] = useLocation();
   const isMDO = user?.loginType === "mdo";
   const isEmployee = user?.loginType === "employee";
+  const hasNoPolicies = !user?.policies || user.policies.length === 0;
+
+  // If user has no policies, force them to the No Policy page
+  if (hasNoPolicies && location !== "/no-policy") {
+    return <NoPolicyPage />;
+  }
 
   return (
     <MainLayout>
       <Suspense fallback={<PageLoader />}>
         <Switch>
-          {/* Hide dashboard for employees temporarily - only show for MDO users */}
+          <Route path="/no-policy" component={NoPolicyPage} />
+
           {!isEmployee && (
             <>
               <Route path="/" component={Dashboard} />
               <Route path="/dashboard" component={Dashboard} />
-              {/* MDO Dashboard route */}
-              <Route path="/mdo/dashboard">
-                {() => <ProtectedRoute component={Dashboard} isMDOOnly={true} />}
-              </Route>
+              <Route path="/mdo/dashboard" component={Dashboard} />
             </>
           )}
-          
+
           <Route path="/roles-assigned" component={RolesAssignedPage} />
           <Route path="/roles" component={RolesPage} />
           <Route path="/roles/:id" component={EditRolePage} />
           <Route path="/roles/manager/assign" component={AssignManagerPage} />
-          
+
           <Route path="/employees" component={EmployeesPage} />
           <Route path="/employees/create" component={CreateEmployeePage} />
-          
-          {/* Work Log routes - MDO only, but managers (who are employees) can also access */}
-          <Route path="/attendance">
-            {() => <ProtectedRoute component={AttendancePage} isMDOOnly={true} allowManagers={true} />}
-          </Route>
-          <Route path="/attendance/today">
-            {() => <ProtectedRoute component={TodayAttendancePage} isMDOOnly={true} allowManagers={true} />}
-          </Route>
-          <Route path="/attendance/fill">
-            {() => <ProtectedRoute component={FillAttendancePage} isMDOOnly={true} allowManagers={true} />}
-          </Route>
-          {/* Task History is accessible to both members and MDO (including managers) */}
+
+          <Route path="/attendance" component={AttendancePage} />
+          <Route path="/attendance/today" component={TodayAttendancePage} />
+          <Route path="/attendance/fill" component={FillAttendancePage} />
           <Route path="/attendance/history" component={AttendanceHistoryPage} />
-          {/* Work Log route - alias for attendance history */}
           <Route path="/work-log" component={AttendanceHistoryPage} />
-          
+
           <Route path="/integrations/fetched-data" component={FetchedDataPage} />
-          
+
           <Route path="/sales" component={SalesPage} />
           <Route path="/sales/unit/:unitName" component={SalesUnitPage} />
-          {/* Sales Staff route - accessible to all members and MDO */}
           <Route path="/sales-staff" component={SalesStaffPage} />
-          {/* Assigned Manager route */}
           <Route path="/assigned-manager" component={AssignedManagerPage} />
-          {/* Manager Team Routes */}
           <Route path="/manager/dashboard" component={ManagerDashboardPage} />
           <Route path="/manager/team-task-history" component={TeamTaskHistoryPage} />
           <Route path="/manager/team-sales-staff" component={TeamSalesStaffPage} />
           <Route path="/requests" component={RequestsPage} />
           <Route path="/salary" component={SalaryPage} />
-          
+
           {isMDO && <Route path="/settings" component={SettingsPage} />}
           <Route path="/admin/routing" component={ApiRoutingPage} />
           <Route path="/admin/master-settings" component={MasterSettingsPage} />
-          
-          {/* MDO-only route - redirect members */}
-          <Route path="/training">
-            {() => <ProtectedRoute component={TrainingPage} isMDOOnly={true} />}
-          </Route>
+          <Route path="/training" component={TrainingPage} />
           <Route component={NotFound} />
         </Switch>
       </Suspense>
@@ -199,41 +188,22 @@ function AuthenticatedRoutes() {
 
 function Router() {
   const [location, setLocation] = useLocation();
-  const { user, isLoading, hasRole } = useAuth();
-  
-  // Role-based redirect on page load (only for root/dashboard routes)
-  // Check if user has "sales_staff" role and redirect accordingly
-  // IMPORTANT: This hook must be called before any conditional returns
+  const { user, isLoading } = useAuth();
+  const hasNoPolicies = user && (!user.policies || user.policies.length === 0);
+
+  // Redirect to /no-policy if user has no policies
   useEffect(() => {
-    // Only redirect if user is authenticated and we're on root or dashboard route
-    if (user && !isLoading && (location === "/" || location === "/dashboard")) {
-      // Check if user is a manager first
-      if (user.isManager) {
-        setLocation("/manager/dashboard");
-        return;
-      }
-      
-      // Check for various sales staff role name variations
-      const userRoles = user.roles || [];
-      const roleNames = userRoles.map((r: any) => (r.name || "").toLowerCase());
-      const isSalesStaff = hasRole("sales_staff") || 
-                          hasRole("Sales Staff") || 
-                          hasRole("Salesman") ||
-                          hasRole("salesman") ||
-                          roleNames.includes("sales_staff") ||
-                          roleNames.includes("sales staff") ||
-                          roleNames.includes("salesman");
-      
-      if (isSalesStaff) {
-        // Redirect to sales staff page
-        setLocation("/sales-staff");
-      } else if (user.loginType === "employee") {
-        // For other employees, redirect to work log page
-        setLocation("/work-log");
-      }
-      // MDO users can access dashboard normally
+    if (user && hasNoPolicies && location !== "/no-policy") {
+      setLocation("/no-policy");
     }
-  }, [location, user, isLoading, hasRole, setLocation]);
+  }, [location, user, hasNoPolicies, setLocation]);
+
+  // Redirect to /login if not authenticated (after loading is complete)
+  useEffect(() => {
+    if (!isLoading && !user && location !== "/login" && location !== "/apply" && !location.startsWith("/auth-callback")) {
+      setLocation("/login");
+    }
+  }, [isLoading, user, location, setLocation]);
   
   // Always allow these public routes
   if (location === "/login") {
@@ -255,15 +225,22 @@ function Router() {
       </Suspense>
     );
   }
+
+  if (location === "/no-policy") {
+    return (
+      <Suspense fallback={<FullPageLoader />}>
+        <NoPolicyPage />
+      </Suspense>
+    );
+  }
   
   // Show loading while checking auth status
   if (isLoading) {
     return <FullPageLoader />;
   }
   
-  // If not authenticated, redirect to login
+  // If not authenticated, show login page (redirect is handled by useEffect above)
   if (!user) {
-    setLocation("/login");
     return <LoginPage />;
   }
   

@@ -143,7 +143,7 @@ export default function SalesUnitPage() {
     queryKey: ['/api/sales/units', unitName, 'departments'],
     queryFn: async () => {
       const res = await fetch(`/api/sales/units/${encodeURIComponent(unitName)}/departments`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('gms_token')}` }
+        headers: { "X-Session-Id": `${localStorage.getItem("gms_token") || ""}` }
       });
       return res.json();
     },
@@ -158,7 +158,7 @@ export default function SalesUnitPage() {
       params.set('unit', unitName);
       if (selectedDepartment) params.set('department', selectedDepartment);
       const res = await fetch(`/api/sales/staff?${params}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('gms_token')}` }
+        headers: { "X-Session-Id": `${localStorage.getItem("gms_token") || ""}` }
       });
       return res.json();
     },

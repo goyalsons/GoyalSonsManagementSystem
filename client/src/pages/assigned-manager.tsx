@@ -133,7 +133,7 @@ export default function AssignedManagerPage() {
     queryFn: async () => {
       const url = showAllRecords ? "/api/emp-manager/all" : "/api/emp-manager";
       const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${localStorage.getItem("gms_token")}` },
+        headers: { "X-Session-Id": `${localStorage.getItem("gms_token") || ""}` },
       });
       
       // Parse JSON response (even on error, server returns JSON with error details)
@@ -153,7 +153,7 @@ export default function AssignedManagerPage() {
     queryKey: ["/api/departments"],
     queryFn: async () => {
       const res = await fetch("/api/departments", {
-        headers: { Authorization: `Bearer ${localStorage.getItem("gms_token")}` },
+        headers: { "X-Session-Id": `${localStorage.getItem("gms_token") || ""}` },
       });
       if (!res.ok) throw new Error("Failed to fetch departments");
       return res.json();
@@ -165,7 +165,7 @@ export default function AssignedManagerPage() {
     queryKey: ["/api/designations"],
     queryFn: async () => {
       const res = await fetch("/api/designations", {
-        headers: { Authorization: `Bearer ${localStorage.getItem("gms_token")}` },
+        headers: { "X-Session-Id": `${localStorage.getItem("gms_token") || ""}` },
       });
       if (!res.ok) throw new Error("Failed to fetch designations");
       return res.json();
@@ -177,7 +177,7 @@ export default function AssignedManagerPage() {
     queryKey: ["/api/org-units"],
     queryFn: async () => {
       const res = await fetch("/api/org-units", {
-        headers: { Authorization: `Bearer ${localStorage.getItem("gms_token")}` },
+        headers: { "X-Session-Id": `${localStorage.getItem("gms_token") || ""}` },
       });
       if (!res.ok) throw new Error("Failed to fetch org units");
       return res.json();
@@ -236,7 +236,7 @@ export default function AssignedManagerPage() {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
-                Authorization: `Bearer ${localStorage.getItem("gms_token")}`,
+                "X-Session-Id": `${localStorage.getItem("gms_token") || ""}`,
               },
               body: JSON.stringify({
                 mcardno: employee.cardNumber || "",
@@ -301,7 +301,7 @@ export default function AssignedManagerPage() {
           method: "DELETE",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${localStorage.getItem("gms_token")}`,
+            "X-Session-Id": `${localStorage.getItem("gms_token") || ""}`,
           },
         });
         

@@ -3,7 +3,7 @@ const API_BASE = "/api";
 function getAuthHeaders(): HeadersInit {
   const token = localStorage.getItem("gms_token");
   return token
-    ? { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
+    ? { "Content-Type": "application/json", "X-Session-Id": token }
     : { "Content-Type": "application/json" };
 }
 
@@ -13,8 +13,12 @@ export async function apiGet<T>(endpoint: string): Promise<T> {
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: "Request failed" }));
-    throw new Error(error.message);
+    const errorBody = await response.json().catch(() => ({ message: "Request failed" }));
+    const err: any = new Error(errorBody.message || "Request failed");
+    if (response.status === 403 && errorBody.code) {
+      err.code = errorBody.code;
+    }
+    throw err;
   }
 
   return response.json();

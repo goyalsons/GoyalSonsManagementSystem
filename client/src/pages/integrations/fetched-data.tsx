@@ -101,7 +101,7 @@ export default function FetchedDataPage() {
     queryKey: ["api-routes"],
     queryFn: async () => {
       const res = await fetch("/api/admin/routing", {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { "X-Session-Id": token },
       });
       if (!res.ok) return [];
       return res.json();
@@ -142,7 +142,7 @@ export default function FetchedDataPage() {
     queryKey: ["data-import-logs"],
     queryFn: async () => {
       const res = await fetch("/api/admin/data-fetcher/logs", {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { "X-Session-Id": token },
       });
       if (!res.ok) return [];
       return res.json();
@@ -154,7 +154,7 @@ export default function FetchedDataPage() {
     queryKey: ["employees"],
     queryFn: async () => {
       const res = await fetch("/api/employees", {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { "X-Session-Id": token },
       });
       if (!res.ok) return [];
       return res.json();
@@ -166,7 +166,7 @@ export default function FetchedDataPage() {
     mutationFn: async (routeId: string) => {
       const res = await fetch(`/api/admin/routing/${routeId}/sync`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { "X-Session-Id": token },
       });
       if (!res.ok) throw new Error("Sync failed");
       return res.json();
@@ -190,7 +190,7 @@ export default function FetchedDataPage() {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+          "X-Session-Id": token,
         },
         body: JSON.stringify({ status: isActive ? "active" : "draft" }),
       });
@@ -221,7 +221,7 @@ export default function FetchedDataPage() {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+          "X-Session-Id": token,
         },
         body: JSON.stringify(body),
       });
@@ -241,7 +241,7 @@ export default function FetchedDataPage() {
     mutationFn: async () => {
       const res = await fetch("/api/admin/data-fetcher/logs", {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { "X-Session-Id": token },
       });
       if (!res.ok) throw new Error("Failed to clear history");
       return res.json();

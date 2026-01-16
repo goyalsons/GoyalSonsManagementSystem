@@ -2,7 +2,7 @@ import type { Express } from "express";
 import https from "follow-redirects";
 import { format } from "date-fns";
 import { prisma } from "../lib/prisma";
-import { requireAuth } from "../lib/auth-middleware";
+import { requireAuth, requirePolicy } from "../lib/auth-middleware";
 
 // Sales API Configuration from Environment Variables
 const SALES_API_TIMEOUT_MS = parseInt(process.env.SALES_API_TIMEOUT_MS || "60000", 10);
@@ -442,63 +442,8 @@ export async function getEmployeeDesignations(smnos: string[]): Promise<Map<stri
 }
 
 export function registerSalesStaffRoutes(app: Express) {
-  // Refresh endpoint - fetches from API and stores in DB
-  app.post("/api/sales/staff/summary/refresh", requireAuth, async (req, res) => {
-    try {
-      console.log('[Sales Staff Summary] Refresh requested by user:', req.user!.id);
-      
-      // Ensure database connection is alive before starting
-      await ensureDatabaseConnection();
-      
-      // Fetch fresh monthly sales data from API (using new SQL query for pivot table)
-      let records: any[];
-      try {
-        records = await fetchMonthlySalesForPivot();
-      } catch (apiError: any) {
-        // If it's a header error, provide more helpful message
-        if (apiError.message?.includes('Invalid character in header') || 
-            apiError.message?.includes('Authorization')) {
-          console.error('[Sales Staff Summary] Header error - token may be invalid');
-          return res.status(500).json({
-            success: false,
-            message: 'Failed to fetch monthly sales from API: Invalid authorization token. Please check SALES_API_TOKEN in .env file.',
-            error: 'INVALID_TOKEN'
-          });
-        }
-        throw apiError;
-      }
-      
-      if (records.length === 0) {
-        console.warn('[Sales Staff Summary] API returned empty data');
-        return res.json({
-          success: true,
-          message: "Refresh completed, but no new data was returned from API",
-          recordCount: 0,
-        });
-      }
-      
-      // Store in PostgreSQL (with retry logic)
-      await storeMonthlySalesDataInDBForPivot(records);
-      
-      res.json({
-        success: true,
-        message: `Successfully refreshed ${records.length} monthly sales records for pivot table`,
-        recordCount: records.length,
-      });
-    } catch (error: any) {
-      console.error("Sales staff summary refresh error:", error);
-      const errorMessage = error.message || "Failed to refresh data";
-      res.status(500).json({ 
-        success: false, 
-        message: errorMessage.includes("Connection") 
-          ? "Database connection error. Please try again in a moment." 
-          : errorMessage
-      });
-    }
-  });
-
   // Sales Staff Summary (cards + month/brand breakdown)
-  app.get("/api/sales/staff/summary", requireAuth, async (req, res) => {
+  app.get("/api/sales/staff/summary", requireAuth, requirePolicy("sales.staff.view"), async (req, res) => {
     try {
       const isEmployeeLogin = req.user!.loginType === "employee";
       const employeeCardNo = req.user!.employeeCardNo;
@@ -786,51 +731,115 @@ export function registerSalesStaffRoutes(app: Express) {
     }
   });
 
-  // Helper function to fetch monthly sales data for pivot (using new SQL query)
-  async function fetchMonthlySalesForPivot(): Promise<any[]> {
-    const sqlQuery = process.env.SALES_API_MONTHLY_SQL_QUERY;
+  // ==================== SALES PIVOT API ====================
+  function parseApiHitDate(value: string | null | undefined): Date | null {
+    if (!value) return null;
+    const parsed = new Date(value);
+    if (!isNaN(parsed.getTime())) return parsed;
 
-    if (!sqlQuery || sqlQuery.trim().length === 0) {
-      throw new Error('SALES_API_MONTHLY_SQL_QUERY environment variable is required. Please set it in your .env file.');
+    const match = value.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})\s*(AM|PM)$/i);
+    if (match) {
+      const month = parseInt(match[1], 10);
+      const day = parseInt(match[2], 10);
+      const year = parseInt(match[3], 10);
+      let hour = parseInt(match[4], 10);
+      const minute = parseInt(match[5], 10);
+      const second = parseInt(match[6], 10);
+      const meridiem = match[7].toUpperCase();
+      if (meridiem === "PM" && hour < 12) hour += 12;
+      if (meridiem === "AM" && hour === 12) hour = 0;
+      const manual = new Date(year, month - 1, day, hour, minute, second);
+      return isNaN(manual.getTime()) ? null : manual;
     }
 
-    const encodedSql = encodeURIComponent(sqlQuery);
-    const apiPath = `${SALES_API_PATH}?sql=${encodedSql}&TYP=sql&key=${SALES_API_KEY}`;
+    return null;
+  }
+
+  function getLastApiHitFromRecords(records: any[]): string | null {
+    let latest: Date | null = null;
+    for (const record of records) {
+      const raw = record.UPD_ON || record.upd_on || record.updOn || record.updon;
+      const parsed = parseApiHitDate(raw);
+      if (parsed && (!latest || parsed > latest)) {
+        latest = parsed;
+      }
+    }
+    return latest ? latest.toISOString() : null;
+  }
+
+  function parseBillMonthString(value: string | null | undefined): Date | null {
+    if (!value) return null;
+    const parts = value.split("-");
+    if (parts.length === 3) {
+      const day = parseInt(parts[0], 10);
+      const monthStr = parts[1].toUpperCase();
+      const yearStr = parts[2];
+      const monthNames = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+      const monthIndex = monthNames.indexOf(monthStr);
+      let year = parseInt(yearStr, 10);
+      if (yearStr.length === 2) {
+        year = 2000 + year;
+      }
+      if (!isNaN(day) && monthIndex !== -1 && !isNaN(year)) {
+        return new Date(year, monthIndex, day);
+      }
+    }
+    const parsed = new Date(value);
+    return isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  async function fetchMonthlySalesForPivot(): Promise<any[]> {
+    // Support single URL variable (preferred) or fallback to building from parts
+    const fullUrl = process.env.SALES_API_PIVOT_URL;
     
+    let hostname: string;
+    let port: number;
+    let apiPath: string;
+    
+    if (fullUrl && fullUrl.trim().length > 0) {
+      // Parse the full URL
+      try {
+        const parsedUrl = new URL(fullUrl.trim());
+        hostname = parsedUrl.hostname;
+        port = parsedUrl.port ? parseInt(parsedUrl.port, 10) : 443;
+        apiPath = parsedUrl.pathname + parsedUrl.search;
+        console.log(`[Sales Pivot] Using full URL: ${hostname}:${port}${parsedUrl.pathname}`);
+      } catch (urlError) {
+        throw new Error(`Invalid SALES_API_PIVOT_URL: ${urlError}`);
+      }
+    } else {
+      // Fallback to building URL from parts (legacy support)
+      const sqlQuery = process.env.SALES_API_MONTHLY_SQL_QUERY;
+      if (!sqlQuery || sqlQuery.trim().length === 0) {
+        throw new Error('SALES_API_PIVOT_URL or SALES_API_MONTHLY_SQL_QUERY environment variable is required. Please set it in your .env file.');
+      }
+      hostname = SALES_API_HOST;
+      port = SALES_API_PORT;
+      const encodedSql = encodeURIComponent(sqlQuery);
+      apiPath = `${SALES_API_PATH}?sql=${encodedSql}&TYP=sql&key=${SALES_API_KEY}`;
+    }
+
     const headers: Record<string, string> = {
       'User-Agent': process.env.SALES_API_USER_AGENT || 'PostmanRuntime/7.43.4',
       'Accept': '*/*',
     };
 
-    try {
-      const salesApiToken = process.env.SALES_API_TOKEN;
-      if (salesApiToken) {
-        let cleanToken = salesApiToken.trim();
-        if (!cleanToken.startsWith('SELECT') && cleanToken.length < 500) {
-          cleanToken = cleanToken.replace(/[\x00-\x1F\x7F-\x9F]/g, '').trim();
-          if (cleanToken.length > 0 && !/[^\x20-\x7E]/.test(cleanToken)) {
-            headers['Authorization'] = `Bearer ${cleanToken}`;
-          }
-        }
-      }
-    } catch (error: any) {
-      console.warn('[Monthly Sales Pivot API] Error processing token:', error.message);
-    }
-    
     const options = {
       method: 'GET' as const,
-      hostname: SALES_API_HOST,
-      port: SALES_API_PORT,
+      hostname,
+      port,
       path: apiPath,
       headers,
       rejectUnauthorized: process.env.SALES_API_REJECT_UNAUTHORIZED === 'true',
       maxRedirects: parseInt(process.env.SALES_API_MAX_REDIRECTS || "20", 10)
     };
 
+    const timeoutMs = parseInt(process.env.SALES_API_TIMEOUT_MS || "120000", 10);
+    
     const responseText = await new Promise<string>((resolve, reject) => {
       const timeoutId = setTimeout(() => {
-        reject(new Error(`Request timed out after ${SALES_API_TIMEOUT_MS / 1000} seconds`));
-      }, SALES_API_TIMEOUT_MS);
+        reject(new Error(`Request timed out after ${timeoutMs / 1000} seconds`));
+      }, timeoutMs);
 
       const request = https.https.request(options, (response: any) => {
         const chunks: Buffer[] = [];
@@ -856,14 +865,15 @@ export function registerSalesStaffRoutes(app: Express) {
       request.end();
     });
 
-    let records: any[] = [];
-    const looksLikeCsv = !responseText.trim().startsWith('{') && 
-                        !responseText.trim().startsWith('[') && 
-                        responseText.trim().split('\n')[0]?.includes(',');
+    const looksLikeCsv = !responseText.trim().startsWith('{') &&
+      !responseText.trim().startsWith('[') &&
+      responseText.trim().split('\n')[0]?.includes(',');
 
     if (looksLikeCsv) {
       const lines = responseText.trim().split("\n");
+      if (lines.length === 0) return [];
       const csvHeaders = lines[0].split(",").map(h => h.trim().replace(/^"|"$/g, ''));
+      const records: any[] = [];
       for (let i = 1; i < lines.length; i++) {
         const values = lines[i].split(",").map(v => v.trim().replace(/^"|"$/g, ''));
         const record: Record<string, any> = {};
@@ -872,322 +882,183 @@ export function registerSalesStaffRoutes(app: Express) {
         });
         records.push(record);
       }
-    } else {
-      const data = JSON.parse(responseText);
-      records = Array.isArray(data) ? data : (data.data || data.records || []);
+      return records;
     }
-    
-    return records;
+
+    const data = JSON.parse(responseText);
+    return Array.isArray(data) ? data : (data.data || data.records || []);
   }
 
-  // Helper function to store monthly sales data in PostgreSQL (for pivot)
   async function storeMonthlySalesDataInDBForPivot(records: any[]): Promise<void> {
-    const maxRetries = 3;
-    let lastError: any = null;
-    
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        await ensureDatabaseConnection();
-        
-        const twoMonthsAgo = new Date();
-        twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
-        twoMonthsAgo.setDate(1);
-        twoMonthsAgo.setHours(0, 0, 0, 0);
-        
-        const currentMonth = new Date();
-        currentMonth.setDate(1);
-        currentMonth.setHours(0, 0, 0, 0);
-        
-        await prisma.salesData.deleteMany({
-          where: {
-            billMonth: {
-              gte: twoMonthsAgo,
-              lt: currentMonth,
-            },
-          },
-        });
-        
-        const dataToInsert = records.map((r) => {
-          let billMonthDate: Date | null = null;
-          if (r.BILL_MONTH || r.bill_month) {
-            try {
-              const dateStr = r.BILL_MONTH || r.bill_month;
-              if (typeof dateStr === 'string' && dateStr.includes('-')) {
-                const parts = dateStr.split('-');
-                if (parts.length === 3) {
-                  const day = parseInt(parts[0], 10);
-                  const monthNames = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
-                  const monthIndex = monthNames.indexOf(parts[1].toUpperCase());
-                  const year = parseInt(parts[2], 10);
-                  if (monthIndex !== -1 && !isNaN(year)) {
-                    billMonthDate = new Date(year, monthIndex, day);
-                  }
-                }
-              }
-              if (!billMonthDate) {
-                billMonthDate = new Date(dateStr);
-              }
-              if (isNaN(billMonthDate.getTime())) {
-                billMonthDate = null;
-              }
-            } catch (e) {
-              billMonthDate = null;
-            }
-          }
-          
-          return {
-            smno: r.SMNO || r.smno || null,
-            sm: r.SM || r.sm || null,
-            shrtname: r.SHRTNAME || r.shrtname || null,
-            dept: r.DEPT || r.dept || null,
-            brand: r.BRAND || r.brand || null,
-            email: r.EMAIL || r.email || null,
-            totalSale: parseFloat(r.TOTAL_SALE || r.total_sale || r.TOTAL_SALE || '0') || 0,
-            inhouseSal: parseFloat(r.INHOUSE_SAL || r.inhouse_sal || r.INHOUSE_SAL || '0') || 0,
-            prDays: parseInt(r.PR_DAYS || r.pr_days || r.PR_DAYS || '0', 10) || 0,
-            billMonth: billMonthDate,
-            updOn: r.UPD_ON || r.upd_on || r.UPD_ON || null,
-          };
-        });
+    await ensureDatabaseConnection();
+    const now = new Date();
+    const previousMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
 
-        const chunkSize = 1000;
-        for (let i = 0; i < dataToInsert.length; i += chunkSize) {
-          const chunk = dataToInsert.slice(i, i + chunkSize);
-          await prisma.salesData.createMany({
-            data: chunk,
-            skipDuplicates: true,
-          });
-        }
-        
-        console.log(`[Monthly Sales Pivot] Stored ${records.length} records in PostgreSQL`);
-        return;
-      } catch (error: any) {
-        lastError = error;
-        const errorMessage = error.message || String(error);
-        console.error(`[Monthly Sales Pivot] Error storing data in DB (attempt ${attempt}/${maxRetries}):`, errorMessage);
-        
-        if (errorMessage.includes("Connection must be open") || 
-            errorMessage.includes("Connection closed") ||
-            errorMessage.includes("Connection terminated") ||
-            error.code === "P1001" ||
-            error.code === "P1008") {
-          const waitTime = 1000 * attempt;
-          await new Promise(resolve => setTimeout(resolve, waitTime));
-          try {
-            await prisma.$disconnect().catch(() => {});
-            await new Promise(resolve => setTimeout(resolve, 500));
-          } catch (disconnectError) {
-            // Ignore
-          }
-          continue;
-        } else {
-          throw error;
-        }
-      }
-    }
-    
-    throw new Error(`Failed to store monthly sales data after ${maxRetries} attempts: ${lastError?.message || 'Unknown error'}`);
-  }
-
-  // Helper function to get monthly sales data from DB for pivot
-  async function getMonthlySalesFromDBForPivot(): Promise<any[]> {
-    const DB_TIMEOUT_MS = 10000;
-    
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => {
-        reject(new Error('Database query timed out after 10 seconds'));
-      }, DB_TIMEOUT_MS);
+    await prisma.salesData.deleteMany({
+      where: {
+        billMonth: {
+          gte: previousMonthStart,
+          lt: nextMonthStart,
+        },
+      },
     });
 
-    try {
-      const twoMonthsAgo = new Date();
-      twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
-      twoMonthsAgo.setDate(1);
-      twoMonthsAgo.setHours(0, 0, 0, 0);
-      
-      const currentMonth = new Date();
-      currentMonth.setDate(1);
-      currentMonth.setHours(0, 0, 0, 0);
+    const dataToInsert = records.map((r) => {
+      const billMonthDate = parseBillMonthString(r.BILL_MONTH || r.bill_month || r.BILLMONTH || r.billMonth);
+      return {
+        shrtname: r.SHRTNAME || r.shrtname || null,
+        dept: r.DIV || r.Div || r.div || r.LEV1GRPNAME || r.lev1grpname || null,
+        smno: r.SMNO || r.smno || null,
+        sm: r.SM || r.sm || null,
+        brand: r.BRAND || r.brand || null,
+        totalSale: parseFloat(r.TOTAL_SALE || r.total_sale || r.TOTALSALE || '0') || 0,
+        prDays: parseInt(r.Sale_Qty || r.SALE_QTY || r.sale_qty || '0', 10) || 0,
+        billMonth: billMonthDate,
+        updOn: r.UPD_ON || r.upd_on || null,
+      };
+    });
 
-      const records = await Promise.race([
-        prisma.salesData.findMany({
-          where: {
-            billMonth: {
-              gte: twoMonthsAgo,
-              lt: currentMonth,
-            },
-          },
-          orderBy: { billMonth: 'desc' },
-        }),
-        timeoutPromise,
-      ]);
-      
-      return records;
-    } catch (error: any) {
-      console.error('[Monthly Sales Pivot] Error reading from database:', error);
-      throw error;
+    const chunkSize = 1000;
+    for (let i = 0; i < dataToInsert.length; i += chunkSize) {
+      const chunk = dataToInsert.slice(i, i + chunkSize);
+      await prisma.salesData.createMany({
+        data: chunk,
+        skipDuplicates: true,
+      });
     }
   }
 
-  // Sales Pivot Data (for Excel-style pivot table) - Using Monthly Sales Data
-  app.get("/api/sales/pivot", requireAuth, async (req, res) => {
+  async function getMonthlySalesFromDBForPivot(): Promise<any[]> {
+    const now = new Date();
+    const previousMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+
+    return prisma.salesData.findMany({
+      where: {
+        billMonth: {
+          gte: previousMonthStart,
+          lt: nextMonthStart,
+        },
+      },
+      orderBy: { billMonth: 'desc' },
+    });
+  }
+
+  app.post("/api/sales/pivot/refresh", requireAuth, requirePolicy("sales.staff.view"), async (req, res) => {
+    try {
+      console.log("[Sales Pivot Refresh] Starting refresh...");
+      const records = await fetchMonthlySalesForPivot();
+      console.log(`[Sales Pivot Refresh] Fetched ${records.length} records from external API`);
+      if (records.length > 0) {
+        await storeMonthlySalesDataInDBForPivot(records);
+        console.log(`[Sales Pivot Refresh] Stored ${records.length} records in database`);
+      }
+      const lastApiHit = getLastApiHitFromRecords(records);
+      return res.json({
+        success: true,
+        recordCount: records.length,
+        lastApiHit,
+      });
+    } catch (error: any) {
+      console.error("[Sales Pivot Refresh] Error:", error.message);
+      console.error("[Sales Pivot Refresh] Stack:", error.stack);
+      
+      // Check if we have cached data in the database
+      let cachedCount = 0;
+      try {
+        const cachedData = await getMonthlySalesFromDBForPivot();
+        cachedCount = cachedData.length;
+      } catch (dbError) {
+        console.error("[Sales Pivot Refresh] Could not check cached data:", dbError);
+      }
+      
+      // Provide more helpful error messages
+      let userMessage = error.message;
+      if (error.message.includes("SALES_API_MONTHLY_SQL_QUERY")) {
+        userMessage = "Server configuration error: SQL query not configured. Please contact admin.";
+      } else if (error.message.includes("API returned status")) {
+        userMessage = `External sales API is unavailable (returned error). ${cachedCount > 0 ? `Showing ${cachedCount} cached records instead.` : 'No cached data available.'}`;
+      } else if (error.message.includes("timed out")) {
+        userMessage = `Request timed out. ${cachedCount > 0 ? `Showing ${cachedCount} cached records instead.` : 'No cached data available.'}`;
+      } else if (error.message.includes("ECONNREFUSED") || error.message.includes("ENOTFOUND")) {
+        userMessage = `Cannot connect to external sales API. ${cachedCount > 0 ? `Showing ${cachedCount} cached records instead.` : 'No cached data available.'}`;
+      }
+      
+      // If we have cached data, return a partial success
+      if (cachedCount > 0) {
+        return res.json({
+          success: true,
+          recordCount: cachedCount,
+          lastApiHit: null,
+          warning: userMessage,
+          fromCache: true,
+        });
+      }
+      
+      res.status(500).json({ success: false, message: userMessage });
+    }
+  });
+
+  app.get("/api/sales/pivot", requireAuth, requirePolicy("sales.staff.view"), async (req, res) => {
     try {
       const isEmployeeLogin = req.user!.loginType === "employee";
       const employeeCardNo = req.user!.employeeCardNo;
+      let lastApiHit: string | null = null;
 
-      // Read monthly sales data from PostgreSQL
       let data: any[] = [];
       try {
         data = await getMonthlySalesFromDBForPivot();
-        
-        // If database is empty, fetch from API and store
         if (data.length === 0) {
-          console.log('[Sales Pivot] Database empty, fetching initial data from API...');
-          try {
-            const records = await fetchMonthlySalesForPivot();
-            if (records.length > 0) {
-              await storeMonthlySalesDataInDBForPivot(records);
-              data = await getMonthlySalesFromDBForPivot();
-            } else {
-              console.warn('[Sales Pivot] API returned empty data');
-              data = [];
-            }
-          } catch (apiError: any) {
-            console.error('[Sales Pivot] Failed to fetch from API:', apiError);
-            return res.json({
-              success: true,
-              data: [],
-              recordCount: 0,
-              message: `Database is empty and unable to fetch from API: ${apiError.message}. Please use the Refresh button.`,
-            });
+          const records = await fetchMonthlySalesForPivot();
+          if (records.length > 0) {
+            await storeMonthlySalesDataInDBForPivot(records);
+            data = await getMonthlySalesFromDBForPivot();
+            lastApiHit = getLastApiHitFromRecords(records);
           }
         }
-      } catch (dbError: any) {
-        console.error('[Sales Pivot] Error reading from DB:', dbError);
-        // Try to fallback to API
-        try {
-          console.log('[Sales Pivot] Attempting API fallback...');
-          data = await fetchMonthlySalesForPivot();
-        } catch (apiError: any) {
-          console.error('[Sales Pivot] Both DB and API failed:', apiError);
-          return res.json({
-            success: true,
-            data: [],
-            recordCount: 0,
-            message: `Unable to load pivot data. Please try refreshing.`,
-          });
-        }
+      } catch (error: any) {
+        console.error("[Sales Pivot] DB read error:", error);
+        data = await fetchMonthlySalesForPivot();
+        lastApiHit = getLastApiHitFromRecords(data);
       }
 
-      // Filter by employee if employee login (MDO users see all data)
+      if (!lastApiHit && data.length > 0) {
+        lastApiHit = getLastApiHitFromRecords(data);
+      }
+
       if (isEmployeeLogin && employeeCardNo) {
         data = data.filter((r) => (r.smno || "").toString() === employeeCardNo.toString());
-      } else {
-        // For MDO users: Filter to show only sales employees (designation = "SM")
-        try {
-          const salesEmployees = await prisma.employee.findMany({
-            where: {
-              designation: {
-                code: "SM"
-              },
-              lastInterviewDate: null // Only active employees
-            },
-            select: {
-              cardNumber: true
-            }
-          });
-          
-          const salesEmployeeCardNumbers = salesEmployees
-            .map(emp => emp.cardNumber)
-            .filter(cardNo => cardNo !== null && cardNo !== undefined)
-            .map(cardNo => cardNo!.toString());
-          
-          if (salesEmployeeCardNumbers.length > 0) {
-            data = data.filter((r) => {
-              const smno = (r.smno || "").toString();
-              return salesEmployeeCardNumbers.includes(smno);
-            });
-            console.log(`[Sales Pivot] Filtered to ${data.length} records for ${salesEmployeeCardNumbers.length} sales employees`);
-          } else {
-            console.warn('[Sales Pivot] No sales employees found with designation SM');
-          }
-        } catch (filterError: any) {
-          console.error('[Sales Pivot] Error filtering sales employees:', filterError);
-        }
       }
 
-      // Transform monthly sales data to pivot format
-      // Monthly data: SHRTNAME, DEPT, SMNO, SM, EMAIL, BILL_MONTH, BRAND, TOTAL_SALE, PR_DAYS, INHOUSE_SAL
-      // Pivot expects: dat, unit, smno, sm, divi, btype, qty, netsale
       const pivotData = data.map((r) => {
-        // Parse BILL_MONTH date (can be Date object or string)
         let dat = "";
         if (r.billMonth) {
-          try {
-            const dateObj = r.billMonth instanceof Date ? r.billMonth : new Date(r.billMonth);
-            if (!isNaN(dateObj.getTime())) {
-              dat = format(dateObj, 'dd-MMM-yyyy').toUpperCase();
-            }
-          } catch {
-            dat = "";
+          const dateObj = r.billMonth instanceof Date ? r.billMonth : new Date(r.billMonth);
+          if (!isNaN(dateObj.getTime())) {
+            dat = format(dateObj, 'dd-MMM-yyyy').toUpperCase();
           }
         }
 
-        // Determine btype: "N" for InHouse (if INHOUSE_SAL > 0), "Y" for SOR (external)
-        const totalSale = parseFloat(r.totalSale?.toString() || '0') || 0;
-        const inhouseSal = parseFloat(r.inhouseSal?.toString() || '0') || 0;
-        const externalSale = totalSale - inhouseSal;
-        
-        // Create two rows: one for InHouse, one for SOR (if both exist)
-        const rows: any[] = [];
-        
-        if (inhouseSal > 0) {
-          rows.push({
-            dat: dat,
-            unit: r.shrtname || "",
-            smno: parseInt(r.smno || "0", 10) || 0,
-            sm: r.sm || "",
-            divi: r.brand || r.dept || "",
-            btype: "N" as "Y" | "N", // N = InHouse
-            qty: parseInt(r.prDays?.toString() || '0', 10) || 0,
-            netsale: inhouseSal,
-          });
-        }
-        
-        if (externalSale > 0) {
-          rows.push({
-            dat: dat,
-            unit: r.shrtname || "",
-            smno: parseInt(r.smno || "0", 10) || 0,
-            sm: r.sm || "",
-            divi: r.brand || r.dept || "",
-            btype: "Y" as "Y" | "N", // Y = SOR (external)
-            qty: parseInt(r.prDays?.toString() || '0', 10) || 0,
-            netsale: externalSale,
-          });
-        }
-        
-        // If no sale at all, still create one row
-        if (rows.length === 0) {
-          rows.push({
-            dat: dat,
-            unit: r.shrtname || "",
-            smno: parseInt(r.smno || "0", 10) || 0,
-            sm: r.sm || "",
-            divi: r.brand || r.dept || "",
-            btype: "N" as "Y" | "N",
-            qty: parseInt(r.prDays?.toString() || '0', 10) || 0,
-            netsale: 0,
-          });
-        }
-        
-        return rows;
-      }).flat(); // Flatten array of arrays
+        const brand = (r.brand || "INHOUSE").toString().toUpperCase();
 
-      return res.json({
+        return {
+          dat,
+          unit: r.shrtname || "",
+          smno: parseInt(r.smno || "0", 10) || 0,
+          sm: r.sm || "",
+          divi: r.dept || "",
+          btype: brand,
+          qty: parseInt(r.prDays?.toString() || "0", 10) || 0,
+          netsale: parseFloat(r.totalSale?.toString() || "0") || 0,
+        };
+      });
+
+      res.json({
         success: true,
         data: pivotData,
         recordCount: pivotData.length,
+        lastApiHit,
       });
     } catch (error: any) {
       console.error("Sales pivot error:", error);

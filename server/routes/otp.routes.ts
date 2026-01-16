@@ -167,11 +167,15 @@ export function registerOtpRoutes(app: Express): void {
 
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + 7);
+      const loginType = employee?.cardNumber ? "employee" : "mdo";
+      const employeeCardNo = employee?.cardNumber || null;
 
       const session = await prisma.session.create({
         data: {
           userId: user.id,
           expiresAt,
+          loginType,
+          employeeCardNo,
         },
       });
 
@@ -179,7 +183,11 @@ export function registerOtpRoutes(app: Express): void {
 
       res.json({
         token: session.id,
-        user: authInfo,
+        user: {
+          ...authInfo,
+          loginType,
+          employeeCardNo,
+        },
       });
     } catch (error) {
       console.error("Verify OTP error:", error);

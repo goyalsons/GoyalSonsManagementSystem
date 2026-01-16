@@ -104,7 +104,7 @@ export default function ManagerDashboard() {
       const token = localStorage.getItem("gms_token");
       const res = await fetch(`/api/manager/dashboard/attendance?dateType=${dateType}`, {
         headers: {
-          Authorization: `Bearer ${token}`,
+          "X-Session-Id": token,
           "Content-Type": "application/json",
         },
         credentials: "include",

@@ -11,6 +11,7 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import { startAutoSync } from "./auto-sync";
 import { createSalesDataTable } from "./create-sales-data-table";
+import { initializePolicySync } from "./services/policy-sync.service";
 
 // ✅ ab yahan env check karo
 console.log(
@@ -81,6 +82,14 @@ app.use((req, res, next) => {
     await createSalesDataTable();
   } catch (error: any) {
     console.warn('[Server] Could not create SalesData table (may already exist):', error.message);
+  }
+
+  // Sync policies from NAV_CONFIG to database
+  try {
+    await initializePolicySync();
+  } catch (error: any) {
+    console.error('[Server] ❌ Failed to sync policies:', error.message);
+    // Don't block server startup, but log the error
   }
 
   await registerRoutes(httpServer, app);

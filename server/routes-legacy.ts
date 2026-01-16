@@ -36,6 +36,31 @@ import {
   getEmployeeDesignations 
 } from "./routes/sales-staff.routes";
 
+// Extend Express.User typing for this module to include our auth shape
+declare global {
+  namespace Express {
+    interface User {
+      id: string;
+      name: string;
+      email: string;
+      isSuperAdmin: boolean;
+      orgUnitId: string | null;
+      roles: { id: string; name: string }[];
+      policies: string[];
+      accessibleOrgUnitIds: string[];
+      loginType: "mdo" | "employee";
+      employeeCardNo: string | null;
+      employeeId: string | null;
+      isManager?: boolean;
+      managerScopes?: {
+        departmentIds: string[] | null;
+        designationIds: string[] | null;
+        orgUnitIds: string[] | null;
+      } | null;
+    }
+  }
+}
+
 const uploadsDir = path.join(process.cwd(), "uploads");
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
@@ -245,16 +270,20 @@ export async function registerLegacyRoutes(
     res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
   });
   
+  const enableLegacyAuthRoutes = false;
+
   // Initialize passport BEFORE registering strategies
-  app.use(passport.initialize());
+  if (enableLegacyAuthRoutes) {
+    app.use(passport.initialize());
+  }
   
   // Initialize Google OAuth Strategy
-  const GOOGLE_OAUTH_ENABLED = initializeGoogleOAuth();
+  const GOOGLE_OAUTH_ENABLED = enableLegacyAuthRoutes ? initializeGoogleOAuth() : false;
   
   app.use(loadUserFromSession);
   
   // Google OAuth routes
-  if (GOOGLE_OAUTH_ENABLED) {
+  if (enableLegacyAuthRoutes && GOOGLE_OAUTH_ENABLED) {
     console.log("[Google OAuth] 📍 Registering OAuth routes:");
     console.log(`[Google OAuth]    GET /api/auth/google`);
     console.log(`[Google OAuth]    GET /api/auth/google/callback`);
@@ -319,7 +348,7 @@ export async function registerLegacyRoutes(
     });
     
     console.log("[Google OAuth] ✅ OAuth routes registered successfully\n");
-  } else {
+  } else if (enableLegacyAuthRoutes) {
     // Fallback if Google OAuth is not configured
     console.log("[Google OAuth] ⚠️  OAuth routes NOT registered - OAuth is disabled\n");
     app.get("/api/auth/google", (req, res) => {
@@ -332,6 +361,7 @@ export async function registerLegacyRoutes(
   // This must be placed after auth routes to avoid blocking authentication
   app.use("/api/mdo", requireAuth, requireMDO);
 
+  if (enableLegacyAuthRoutes) {
   app.post("/api/auth/login", async (req, res) => {
     try {
       const { email, password } = req.body;
@@ -497,15 +527,17 @@ export async function registerLegacyRoutes(
 
   app.post("/api/auth/logout", requireAuth, async (req, res) => {
     try {
-      const token = req.headers.authorization?.replace("Bearer ", "");
-      if (token) {
-        await prisma.session.delete({ where: { id: token } }).catch(() => {});
+      const sessionId = req.headers["x-session-id"];
+      const sessionValue = Array.isArray(sessionId) ? sessionId[0] : sessionId;
+      if (sessionValue) {
+        await prisma.session.delete({ where: { id: String(sessionValue) } }).catch(() => {});
       }
       res.json({ message: "Logged out successfully" });
     } catch (error) {
       res.status(500).json({ message: "Logout failed" });
     }
   });
+  }
 
   app.get("/api/org-units", requireAuth, async (req, res) => {
     try {
@@ -2219,197 +2251,9 @@ export async function registerLegacyRoutes(
   });
 
   // ==================== ROLES API ====================
-
-  // GET /api/roles - Get all roles with user count
-  app.get("/api/roles", requireAuth, async (req, res) => {
-    try {
-      const roles = await (prisma as any).role.findMany({
-        orderBy: { level: "desc" },
-        include: {
-          _count: {
-            select: { users: true }
-          }
-        }
-      });
-
-      const rolesWithCount = roles.map((role: any) => ({
-        id: role.id,
-        name: role.name,
-        description: role.description,
-        level: role.level,
-        userCount: role._count.users,
-        createdAt: role.createdAt
-      }));
-
-      res.json(rolesWithCount);
-    } catch (error) {
-      console.error("Roles error:", error);
-      res.status(500).json({ message: "Failed to fetch roles" });
-    }
-  });
-
-  // GET /api/roles/:id - Get single role with policies
-  app.get("/api/roles/:id", requireAuth, async (req, res) => {
-    try {
-      const { id } = req.params;
-      
-      const role = await (prisma as any).role.findUnique({
-        where: { id },
-        include: {
-          policies: {
-            include: {
-              policy: true
-            }
-          },
-          _count: {
-            select: { users: true }
-          }
-        }
-      });
-
-      if (!role) {
-        return res.status(404).json({ message: "Role not found" });
-      }
-
-      res.json({
-        id: role.id,
-        name: role.name,
-        description: role.description,
-        level: role.level,
-        userCount: role._count.users,
-        policies: (role.policies as any[]).map((rp: any) => rp.policy),
-        createdAt: role.createdAt
-      });
-    } catch (error) {
-      console.error("Role error:", error);
-      res.status(500).json({ message: "Failed to fetch role" });
-    }
-  });
-
-  // POST /api/roles - Create new role
-  app.post("/api/roles", requireAuth, requirePolicy("admin.roles"), async (req, res) => {
-    try {
-      const { name, description, level, policyIds } = req.body;
-
-      if (!name) {
-        return res.status(400).json({ message: "Role name is required" });
-      }
-
-      // Create role with policies in transaction
-      const role = await prisma.$transaction(async (tx: any) => {
-        const newRole = await tx.role.create({
-          data: {
-            name,
-            description: description || null,
-            level: level || 0
-          }
-        });
-
-        // Assign policies if provided
-        if (policyIds && Array.isArray(policyIds) && policyIds.length > 0) {
-          await tx.rolePolicy.createMany({
-            data: policyIds.map((policyId: string) => ({
-              roleId: newRole.id,
-              policyId
-            }))
-          });
-        }
-
-        return newRole;
-      });
-
-      res.status(201).json(role);
-    } catch (error: any) {
-      if (error.code === "P2002") {
-        return res.status(400).json({ message: "Role with this name already exists" });
-      }
-      console.error("Create role error:", error);
-      res.status(500).json({ message: "Failed to create role" });
-    }
-  });
-
-  // PUT /api/roles/:id - Update role and policies
-  app.put("/api/roles/:id", requireAuth, requirePolicy("admin.roles"), async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { name, description, level, policyIds } = req.body;
-
-      // Check if role exists
-      const existingRole = await (prisma as any).role.findUnique({
-        where: { id }
-      });
-
-      if (!existingRole) {
-        return res.status(404).json({ message: "Role not found" });
-      }
-
-      // Update role and policies in transaction
-      await prisma.$transaction(async (tx: any) => {
-        // Update role
-        await tx.role.update({
-          where: { id },
-          data: {
-            name: name || existingRole.name,
-            description: description !== undefined ? description : existingRole.description,
-            level: level !== undefined ? level : existingRole.level
-          }
-        });
-
-        // Update policies if provided
-        if (policyIds && Array.isArray(policyIds)) {
-          // Delete existing policies
-          await tx.rolePolicy.deleteMany({
-            where: { roleId: id }
-          });
-
-          // Add new policies
-          if (policyIds.length > 0) {
-            await tx.rolePolicy.createMany({
-              data: policyIds.map((policyId: string) => ({
-                roleId: id,
-                policyId
-              }))
-            });
-          }
-        }
-      });
-
-      res.json({ message: "Role updated successfully" });
-    } catch (error: any) {
-      if (error.code === "P2002") {
-        return res.status(400).json({ message: "Role with this name already exists" });
-      }
-      console.error("Update role error:", error);
-      res.status(500).json({ message: "Failed to update role" });
-    }
-  });
-
-  // DELETE /api/roles/:id - Delete role
-  app.delete("/api/roles/:id", requireAuth, requirePolicy("admin.roles"), async (req, res) => {
-    try {
-      const { id } = req.params;
-
-      // Check if role has users assigned
-      const userCount = await (prisma as any).userRole.count({
-        where: { roleId: id }
-      });
-
-      if (userCount > 0) {
-        return res.status(400).json({ 
-          message: `Cannot delete role. ${userCount} user(s) are assigned to this role.` 
-        });
-      }
-
-      await (prisma as any).role.delete({
-        where: { id }
-      });
-
-      res.json({ message: "Role deleted successfully" });
-    } catch (error) {
-      console.error("Delete role error:", error);
-      res.status(500).json({ message: "Failed to delete role" });
-    }
-  });
+  // NOTE: Role routes have been moved to server/routes/roles.routes.ts
+  // These routes are now registered in server/routes/index.ts
+  // Keeping this comment for reference during migration
 
   // ==================== ROLE WORKFLOW API ====================
 
@@ -2510,197 +2354,14 @@ export async function registerLegacyRoutes(
   });
 
   // ==================== POLICIES API ====================
-
-  // GET /api/policies - Get all policies grouped by category
-  app.get("/api/policies", requireAuth, async (req, res) => {
-    try {
-      const policies = await (prisma as any).policy.findMany({
-        orderBy: [
-          { category: "asc" },
-          { key: "asc" }
-        ]
-      });
-
-      res.json(policies);
-    } catch (error) {
-      console.error("Policies error:", error);
-      res.status(500).json({ message: "Failed to fetch policies" });
-    }
-  });
-
-  // POST /api/policies - Create new policy (admin only)
-  app.post("/api/policies", requireAuth, requirePolicy("admin.roles"), async (req, res) => {
-    try {
-      const { key, description, category } = req.body;
-
-      if (!key) {
-        return res.status(400).json({ message: "Policy key is required" });
-      }
-
-      const policy = await (prisma as any).policy.create({
-        data: {
-          key,
-          description: description || null,
-          category: category || null
-        }
-      });
-
-      res.status(201).json(policy);
-    } catch (error: any) {
-      if (error.code === "P2002") {
-        return res.status(400).json({ message: "Policy with this key already exists" });
-      }
-      console.error("Create policy error:", error);
-      res.status(500).json({ message: "Failed to create policy" });
-    }
-  });
+  // NOTE: Policy routes have been moved to server/routes/policies.routes.ts
+  // These routes are now registered in server/routes/index.ts
+  // Keeping this comment for reference during migration
 
   // ==================== USER ROLE ASSIGNMENT API ====================
-
-  // POST /api/users/assign-role - Assign role to user
-  app.post("/api/users/assign-role", requireAuth, requirePolicy("users.assign_role"), async (req, res) => {
-    try {
-      const { userId, roleId, policyIds } = req.body;
-
-      if (!userId || !roleId) {
-        return res.status(400).json({ message: "User ID and Role ID are required" });
-      }
-
-      // Check if user exists
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-      });
-
-      if (!user) {
-        return res.status(404).json({ message: "User not found" });
-      }
-
-      // Check if role exists
-      const role = await (prisma as any).role.findUnique({
-        where: { id: roleId },
-      });
-
-      if (!role) {
-        return res.status(404).json({ message: "Role not found" });
-      }
-
-      // Check if already assigned
-      const existing = await (prisma as any).userRole.findUnique({
-        where: {
-          userId_roleId: {
-            userId,
-            roleId,
-          },
-        },
-      });
-
-      if (existing) {
-        return res.status(400).json({ message: "Role is already assigned to this user" });
-      }
-
-      // Assign role
-      await (prisma as any).userRole.create({
-        data: {
-          userId,
-          roleId,
-        },
-      });
-
-      // Note: Custom policies per user can be added later if needed
-      // For now, user gets role's default policies
-
-      res.json({
-        message: "Role assigned successfully",
-        user: {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-        },
-        role: {
-          id: role.id,
-          name: role.name,
-        },
-      });
-    } catch (error: any) {
-      if (error.code === "P2002") {
-        return res.status(400).json({ message: "Role is already assigned to this user" });
-      }
-      console.error("Assign role error:", error);
-      res.status(500).json({ message: "Failed to assign role" });
-    }
-  });
-
-  // DELETE /api/users/:userId/roles/:roleId - Remove role from user
-  app.delete("/api/users/:userId/roles/:roleId", requireAuth, requirePolicy("users.assign_role"), async (req, res) => {
-    try {
-      const { userId, roleId } = req.params;
-
-      await (prisma as any).userRole.delete({
-        where: {
-          userId_roleId: {
-            userId,
-            roleId,
-          },
-        },
-      });
-
-      res.json({ message: "Role removed successfully" });
-    } catch (error: any) {
-      if (error.code === "P2025") {
-        return res.status(404).json({ message: "Role assignment not found" });
-      }
-      console.error("Remove role error:", error);
-      res.status(500).json({ message: "Failed to remove role" });
-    }
-  });
-
-  // POST /api/users/update-role-permissions - Update role's policies (affects all users with that role)
-  app.post("/api/users/update-role-permissions", requireAuth, requirePolicy("users.assign_role"), async (req, res) => {
-    try {
-      const { userId, roleId, policyIds } = req.body;
-
-      if (!userId || !roleId || !Array.isArray(policyIds)) {
-        return res.status(400).json({ message: "Invalid request data" });
-      }
-
-      // Check if user has this role
-      const userRole = await (prisma as any).userRole.findUnique({
-        where: {
-          userId_roleId: {
-            userId,
-            roleId,
-          },
-        },
-      });
-
-      if (!userRole) {
-        return res.status(404).json({ message: "User does not have this role" });
-      }
-
-      // Update role policies (affects all users with this role)
-      await prisma.$transaction(async (tx: any) => {
-        // Delete existing role policies
-        await tx.rolePolicy.deleteMany({
-          where: { roleId },
-        });
-
-        // Add new policies
-        if (policyIds.length > 0) {
-          await tx.rolePolicy.createMany({
-            data: policyIds.map((policyId: string) => ({
-              roleId,
-              policyId,
-            })),
-          });
-        }
-      });
-
-      res.json({ message: "Permissions updated successfully" });
-    } catch (error) {
-      console.error("Update permissions error:", error);
-      res.status(500).json({ message: "Failed to update permissions" });
-    }
-  });
+  // NOTE: User role assignment routes have been moved to server/routes/user-assignment.routes.ts
+  // These routes are now registered in server/routes/index.ts
+  // Keeping this comment for reference during migration
 
   // ==================== SETTINGS API ====================
   
@@ -3109,11 +2770,12 @@ export async function registerLegacyRoutes(
     }
   });
 
+  if (enableLegacyAuthRoutes) {
   // ==================== OTP API ====================
 
-  function generateOtp(): string {
+  const generateOtp = (): string => {
     return Math.floor(100000 + Math.random() * 900000).toString();
-  }
+  };
 
   app.post("/api/auth/send-otp", async (req, res) => {
     try {
@@ -3288,7 +2950,7 @@ export async function registerLegacyRoutes(
   // ==================== EMPLOYEE OTP LOGIN ====================
 
   // Helper function to mask phone number
-  function maskPhone(phone: string): string {
+  const maskPhone = (phone: string): string => {
     if (!phone) return "";
     const cleanPhone = phone.replace(/\D/g, "");
     if (cleanPhone.length >= 10) {
@@ -3296,7 +2958,7 @@ export async function registerLegacyRoutes(
       return `+91-******${last10.slice(-4)}`;
     }
     return `******${cleanPhone.slice(-4)}`;
-  }
+  };
 
   // Lookup employee by code (card number) - Only active employees can login
   app.post("/api/auth/employee-lookup", async (req, res) => {
@@ -3680,6 +3342,7 @@ export async function registerLegacyRoutes(
       res.status(500).json({ message: "Failed to verify OTP" });
     }
   });
+  }
 
   // ==================== ADMIN API ROUTING ====================
 
@@ -5836,131 +5499,6 @@ Group by TO_CHAR(a.BILLDATE, 'DD-MON-YYYY'),a.UNIT,a.SMNO,a.SM,Case When a.DIV i
       res.status(500).json({ success: false, message: error.message });
     }
   });
-
-  // Sales Pivot Data (for Excel-style pivot table)
-  app.get("/api/sales/pivot", requireAuth, async (req, res) => {
-    try {
-      const isEmployeeLogin = req.user!.loginType === "employee";
-      const employeeCardNo = req.user!.employeeCardNo;
-
-      // Read ALL data from PostgreSQL (no MTD filtering for pivot table)
-      // Pivot table should show all historical data so users can see trends across months
-      let data: any[] = [];
-      try {
-        data = await getBillSummaryFromDBAll();
-        
-        // If database is empty, fetch from API and store
-        if (data.length === 0) {
-          console.log('[Sales Pivot] Database empty, fetching initial data from API...');
-          try {
-            const records = await fetchBillSummaryFromAPI();
-            if (records.length > 0) {
-              await storeBillSummaryInDB(records);
-              data = await getBillSummaryFromDBAll();
-            } else {
-              console.warn('[Sales Pivot] API returned empty data');
-              data = [];
-            }
-          } catch (apiError: any) {
-            console.error('[Sales Pivot] Failed to fetch from API:', apiError);
-            // Return empty data instead of error for pivot
-            return res.json({
-              success: true,
-              data: [],
-              recordCount: 0,
-              message: `Database is empty and unable to fetch from API: ${apiError.message}. Please use the Refresh button.`,
-            });
-          }
-        }
-      } catch (dbError: any) {
-        console.error('[Sales Pivot] Error reading from DB:', dbError);
-        // Try to fallback to API
-        try {
-          console.log('[Sales Pivot] Attempting API fallback...');
-          data = await fetchBillSummaryFromAPI();
-          // Try to store for next time, but don't fail if it doesn't work
-          try {
-            await storeBillSummaryInDB(data);
-          } catch (storeError) {
-            console.warn('[Sales Pivot] Failed to store API data, but continuing with response:', storeError);
-          }
-        } catch (apiError: any) {
-          console.error('[Sales Pivot] Both DB and API failed:', apiError);
-          return res.json({
-            success: true,
-            data: [],
-            recordCount: 0,
-            message: `Unable to load pivot data. Please try refreshing.`,
-          });
-        }
-      }
-
-      // Filter by employee if employee login (MDO users see all data)
-      if (isEmployeeLogin && employeeCardNo) {
-        data = data.filter((r) => r.SMNO === employeeCardNo);
-      } else {
-        // For MDO users: Filter to show only sales employees (designation = "SM")
-        try {
-          const salesEmployees = await prisma.employee.findMany({
-            where: {
-              designation: {
-                code: "SM" // Salesman designation
-              },
-              lastInterviewDate: null // Only active employees
-            },
-            select: {
-              cardNumber: true
-            }
-          });
-          
-          const salesEmployeeCardNumbers = salesEmployees
-            .map(emp => emp.cardNumber)
-            .filter(cardNo => cardNo !== null && cardNo !== undefined)
-            .map(cardNo => cardNo!.toString());
-          
-          if (salesEmployeeCardNumbers.length > 0) {
-            // Filter data to only include sales employees
-            data = data.filter((r) => {
-              const smno = (r.SMNO || r.smno || "").toString();
-              return salesEmployeeCardNumbers.includes(smno);
-            });
-            console.log(`[Sales Pivot] Filtered to ${data.length} records for ${salesEmployeeCardNumbers.length} sales employees`);
-          } else {
-            console.warn('[Sales Pivot] No sales employees found with designation SM');
-          }
-        } catch (filterError: any) {
-          console.error('[Sales Pivot] Error filtering sales employees:', filterError);
-          // Continue with all data if filter fails
-        }
-      }
-
-      // NO MTD FILTERING for pivot table - show all historical data
-      // This allows users to see trends across multiple months
-
-      // Transform data to pivot format
-      // API returns: dat, UNIT, SMNO, SM, divi, BTYPE, QTY, NetSale
-      const pivotData = data.map((r) => ({
-        dat: r.dat || r.DAT || "",
-        unit: r.UNIT || r.unit || "",
-        smno: parseInt(r.SMNO || r.smno || "0", 10) || 0,
-        sm: r.SM || r.sm || "",
-        divi: r.divi || r.DIVI || "",
-        btype: ((r.BTYPE || r.btype || "").toString().toUpperCase() === "Y" ? "Y" : "N") as "Y" | "N",
-        qty: parseInt(r.QTY || r.qty || "0", 10) || 0,
-        netsale: parseFloat(r.NetSale || r.NETSALE || r.netSale || "0") || 0,
-      }));
-
-      return res.json({
-        success: true,
-        data: pivotData,
-        recordCount: pivotData.length,
-      });
-    } catch (error: any) {
-      console.error("Sales pivot error:", error);
-      res.status(500).json({ success: false, message: error.message, data: [] });
-    }
-  });
-  */
 
   // ==================== LOOKUP TABLES API ====================
   // 

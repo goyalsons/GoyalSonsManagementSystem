@@ -21,7 +21,7 @@ export interface SalesDataRow {
   smno: number;          // Salesman number
   sm: string;            // Salesman name
   divi: string;
-  btype: "Y" | "N";
+  btype: string;         // Brand (e.g., "INHOUSE", "SOR", or brand name)
   qty: number;
   netsale: number;
 }
@@ -63,9 +63,7 @@ function formatQty(value: number): string {
 }
 
 function formatBrandType(btype: string): string {
-  if (btype === "N") return "InHouse";
-  if (btype === "Y") return "SOR";
-  return btype; // Fallback for any other value
+  return btype || "Unknown";
 }
 
 function parseDate(dateStr: string): Date | null {
@@ -224,72 +222,19 @@ export default function SalesExcelPivotTable({
   }, [data, defaultSmno]);
 
   // Extract unique dates from data (sorted descending - latest first)
-  // For members: show current month (1st to today) and previous full month (two months total)
-  // For MDO: show all dates
   const availableDates = useMemo(() => {
     const uniqueDates = Array.from(new Set(data.map((d) => d.dat))).filter(d => d);
     const allDates = sortDatesDescending(uniqueDates);
     
-    // If member mode (showSalesmanFilter === false), filter to current month and previous month
-    if (!showSalesmanFilter) {
-      const now = new Date();
-      
-      // Current month: 1st of current month to today
-      const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      currentMonthStart.setHours(0, 0, 0, 0);
-      const currentMonthEnd = new Date(now);
-      currentMonthEnd.setHours(23, 59, 59, 999);
-      
-      // Previous month: 1st to last day of previous month
-      const previousMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      previousMonthStart.setHours(0, 0, 0, 0);
-      const previousMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
-      
-      return allDates.filter(dateStr => {
-        const date = parseDate(dateStr);
-        if (!date) return false;
-        
-        // Include if date is in current month (up to today) or previous full month
-        return (date >= currentMonthStart && date <= currentMonthEnd) ||
-               (date >= previousMonthStart && date <= previousMonthEnd);
-      });
-    }
-    
-    // MDO mode: return all dates
     return allDates;
-  }, [data, showSalesmanFilter]);
+  }, [data]);
 
   // State for selected date (default: "all" to show all dates)
   const [selectedDate, setSelectedDate] = useState<string>("all");
 
   // Filter data by selected salesman and date
-  // For members: also filter to current month (1st to today) and previous full month
   const filteredData = useMemo(() => {
     let result = data;
-    
-    // For members: filter to current month (1st to today) and previous full month
-    if (!showSalesmanFilter) {
-      const now = new Date();
-      
-      // Current month: 1st of current month to today
-      const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      currentMonthStart.setHours(0, 0, 0, 0);
-      const currentMonthEnd = new Date(now);
-      currentMonthEnd.setHours(23, 59, 59, 999);
-      
-      // Previous month: 1st to last day of previous month
-      const previousMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      previousMonthStart.setHours(0, 0, 0, 0);
-      const previousMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
-      
-      result = result.filter((row) => {
-        const rowDate = parseDate(row.dat);
-        if (!rowDate) return false;
-        // Include if date is in current month (up to today) or previous full month
-        return (rowDate >= currentMonthStart && rowDate <= currentMonthEnd) ||
-               (rowDate >= previousMonthStart && rowDate <= previousMonthEnd);
-      });
-    }
     
     // Filter by salesman
     if (selectedSmno !== "all") {
@@ -302,7 +247,7 @@ export default function SalesExcelPivotTable({
     }
     
     return result;
-  }, [data, selectedSmno, selectedDate, showSalesmanFilter]);
+  }, [data, selectedSmno, selectedDate]);
 
   // Get selected salesman info
   const selectedSalesmanInfo = useMemo(() => {
@@ -347,7 +292,7 @@ export default function SalesExcelPivotTable({
                     <User className="h-4 w-4 text-indigo-500" />
                     <span className="truncate max-w-[140px]">
                       {selectedSmno === "all" 
-                        ? "Select Salesman" 
+                        ? "All Salesmen" 
                         : `${selectedSalesmanInfo?.sm || "Unknown"}`
                       }
                     </span>
@@ -356,6 +301,20 @@ export default function SalesExcelPivotTable({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="max-h-[300px] overflow-y-auto w-[280px]">
+                <DropdownMenuItem
+                  onClick={() => setSelectedSmno("all")}
+                  className={selectedSmno === "all" ? "bg-indigo-50 text-indigo-700" : ""}
+                >
+                  <div className="flex items-center gap-2 w-full">
+                    <Badge variant="outline" className="font-mono text-xs px-1.5">
+                      ALL
+                    </Badge>
+                    <span className="truncate flex-1">All Salesmen</span>
+                    <Badge variant="secondary" className="text-xs">
+                      {data.length} records
+                    </Badge>
+                  </div>
+                </DropdownMenuItem>
                 {availableSalesmen.map((salesman) => {
                   const count = data.filter((d) => d.smno === salesman.smno).length;
                   return (

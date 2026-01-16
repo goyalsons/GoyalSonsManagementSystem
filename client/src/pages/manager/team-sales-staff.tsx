@@ -338,7 +338,7 @@ export default function TeamSalesStaffPage() {
       const token = localStorage.getItem("gms_token");
       const res = await fetch(`/api/manager/team/sales-staff?${params}`, {
         headers: { 
-          Authorization: `Bearer ${token}`,
+          "X-Session-Id": token,
           "Content-Type": "application/json",
         },
         credentials: "include",
@@ -350,7 +350,7 @@ export default function TeamSalesStaffPage() {
       return result;
     },
     staleTime: 5 * 60 * 1000,
-    refetchInterval: 60 * 60 * 1000, // Auto-refresh every 1 hour
+    refetchInterval: 2 * 60 * 60 * 1000, // Auto-refresh every 2 hours
     retry: 1,
     retryDelay: 2000,
   });
@@ -366,7 +366,7 @@ export default function TeamSalesStaffPage() {
       const token = localStorage.getItem("gms_token");
       const res = await fetch(`/api/manager/team/sales-staff?${params}`, {
         headers: { 
-          Authorization: `Bearer ${token}`,
+          "X-Session-Id": token,
           "Content-Type": "application/json",
         },
         credentials: "include",

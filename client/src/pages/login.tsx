@@ -212,7 +212,7 @@ export default function LoginPage() {
       try {
         const meRes = await fetch("/api/auth/me", {
           headers: {
-            Authorization: `Bearer ${localStorage.getItem("gms_token")}`,
+            "X-Session-Id": `${localStorage.getItem("gms_token") || ""}`,
           },
         });
         if (meRes.ok) {

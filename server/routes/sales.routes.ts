@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import https from "follow-redirects";
 import { prisma } from "../lib/prisma";
-import { requireAuth } from "../lib/auth-middleware";
+import { requireAuth, requirePolicy } from "../lib/auth-middleware";
 import { format } from "date-fns";
 
 // Helper function to ensure database connection is alive
@@ -137,15 +137,35 @@ async function fetchSalesDataFromAPI(): Promise<any[]> {
 
 // Helper function to fetch monthly sales data from external API
 async function fetchMonthlySalesDataFromAPI(): Promise<any[]> {
-  // Read SQL query from environment variable only (no hardcoded fallback)
-  const sqlQuery = process.env.SALES_API_MONTHLY_SQL_QUERY;
-
-  if (!sqlQuery || sqlQuery.trim().length === 0) {
-    throw new Error('SALES_API_MONTHLY_SQL_QUERY environment variable is required. Please set it in your .env file.');
+  // Support single URL variable (preferred) or fallback to building from parts
+  const fullUrl = process.env.SALES_API_PIVOT_URL;
+  
+  let hostname: string;
+  let port: number;
+  let apiPath: string;
+  
+  if (fullUrl && fullUrl.trim().length > 0) {
+    // Parse the full URL
+    try {
+      const parsedUrl = new URL(fullUrl.trim());
+      hostname = parsedUrl.hostname;
+      port = parsedUrl.port ? parseInt(parsedUrl.port, 10) : 443;
+      apiPath = parsedUrl.pathname + parsedUrl.search;
+      console.log(`[Monthly Sales API] Using full URL: ${hostname}:${port}${parsedUrl.pathname}`);
+    } catch (urlError) {
+      throw new Error(`Invalid SALES_API_PIVOT_URL: ${urlError}`);
+    }
+  } else {
+    // Fallback to building URL from parts (legacy support)
+    const sqlQuery = process.env.SALES_API_MONTHLY_SQL_QUERY;
+    if (!sqlQuery || sqlQuery.trim().length === 0) {
+      throw new Error('SALES_API_PIVOT_URL or SALES_API_MONTHLY_SQL_QUERY environment variable is required. Please set it in your .env file.');
+    }
+    hostname = SALES_API_HOST;
+    port = SALES_API_PORT;
+    const encodedSql = encodeURIComponent(sqlQuery);
+    apiPath = `${SALES_API_PATH}?sql=${encodedSql}&TYP=sql&key=${SALES_API_KEY}`;
   }
-
-  const encodedSql = encodeURIComponent(sqlQuery);
-  const apiPath = `${SALES_API_PATH}?sql=${encodedSql}&TYP=sql&key=${SALES_API_KEY}`;
   
   // Build headers object
   const headers: Record<string, string> = {
@@ -171,18 +191,20 @@ async function fetchMonthlySalesDataFromAPI(): Promise<any[]> {
   
   const options = {
     method: 'GET' as const,
-    hostname: SALES_API_HOST,
-    port: SALES_API_PORT,
+    hostname,
+    port,
     path: apiPath,
     headers,
     rejectUnauthorized: process.env.SALES_API_REJECT_UNAUTHORIZED === 'true',
     maxRedirects: parseInt(process.env.SALES_API_MAX_REDIRECTS || "20", 10)
   };
 
+  const timeoutMs = parseInt(process.env.SALES_API_TIMEOUT_MS || "120000", 10);
+  
   const responseText = await new Promise<string>((resolve, reject) => {
     const timeoutId = setTimeout(() => {
-      reject(new Error(`Request timed out after ${SALES_API_TIMEOUT_MS / 1000} seconds`));
-    }, SALES_API_TIMEOUT_MS);
+      reject(new Error(`Request timed out after ${timeoutMs / 1000} seconds`));
+    }, timeoutMs);
 
     const request = https.https.request(options, (response: any) => {
       const chunks: Buffer[] = [];
@@ -610,7 +632,7 @@ export function registerSalesRoutes(app: Express): void {
     }
   });
 
-  app.get("/api/sales", requireAuth, async (req, res) => {
+  app.get("/api/sales", requireAuth, requirePolicy("sales.view"), async (req, res) => {
     try {
       const { page = "1", limit = "100", dept, brand, search } = req.query;
       const pageNum = Math.max(1, parseInt(page as string));
@@ -751,14 +773,22 @@ export function registerSalesRoutes(app: Express): void {
       }
 
       // Calculate KPIs
+      // Note: BRAND field is either "INHOUSE" or "SOR"
+      // If BRAND = "INHOUSE", the TOTAL_SALE is in-house sale
+      // If BRAND = "SOR", the TOTAL_SALE is SOR (external) sale
       let totalSale = 0;
       let inhouseSale = 0;
       const staffSet = new Set<string>();
       const unitSet = new Set<string>();
       
       data.forEach(r => {
-        totalSale += parseFloat(r.TOTAL_SALE) || 0;
-        inhouseSale += parseFloat(r.INHOUSE_SAL) || 0;
+        const sale = parseFloat(r.TOTAL_SALE) || 0;
+        const brand = (r.BRAND || '').toString().toUpperCase();
+        totalSale += sale;
+        // If BRAND is INHOUSE, add to inhouseSale
+        if (brand === 'INHOUSE') {
+          inhouseSale += sale;
+        }
         if (r.SMNO) staffSet.add(r.SMNO);
         if (r.SHRTNAME) unitSet.add(r.SHRTNAME);
       });
@@ -770,9 +800,14 @@ export function registerSalesRoutes(app: Express): void {
         if (!unitMap[unit]) {
           unitMap[unit] = { totalSale: 0, inhouseSale: 0, staffCount: 0, deptSet: new Set() };
         }
-        unitMap[unit].totalSale += parseFloat(r.TOTAL_SALE) || 0;
-        unitMap[unit].inhouseSale += parseFloat(r.INHOUSE_SAL) || 0;
-        if (r.DEPT) unitMap[unit].deptSet.add(r.DEPT);
+        const sale = parseFloat(r.TOTAL_SALE) || 0;
+        const brand = (r.BRAND || '').toString().toUpperCase();
+        unitMap[unit].totalSale += sale;
+        // If BRAND is INHOUSE, add to inhouseSale
+        if (brand === 'INHOUSE') {
+          unitMap[unit].inhouseSale += sale;
+        }
+        if (r.DEPT || r.Div || r.DIV) unitMap[unit].deptSet.add(r.DEPT || r.Div || r.DIV);
       });
 
       // Count unique staff per unit
@@ -917,14 +952,20 @@ export function registerSalesRoutes(app: Express): void {
       }
 
       // Aggregate by department
+      // Note: BRAND field is either "INHOUSE" or "SOR"
       const deptMap: Record<string, { totalSale: number; inhouseSale: number; staffSet: Set<string> }> = {};
       data.forEach(r => {
-        const dept = r.DEPT || 'Unknown';
+        const dept = r.DEPT || r.Div || r.DIV || 'Unknown';
         if (!deptMap[dept]) {
           deptMap[dept] = { totalSale: 0, inhouseSale: 0, staffSet: new Set() };
         }
-        deptMap[dept].totalSale += parseFloat(r.TOTAL_SALE) || 0;
-        deptMap[dept].inhouseSale += parseFloat(r.INHOUSE_SAL) || 0;
+        const sale = parseFloat(r.TOTAL_SALE) || 0;
+        const brand = (r.BRAND || '').toString().toUpperCase();
+        deptMap[dept].totalSale += sale;
+        // If BRAND is INHOUSE, add to inhouseSale
+        if (brand === 'INHOUSE') {
+          deptMap[dept].inhouseSale += sale;
+        }
         if (r.SMNO) deptMap[dept].staffSet.add(r.SMNO);
       });
 
@@ -943,7 +984,7 @@ export function registerSalesRoutes(app: Express): void {
   });
 
   // Get staff for a unit/department
-  app.get("/api/sales/staff", requireAuth, async (req, res) => {
+  app.get("/api/sales/staff", requireAuth, requirePolicy("sales.staff.view"), async (req, res) => {
     try {
       const { unit, department, month } = req.query;
       const isEmployeeLogin = req.user!.loginType === "employee";
@@ -1003,6 +1044,8 @@ export function registerSalesRoutes(app: Express): void {
         lastUpdated: string;
       }> = {};
 
+      // Note: BRAND field is either "INHOUSE" or "SOR"
+      // Sale_Qty is the quantity field (previously PR_DAYS)
       data.forEach(r => {
         const smno = r.SMNO || 'unknown';
         if (!staffMap[smno]) {
@@ -1011,7 +1054,7 @@ export function registerSalesRoutes(app: Express): void {
             name: r.SM || smno,
             email: r.EMAIL || '',
             unit: r.SHRTNAME || '',
-            department: r.DEPT || '',
+            department: r.DEPT || r.Div || r.DIV || '',
             totalSale: 0,
             inhouseSale: 0,
             presentDays: 0,
@@ -1019,17 +1062,26 @@ export function registerSalesRoutes(app: Express): void {
             lastUpdated: r.UPD_ON || '',
           };
         }
-        staffMap[smno].totalSale += parseFloat(r.TOTAL_SALE) || 0;
-        staffMap[smno].inhouseSale += parseFloat(r.INHOUSE_SAL) || 0;
-        staffMap[smno].presentDays += parseInt(r.PR_DAYS) || 0;
+        const sale = parseFloat(r.TOTAL_SALE) || 0;
+        const brand = (r.BRAND || 'Unknown').toString().toUpperCase();
+        const isInhouse = brand === 'INHOUSE';
+        
+        staffMap[smno].totalSale += sale;
+        // If BRAND is INHOUSE, add to inhouseSale
+        if (isInhouse) {
+          staffMap[smno].inhouseSale += sale;
+        }
+        staffMap[smno].presentDays += parseInt(r.PR_DAYS || r.Sale_Qty || r.SALE_QTY || '0') || 0;
         
         // Track brand breakdown
-        const brand = r.BRAND || 'Unknown';
         if (!staffMap[smno].brands[brand]) {
           staffMap[smno].brands[brand] = { sale: 0, inhouse: 0 };
         }
-        staffMap[smno].brands[brand].sale += parseFloat(r.TOTAL_SALE) || 0;
-        staffMap[smno].brands[brand].inhouse += parseFloat(r.INHOUSE_SAL) || 0;
+        staffMap[smno].brands[brand].sale += sale;
+        // The entire sale for this brand row is inhouse if brand is INHOUSE
+        if (isInhouse) {
+          staffMap[smno].brands[brand].inhouse += sale;
+        }
 
         // Track latest update
         if (r.UPD_ON && r.UPD_ON > staffMap[smno].lastUpdated) {

@@ -64,7 +64,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const response = await fetch("/api/auth/me", {
         headers: {
-          Authorization: `Bearer ${authToken}`,
+          "X-Session-Id": authToken,
         },
       });
 
@@ -117,7 +117,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await fetch("/api/auth/logout", {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${token}`,
+            "X-Session-Id": token,
           },
         });
       } catch (error) {

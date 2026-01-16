@@ -93,7 +93,7 @@ export default function FillAttendancePage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${localStorage.getItem("gms_token")}`,
+          "X-Session-Id": `${localStorage.getItem("gms_token") || ""}`,
         },
         body: JSON.stringify({
           punchType,

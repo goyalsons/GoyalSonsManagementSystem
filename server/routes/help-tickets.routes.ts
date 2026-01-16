@@ -1,13 +1,13 @@
 import type { Express } from "express";
 import { prisma } from "../lib/prisma";
-import { requireAuth } from "../lib/auth-middleware";
+import { requireAuth, requirePolicy } from "../lib/auth-middleware";
 
 export function registerHelpTicketsRoutes(app: Express) {
   // GET /api/help-tickets - Get help tickets based on user role:
   // - Regular employees: only their own tickets
   // - Managers: tickets from their team members
   // - MDO: tickets from managers
-  app.get("/api/help-tickets", requireAuth, async (req, res) => {
+  app.get("/api/help-tickets", requireAuth, requirePolicy("help_tickets.view"), async (req, res) => {
     try {
       const user = req.user!;
       const { status, category } = req.query;
@@ -201,7 +201,7 @@ export function registerHelpTicketsRoutes(app: Express) {
   });
   
   // POST /api/help-tickets - Create a new help ticket with role-based assignment
-  app.post("/api/help-tickets", requireAuth, async (req, res) => {
+  app.post("/api/help-tickets", requireAuth, requirePolicy("help_tickets.create"), async (req, res) => {
     try {
       const user = req.user!;
       const { subject, description, category, priority, relatedData } = req.body;
@@ -342,7 +342,7 @@ export function registerHelpTicketsRoutes(app: Express) {
   });
   
   // PUT /api/help-tickets/:id - Update help ticket (for status/response)
-  app.put("/api/help-tickets/:id", requireAuth, async (req, res) => {
+  app.put("/api/help-tickets/:id", requireAuth, requirePolicy("help_tickets.update"), async (req, res) => {
     try {
       const user = req.user!;
       const { id } = req.params;

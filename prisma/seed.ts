@@ -244,18 +244,25 @@ async function main() {
     { key: "admin.reports", description: "Access all reports", category: "admin" },
   ];
 
-  // Create policies
+  // Create policies (canonical set)
   const createdPolicies: Record<string, any> = {};
   for (const policy of policies) {
     const created = await prisma.policy.upsert({
       where: { key: policy.key },
-      update: {},
-      create: policy,
+      update: {
+        description: policy.description,
+        category: policy.category,
+        isActive: true, // Ensure all canonical policies are active
+      },
+      create: {
+        ...policy,
+        isActive: true,
+      },
     });
     createdPolicies[policy.key] = created;
   }
 
-  console.log(`✅ Created ${Object.keys(createdPolicies).length} policies`);
+  console.log(`✅ Created/Updated ${Object.keys(createdPolicies).length} canonical policies`);
 
   // Create Roles - Sabko default SalesMan wala access (attendance.view, sales.view)
   const defaultPolicies = ["attendance.view", "sales.view"];

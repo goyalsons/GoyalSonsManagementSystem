@@ -235,7 +235,7 @@ export default function TeamTaskHistoryPage() {
       console.log("[Team Task History] Fetching team members...");
       const res = await fetch("/api/manager/team/members", {
         headers: {
-          Authorization: `Bearer ${token}`,
+          "X-Session-Id": token,
         },
       });
       console.log("[Team Task History] Response status:", res.status);
@@ -328,7 +328,7 @@ export default function TeamTaskHistoryPage() {
       
       const res = await fetch(url, {
         headers: {
-          Authorization: `Bearer ${localStorage.getItem("gms_token")}`,
+          "X-Session-Id": `${localStorage.getItem("gms_token") || ""}`,
         },
       });
       

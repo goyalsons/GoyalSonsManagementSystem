@@ -69,7 +69,7 @@ export default function ApiRoutingPage() {
     queryKey: ["api-routes"],
     queryFn: async () => {
       const res = await fetch("/api/admin/routing", {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { "X-Session-Id": token },
       });
       if (!res.ok) throw new Error("Failed to fetch routes");
       return res.json();
@@ -89,7 +89,7 @@ export default function ApiRoutingPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+          "X-Session-Id": token,
         },
         body: JSON.stringify(payload),
       });
@@ -116,7 +116,7 @@ export default function ApiRoutingPage() {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+          "X-Session-Id": token,
         },
         body: JSON.stringify(data),
       });
@@ -139,7 +139,7 @@ export default function ApiRoutingPage() {
     mutationFn: async (id: string) => {
       const res = await fetch(`/api/admin/routing/${id}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { "X-Session-Id": token },
       });
       if (!res.ok) throw new Error("Failed to delete route");
       return res.json();
@@ -227,7 +227,7 @@ export default function ApiRoutingPage() {
       const res = await fetch("/api/admin/upload", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${token}`,
+          "X-Session-Id": token,
         },
         body: formDataUpload,
       });
@@ -420,7 +420,7 @@ export default function ApiRoutingPage() {
                       <Textarea
                         value={formData.headers}
                         onChange={(e) => setFormData({ ...formData, headers: e.target.value })}
-                        placeholder='{"Authorization": "Bearer xxx"}'
+                        placeholder='{"X-Session-Id": "session_id_here"}'
                         rows={3}
                         className="font-mono text-sm"
                       />

@@ -143,7 +143,7 @@ function TicketCard({ ticket, isAdmin }: { ticket: HelpTicket; isAdmin: boolean 
         credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("gms_token")}`,
+          "X-Session-Id": `${localStorage.getItem("gms_token") || ""}`,
         },
         body: JSON.stringify({ status: newStatus }),
       });
@@ -347,7 +347,7 @@ export default function RequestsPage() {
       const res = await fetch(`/api/help-tickets?${params}`, {
         credentials: "include",
         headers: { 
-          Authorization: `Bearer ${localStorage.getItem("gms_token")}`,
+          "X-Session-Id": `${localStorage.getItem("gms_token") || ""}`,
           "Content-Type": "application/json",
         },
       });

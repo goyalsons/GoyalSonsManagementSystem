@@ -23,7 +23,6 @@ export async function isCEO(userId: string): Promise<boolean> {
   });
 
   if (!user) return false;
-  // Role tables removed - only check isSuperAdmin
   return user.isSuperAdmin;
 }
 
@@ -129,23 +128,51 @@ export async function authorize(params: {
   userId: string;
   actionKey: string;
   targetOrgUnitId?: string;
+  targetUserId?: string;
 }): Promise<AuthorizationResult> {
-  const { userId, targetOrgUnitId } = params;
+  const { userId, actionKey, targetOrgUnitId, targetUserId } = params;
 
+  // Load user with policies
   const user = await getUserWithRoles(userId);
   if (!user) {
     return { allowed: false, reason: "user_not_found" };
   }
 
+  // SuperAdmin bypasses all checks
   if (user.isSuperAdmin) {
     return { allowed: true };
   }
 
-  // Policy tables removed - only check org scope if specified
+  // Check if user has the required policy
+  const policies = await getUserPolicies(userId);
+  if (!policies.includes(actionKey)) {
+    return { allowed: false, reason: "missing_policy" };
+  }
+
+  // Check org scope if targetOrgUnitId is provided
   if (targetOrgUnitId && user.orgUnitId) {
     const subtreeIds = await getOrgSubtreeIds(user.orgUnitId);
     if (!subtreeIds.includes(targetOrgUnitId)) {
       return { allowed: false, reason: "org_out_of_scope" };
+    }
+  }
+
+  // Check org scope if targetUserId is provided (for user operations)
+  if (targetUserId) {
+    const targetUser = await prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { orgUnitId: true },
+    });
+
+    if (!targetUser) {
+      return { allowed: false, reason: "target_user_not_found" };
+    }
+
+    if (targetUser.orgUnitId && user.orgUnitId) {
+      const subtreeIds = await getOrgSubtreeIds(user.orgUnitId);
+      if (!subtreeIds.includes(targetUser.orgUnitId)) {
+        return { allowed: false, reason: "org_out_of_scope" };
+      }
     }
   }
 
@@ -168,7 +195,6 @@ export async function getAccessibleOrgUnitIds(userId: string): Promise<string[]>
     return allOrgs.map((o) => o.id);
   }
 
-  // Role tables removed - only check isSuperAdmin
   if (!user.orgUnitId) return [];
 
   return getOrgSubtreeIds(user.orgUnitId);

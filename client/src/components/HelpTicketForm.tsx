@@ -57,7 +57,7 @@ export function HelpTicketForm({
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+          "X-Session-Id": token,
         },
         body: JSON.stringify({
           subject: subject.trim(),

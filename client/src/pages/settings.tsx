@@ -36,7 +36,7 @@ export default function SettingsPage() {
     queryKey: ["user-settings"],
     queryFn: async () => {
       const res = await fetch("/api/settings", {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { "X-Session-Id": token },
       });
       if (!res.ok) throw new Error("Failed to fetch settings");
       return res.json();
@@ -56,7 +56,7 @@ export default function SettingsPage() {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+          "X-Session-Id": token,
         },
         body: JSON.stringify(data),
       });
@@ -78,7 +78,7 @@ export default function SettingsPage() {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+          "X-Session-Id": token,
         },
         body: JSON.stringify(data),
       });
@@ -100,7 +100,7 @@ export default function SettingsPage() {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+          "X-Session-Id": token,
         },
         body: JSON.stringify(data),
       });

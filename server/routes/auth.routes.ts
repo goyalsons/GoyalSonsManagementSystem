@@ -1,7 +1,8 @@
 import type { Express } from "express";
 import passport from "passport";
 import { prisma } from "../lib/prisma";
-import { authenticateUser, requireAuth } from "../lib/auth-middleware";
+import { requireAuth, hashPassword } from "../lib/auth-middleware";
+import { getUserAuthInfo } from "../lib/authorization";
 import { initializeGoogleOAuth, getCallbackUrl } from "./auth-utils";
 
 export function registerAuthRoutes(app: Express): void {
@@ -76,6 +77,17 @@ export function registerAuthRoutes(app: Express): void {
     });
   }
 
+  /**
+   * POST /api/auth/login
+   * 
+   * Authenticates user and returns sessionId.
+   * 
+   * Response format:
+   * {
+   *   token: string,  // Session ID
+   *   user: { ... }   // User auth info (includes policies)
+   * }
+   */
   app.post("/api/auth/login", async (req, res) => {
     try {
       const { email, password } = req.body;
@@ -84,9 +96,57 @@ export function registerAuthRoutes(app: Express): void {
         return res.status(400).json({ message: "Email and password are required" });
       }
 
-      const user = await authenticateUser(email, password);
+      // Authenticate user (checks password)
+      const passwordHash = hashPassword(password);
+      const user = await prisma.user.findUnique({
+        where: { email, passwordHash },
+        select: { id: true, email: true, status: true },
+      });
+
       if (!user) {
+        // Check env-based override
+        const envEmail = process.env.ENV_LOGIN_EMAIL;
+        const envPasswordHash =
+          process.env.ENV_LOGIN_PASSWORD_HASH ||
+          (process.env.ENV_LOGIN_PASSWORD ? hashPassword(process.env.ENV_LOGIN_PASSWORD) : undefined);
+
+        if (envEmail && envPasswordHash && email.toLowerCase() === envEmail.toLowerCase() && passwordHash === envPasswordHash) {
+          const envUser = await prisma.user.findUnique({
+            where: { email: envEmail },
+            select: { id: true, email: true, status: true },
+          });
+          if (envUser) {
+            // Use env user
+            const expiresAt = new Date();
+            expiresAt.setDate(expiresAt.getDate() + 7);
+
+            const session = await prisma.session.create({
+              data: {
+                userId: envUser.id,
+                expiresAt,
+                loginType: "mdo",
+              },
+            });
+
+            const authInfo = await getUserAuthInfo(envUser.id);
+            if (authInfo) {
+              return res.json({
+                token: session.id,
+                user: {
+                  ...authInfo,
+                  loginType: "mdo",
+                },
+              });
+            }
+          }
+        }
+
         return res.status(401).json({ message: "Invalid email or password" });
+      }
+
+      // Check if user is active
+      if (user.status !== "active") {
+        return res.status(403).json({ message: "Account is inactive" });
       }
 
       const expiresAt = new Date();
@@ -96,59 +156,22 @@ export function registerAuthRoutes(app: Express): void {
         data: {
           userId: user.id,
           expiresAt,
+          loginType: "mdo",
         },
       });
 
-      // Get employee card number if user has employee linked
-      let employeeCardNo = null;
-      if (user.employeeId) {
-        const employee = await prisma.employee.findUnique({
-          where: { id: user.employeeId },
-          select: { cardNumber: true },
-        });
-        employeeCardNo = employee?.cardNumber || null;
+      const authInfo = await getUserAuthInfo(user.id);
+      if (!authInfo) {
+        return res.status(500).json({ message: "User data not found" });
       }
 
-      // Check if user is a manager
-      let isManager = false;
-      let managerScopes = null;
-      if (employeeCardNo) {
-        const managerAssignments = await prisma.$queryRaw<Array<{
-          mid: string;
-          mcardno: string;
-          mdepartmentId: string | null;
-          mdesignationId: string | null;
-          morgUnitId: string | null;
-          mis_extinct: boolean;
-        }>>`
-          SELECT "mid", "mcardno", "mdepartmentId", "mdesignationId", "morgUnitId", "mis_extinct"
-          FROM "emp_manager"
-          WHERE "mcardno" = ${employeeCardNo} AND "mis_extinct" = false
-        `;
-        
-        if (managerAssignments.length > 0) {
-          isManager = true;
-          const departmentIds = Array.from(new Set(managerAssignments.map(m => m.mdepartmentId).filter((id): id is string => id !== null)));
-          const designationIds = Array.from(new Set(managerAssignments.map(m => m.mdesignationId).filter((id): id is string => id !== null)));
-          const orgUnitIds = Array.from(new Set(managerAssignments.map(m => m.morgUnitId).filter((id): id is string => id !== null)));
-          managerScopes = {
-            departmentIds: departmentIds.length > 0 ? departmentIds : null,
-            designationIds: designationIds.length > 0 ? designationIds : null,
-            orgUnitIds: orgUnitIds.length > 0 ? orgUnitIds : null,
-          };
-        }
-      }
-
-      const userWithManager = {
-        ...user,
-        employeeCardNo,
-        isManager,
-        managerScopes,
-      };
-
+      // Return response matching frontend contract
       res.json({
         token: session.id,
-        user: userWithManager,
+        user: {
+          ...authInfo,
+          loginType: "mdo",
+        },
       });
     } catch (error) {
       console.error("Login error:", error);
@@ -156,89 +179,41 @@ export function registerAuthRoutes(app: Express): void {
     }
   });
 
+  /**
+   * GET /api/auth/me
+   * 
+   * Returns current user information from session.
+   * User data is already loaded by loadUserFromSession middleware.
+   */
   app.get("/api/auth/me", requireAuth, async (req, res) => {
     try {
-      const userData = { ...req.user };
-      
-      console.log("[Auth Me] Checking manager status for user:", {
-        userId: req.user!.id,
+      // User is already loaded by loadUserFromSession middleware
+      res.json({
+        id: req.user!.id,
+        email: req.user!.email,
+        name: req.user!.name,
+        policies: req.user!.policies, // From JWT snapshot
+        isSuperAdmin: req.user!.isSuperAdmin,
+        orgUnitId: req.user!.orgUnitId,
+        roles: req.user!.roles,
+        accessibleOrgUnitIds: req.user!.accessibleOrgUnitIds,
         employeeId: req.user!.employeeId,
         employeeCardNo: req.user!.employeeCardNo,
+        isManager: req.user!.isManager,
+        managerScopes: req.user!.managerScopes,
       });
-      
-      let employeeCardNo = req.user!.employeeCardNo;
-      
-      if (!employeeCardNo && req.user!.employeeId) {
-        const employee = await prisma.employee.findUnique({
-          where: { id: req.user!.employeeId },
-          select: { cardNumber: true },
-        });
-        if (employee?.cardNumber) {
-          employeeCardNo = employee.cardNumber;
-          (userData as any).employeeCardNo = employeeCardNo;
-        }
-      }
-      
-      if (employeeCardNo) {
-        const managerAssignments = await prisma.$queryRaw<Array<{
-          mid: string;
-          mcardno: string;
-          mdepartmentId: string | null;
-          mdesignationId: string | null;
-          morgUnitId: string | null;
-          mis_extinct: boolean;
-        }>>`
-          SELECT "mid", "mcardno", "mdepartmentId", "mdesignationId", "morgUnitId", "mis_extinct"
-          FROM "emp_manager"
-          WHERE "mcardno" = ${employeeCardNo} AND "mis_extinct" = false
-          ORDER BY "mid" DESC
-        `;
-        
-        if (managerAssignments.length > 0) {
-          const departmentIds = Array.from(new Set(managerAssignments.map(m => m.mdepartmentId).filter((id): id is string => id !== null)));
-          const designationIds = Array.from(new Set(managerAssignments.map(m => m.mdesignationId).filter((id): id is string => id !== null)));
-          const orgUnitIds = Array.from(new Set(managerAssignments.map(m => m.morgUnitId).filter((id): id is string => id !== null)));
-          
-          (userData as any).isManager = true;
-          (userData as any).managerScopes = {
-            departmentIds: departmentIds.length > 0 ? departmentIds : null,
-            designationIds: designationIds.length > 0 ? designationIds : null,
-            orgUnitIds: orgUnitIds.length > 0 ? orgUnitIds : null,
-          };
-          
-          console.log("[Auth Me] ✅ User is a manager:", {
-            cardNo: employeeCardNo,
-            assignments: managerAssignments.length,
-            scopes: (userData as any).managerScopes,
-          });
-        } else {
-          (userData as any).isManager = false;
-          (userData as any).managerScopes = null;
-          console.log("[Auth Me] ❌ User is NOT a manager (no assignments found)");
-        }
-      } else {
-        (userData as any).isManager = false;
-        (userData as any).managerScopes = null;
-        console.log("[Auth Me] ❌ User is NOT a manager (no card number)");
-      }
-      
-      console.log("[Auth Me] Returning user data:", {
-        isManager: (userData as any).isManager,
-        employeeCardNo: (userData as any).employeeCardNo,
-      });
-      
-      res.json(userData);
     } catch (error) {
       console.error("Auth me error:", error);
-      res.json(req.user);
+      res.status(500).json({ message: "Failed to get user info" });
     }
   });
 
   app.post("/api/auth/logout", requireAuth, async (req, res) => {
     try {
-      const token = req.headers.authorization?.replace("Bearer ", "");
-      if (token) {
-        await prisma.session.delete({ where: { id: token } }).catch(() => {});
+      const sessionId = req.headers["x-session-id"];
+      const sessionValue = Array.isArray(sessionId) ? sessionId[0] : sessionId;
+      if (sessionValue) {
+        await prisma.session.delete({ where: { id: String(sessionValue) } }).catch(() => {});
       }
       res.json({ message: "Logged out successfully" });
     } catch (error) {

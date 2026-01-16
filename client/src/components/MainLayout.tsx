@@ -3,6 +3,7 @@ import { useLocation, Link } from "wouter";
 import { cn, encodeName } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 import { useTheme } from "@/lib/theme-context";
+import { NAV_CONFIG, getPolicyForPath } from "@/config/nav.config";
 import {
   LayoutDashboard,
   Users,
@@ -67,15 +68,17 @@ interface NavItem {
   managerOnly?: boolean; // Show only for managers
 }
 
+// Navigation items - policies come from NAV_CONFIG
+// Note: Some items may not be in NAV_CONFIG (like manager-only routes) - these use null policy
 const navItems: NavItem[] = [
-  { href: "/", icon: LayoutDashboard, label: "Dashboard", policy: null },
-  // Manager Dashboard (shown only for managers)
+  { href: "/", icon: LayoutDashboard, label: "Dashboard", policy: getPolicyForPath("/") },
+  // Manager Dashboard (shown only for managers) - not in NAV_CONFIG
   { href: "/manager/dashboard", icon: TrendingUp, label: "Manager Dashboard", policy: null, managerOnly: true },
-  { href: "/roles-assigned", icon: Shield, label: "Roles Assigned", policy: "users.assign_role" },
+  { href: "/roles-assigned", icon: Shield, label: "Roles Assigned", policy: getPolicyForPath("/roles-assigned") },
   { 
     icon: Users, 
     label: "Members", 
-    policy: "employees.view",
+    policy: getPolicyForPath("/employees"), // Use policy from NAV_CONFIG
     subItems: [
       { href: "/employees", icon: UsersRound, label: "All Members" },
       { href: "/attendance/history", icon: History, label: "Task History" },
@@ -86,7 +89,7 @@ const navItems: NavItem[] = [
   { 
     icon: CalendarCheck, 
     label: "Work Log", 
-    policy: "attendance.view",
+    policy: null, // Work Log is a container, sub-items have their own policies
     subItems: [
       { href: "/attendance", icon: ClipboardList, label: "My Work Log" },
       { href: "/attendance/today", icon: CalendarDays, label: "Today Work Log" },
@@ -97,21 +100,21 @@ const navItems: NavItem[] = [
   { 
     icon: Settings2, 
     label: "Integrations", 
-    policy: "admin.panel",
+    policy: getPolicyForPath("/integrations"),
     subItems: [
       { href: "/admin/routing", icon: Cog, label: "API Routing" },
       { href: "/admin/master-settings", icon: Database, label: "Master Settings" },
       { href: "/integrations/fetched-data", icon: Database, label: "Fetched Data" },
     ]
   },
-  { href: "/training", icon: GraduationCap, label: "Training", policy: null },
-  { href: "/requests", icon: HelpCircle, label: "Requests", policy: null },
-  { href: "/salary", icon: IndianRupee, label: "Salary", policy: null },
-  { href: "/settings", icon: Settings, label: "Settings", policy: null },
+  { href: "/training", icon: GraduationCap, label: "Training", policy: getPolicyForPath("/training") },
+  { href: "/requests", icon: HelpCircle, label: "Requests", policy: getPolicyForPath("/requests") },
+  { href: "/salary", icon: IndianRupee, label: "Salary", policy: getPolicyForPath("/salary") },
+  { href: "/settings", icon: Settings, label: "Settings", policy: getPolicyForPath("/settings") },
   // Standalone Sales Staff for employees
-  { href: "/sales-staff", icon: BarChart3, label: "Sales Staff", policy: null },
-  // Manager Team Routes (shown only for managers)
-  { href: "/assigned-manager", icon: UserCheck, label: "Assigned Manager", policy: null },
+  { href: "/sales-staff", icon: BarChart3, label: "Sales Staff", policy: getPolicyForPath("/sales-staff") },
+  // Manager Team Routes (shown only for managers) - not in NAV_CONFIG
+  { href: "/assigned-manager", icon: UserCheck, label: "Assigned Manager", policy: getPolicyForPath("/assigned-manager") },
   { href: "/manager/team-task-history", icon: History, label: "Team Task History", policy: null, managerOnly: true },
   { href: "/manager/team-sales-staff", icon: BarChart3, label: "Team Sales Staff", policy: null, managerOnly: true },
 ];
@@ -542,7 +545,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
     
     // Items members/employees should see (restricted list - no Dashboard, Training)
     // Work Log is partially visible - members see only Task History
-    // Sales Staff is visible to all members
+    // Member-visible items
     const employeeAllowedItems = ["Work Log", "Sales Staff"];
     
     // Items that are MDO-only (hidden from members)
@@ -582,37 +585,54 @@ export default function MainLayout({ children }: MainLayoutProps) {
           }
         }
         
-        // MDO users: hide standalone "Sales Staff" (they see it under Members)
-        if (item.label === "Sales Staff" && item.href === "/sales-staff") {
-          return false;
+        // Policy-based filtering - use NAV_CONFIG policies
+        if (item.policy !== null && !hasPolicy(item.policy)) return false;
+        
+        // For sub-items, check their individual policies from NAV_CONFIG
+        if (item.subItems) {
+          // Filter sub-items based on their policies from NAV_CONFIG
+          const visibleSubItems = item.subItems.filter(subItem => {
+            const subPolicy = getPolicyForPath(subItem.href);
+            return subPolicy === null || hasPolicy(subPolicy);
+          });
+          // Only show parent if at least one sub-item is visible
+          if (visibleSubItems.length === 0) return false;
         }
         
-        // MDO users use policy-based filtering
-        if (item.policy !== null && !hasPolicy(item.policy)) return false;
         return true;
       })
       .map(item => {
         if (!item.subItems) return item;
         
+        // Filter sub-items based on policies from NAV_CONFIG
+        const filteredSubItems = item.subItems.filter(subItem => {
+          const subPolicy = getPolicyForPath(subItem.href);
+          // If no policy in NAV_CONFIG, allow it (for backward compatibility)
+          if (subPolicy === null) return true;
+          // Check if user has the policy
+          return hasPolicy(subPolicy);
+        });
+        
         // For MDO users: filter out Task History from Work Log (they see it under Members)
         if (!isEmployee && item.label === "Work Log") {
-          return { ...item, subItems: item.subItems.filter(sub => sub.label !== "Task History") };
+          return { 
+            ...item, 
+            subItems: filteredSubItems.filter(sub => sub.label !== "Task History") 
+          };
         }
         
         // For members: show only Task History from Work Log section (hide My Work Log, Today Work Log, Fill Work Log)
         // Managers (who are employees) should see only Task History in Work Log menu
         if (isEmployee && item.label === "Work Log") {
           // Always show only Task History for managers (they have separate Team Task History menu)
-            return { 
-              ...item, 
-              subItems: item.subItems.filter(sub => sub.label === "Task History") 
-            };
+          return { 
+            ...item, 
+            subItems: filteredSubItems.filter(sub => sub.label === "Task History") 
+          };
         }
         
-        // Sales Staff is visible to all members in Members section
-        // No need to filter it out
-        
-        return item;
+        // Return item with filtered sub-items
+        return { ...item, subItems: filteredSubItems };
       });
   }, [hasPolicy, isEmployeeLogin, hasRole, user]);
   

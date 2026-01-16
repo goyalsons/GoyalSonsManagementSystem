@@ -1,15 +1,44 @@
 import type { Express } from "express";
 import { prisma } from "../lib/prisma";
 import { requireAuth, requirePolicy } from "../lib/auth-middleware";
+import { POLICIES } from "../constants/policies";
+import { validateUUID } from "../lib/validation";
+import { canAssignRole } from "../lib/role-assignment-security";
+import { logUserRoleAssignment } from "../lib/audit-log";
 
 export function registerUserAssignmentRoutes(app: Express): void {
   // POST /api/users/assign-role - Assign role to user
-  app.post("/api/users/assign-role", requireAuth, requirePolicy("users.assign_role"), async (req, res) => {
+  app.post("/api/users/assign-role", requireAuth, requirePolicy(POLICIES.USERS_ASSIGN_ROLE), async (req, res) => {
     try {
-      const { userId, roleId, policyIds } = req.body;
+      const { userId, roleId } = req.body;
 
       if (!userId || !roleId) {
         return res.status(400).json({ message: "User ID and Role ID are required" });
+      }
+
+      // Validate UUIDs
+      const userIdValidation = validateUUID(userId);
+      if (!userIdValidation.valid) {
+        return res.status(400).json({ message: `Invalid user ID: ${userIdValidation.error}` });
+      }
+
+      const roleIdValidation = validateUUID(roleId);
+      if (!roleIdValidation.valid) {
+        return res.status(400).json({ message: `Invalid role ID: ${roleIdValidation.error}` });
+      }
+
+      // Security check: can assigner assign this role to this user?
+      const securityCheck = await canAssignRole({
+        assignerUserId: req.user!.id,
+        targetUserId: userId,
+        roleId: roleId,
+      });
+
+      if (!securityCheck.allowed) {
+        return res.status(403).json({
+          message: "Access denied",
+          reason: securityCheck.reason
+        });
       }
 
       const user = await prisma.user.findUnique({
@@ -20,7 +49,7 @@ export function registerUserAssignmentRoutes(app: Express): void {
         return res.status(404).json({ message: "User not found" });
       }
 
-      const role = await (prisma as any).role.findUnique({
+      const role = await prisma.role.findUnique({
         where: { id: roleId },
       });
 
@@ -28,7 +57,7 @@ export function registerUserAssignmentRoutes(app: Express): void {
         return res.status(404).json({ message: "Role not found" });
       }
 
-      const existing = await (prisma as any).userRole.findUnique({
+      const existing = await prisma.userRole.findUnique({
         where: {
           userId_roleId: {
             userId,
@@ -41,12 +70,15 @@ export function registerUserAssignmentRoutes(app: Express): void {
         return res.status(400).json({ message: "Role is already assigned to this user" });
       }
 
-      await (prisma as any).userRole.create({
+      await prisma.userRole.create({
         data: {
           userId,
           roleId,
         },
       });
+
+      // Log role assignment
+      await logUserRoleAssignment(req.user!.id, userId, roleId, role.name, "assign");
 
       res.json({
         message: "Role assigned successfully",
@@ -70,11 +102,43 @@ export function registerUserAssignmentRoutes(app: Express): void {
   });
 
   // DELETE /api/users/:userId/roles/:roleId - Remove role from user
-  app.delete("/api/users/:userId/roles/:roleId", requireAuth, requirePolicy("users.assign_role"), async (req, res) => {
+  app.delete("/api/users/:userId/roles/:roleId", requireAuth, requirePolicy(POLICIES.USERS_ASSIGN_ROLE), async (req, res) => {
     try {
       const { userId, roleId } = req.params;
 
-      await (prisma as any).userRole.delete({
+      // Validate UUIDs
+      const userIdValidation = validateUUID(userId);
+      if (!userIdValidation.valid) {
+        return res.status(400).json({ message: `Invalid user ID: ${userIdValidation.error}` });
+      }
+
+      const roleIdValidation = validateUUID(roleId);
+      if (!roleIdValidation.valid) {
+        return res.status(400).json({ message: `Invalid role ID: ${roleIdValidation.error}` });
+      }
+
+      // Security check: can assigner remove role from this user?
+      // Same rules as assignment - must be in org scope
+      const securityCheck = await canAssignRole({
+        assignerUserId: req.user!.id,
+        targetUserId: userId,
+        roleId: roleId,
+      });
+
+      if (!securityCheck.allowed) {
+        return res.status(403).json({
+          message: "Access denied",
+          reason: securityCheck.reason
+        });
+      }
+
+      // Get role name for audit log
+      const role = await prisma.role.findUnique({
+        where: { id: roleId },
+        select: { name: true }
+      });
+
+      await prisma.userRole.delete({
         where: {
           userId_roleId: {
             userId,
@@ -82,6 +146,11 @@ export function registerUserAssignmentRoutes(app: Express): void {
           },
         },
       });
+
+      // Log role removal
+      if (role) {
+        await logUserRoleAssignment(req.user!.id, userId, roleId, role.name, "remove");
+      }
 
       res.json({ message: "Role removed successfully" });
     } catch (error: any) {
@@ -93,36 +162,57 @@ export function registerUserAssignmentRoutes(app: Express): void {
     }
   });
 
-  // POST /api/users/update-role-permissions - Update role's policies
-  app.post("/api/users/update-role-permissions", requireAuth, requirePolicy("users.assign_role"), async (req, res) => {
+  // POST /api/users/update-role-permissions - Update role's policies (affects all users with that role)
+  // NOTE: This endpoint name is misleading - it updates the role, not user permissions
+  // Consider deprecating in favor of PUT /api/roles/:id
+  app.post("/api/users/update-role-permissions", requireAuth, requirePolicy(POLICIES.ADMIN_ROLES), async (req, res) => {
     try {
-      const { userId, roleId, policyIds } = req.body;
+      const { roleId, policyIds } = req.body;
 
-      if (!userId || !roleId || !Array.isArray(policyIds)) {
-        return res.status(400).json({ message: "Invalid request data" });
+      if (!roleId || !Array.isArray(policyIds)) {
+        return res.status(400).json({ message: "Role ID and policy IDs array are required" });
       }
 
-      const userRole = await (prisma as any).userRole.findUnique({
-        where: {
-          userId_roleId: {
-            userId,
-            roleId,
-          },
-        },
+      // Validate role ID
+      const roleIdValidation = validateUUID(roleId);
+      if (!roleIdValidation.valid) {
+        return res.status(400).json({ message: `Invalid role ID: ${roleIdValidation.error}` });
+      }
+
+      // Validate policy IDs
+      const policyValidation = validatePolicyIds(policyIds);
+      if (!policyValidation.valid) {
+        return res.status(400).json({ message: policyValidation.error });
+      }
+
+      const role = await prisma.role.findUnique({
+        where: { id: roleId },
+        include: {
+          policies: {
+            include: {
+              policy: true
+            }
+          }
+        }
       });
 
-      if (!userRole) {
-        return res.status(404).json({ message: "User does not have this role" });
+      if (!role) {
+        return res.status(404).json({ message: "Role not found" });
       }
 
-      await prisma.$transaction(async (tx: any) => {
+      const oldPolicyIds = role.policies.map((rp) => rp.policyId);
+      const newPolicyIds = policyValidation.ids!;
+      const addedPolicies = newPolicyIds.filter((id) => !oldPolicyIds.includes(id));
+      const removedPolicies = oldPolicyIds.filter((id) => !newPolicyIds.includes(id));
+
+      await prisma.$transaction(async (tx) => {
         await tx.rolePolicy.deleteMany({
           where: { roleId },
         });
 
-        if (policyIds.length > 0) {
+        if (newPolicyIds.length > 0) {
           await tx.rolePolicy.createMany({
-            data: policyIds.map((policyId: string) => ({
+            data: newPolicyIds.map((policyId) => ({
               roleId,
               policyId,
             })),
@@ -130,7 +220,18 @@ export function registerUserAssignmentRoutes(app: Express): void {
         }
       });
 
-      res.json({ message: "Permissions updated successfully" });
+      // Log role-policy changes
+      if (addedPolicies.length > 0 || removedPolicies.length > 0) {
+        await logRolePolicyChange(
+          req.user!.id,
+          roleId,
+          role.name,
+          addedPolicies,
+          removedPolicies
+        );
+      }
+
+      res.json({ message: "Role permissions updated successfully" });
     } catch (error) {
       console.error("Update permissions error:", error);
       res.status(500).json({ message: "Failed to update permissions" });

@@ -42,7 +42,7 @@ export default function MasterSettingsPage() {
     queryKey: ["api-routes"],
     queryFn: async () => {
       const res = await fetch("/api/admin/routing", {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { "X-Session-Id": token },
       });
       if (!res.ok) throw new Error("Failed to fetch routes");
       return res.json();
@@ -56,7 +56,7 @@ export default function MasterSettingsPage() {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+          "X-Session-Id": token,
         },
         body: JSON.stringify({ status }),
       });
@@ -84,7 +84,7 @@ export default function MasterSettingsPage() {
     try {
       const res = await fetch(`/api/admin/routing/${route.id}/test`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { "X-Session-Id": token },
       });
       
       const result = await res.json();

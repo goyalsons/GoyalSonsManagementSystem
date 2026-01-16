@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { motion } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { PieChart, Pie, Cell, BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { format } from "date-fns";
+import { useToast } from "@/hooks/use-toast";
 
 interface DashboardData {
   success: boolean;
@@ -200,6 +201,8 @@ function UnitCard({ unit, onClick, lastUpdateTime, dataMonthRange }: {
 
 export default function SalesPage() {
   const [, setLocation] = useLocation();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
   const [selectedMonth, setSelectedMonth] = useState<string>('');
 
   // Fetch monthly sales data
@@ -207,7 +210,7 @@ export default function SalesPage() {
     queryKey: ['/api/sales/monthly'],
     queryFn: async () => {
       const res = await fetch('/api/sales/monthly', {
-        headers: { Authorization: `Bearer ${localStorage.getItem('gms_token')}` }
+        headers: { "X-Session-Id": `${localStorage.getItem("gms_token") || ""}` }
       });
       return res.json();
     },
@@ -264,14 +267,22 @@ export default function SalesPage() {
     }
     
     // Calculate KPIs
+    // Note: BRAND field is either "INHOUSE" or "SOR"
+    // If BRAND = "INHOUSE", the TOTAL_SALE is in-house sale
+    // If BRAND = "SOR", the TOTAL_SALE is SOR (external) sale
     let totalSale = 0;
     let inhouseSale = 0;
     const staffSet = new Set<string>();
     const unitSet = new Set<string>();
     
     records.forEach((r: any) => {
-      totalSale += parseFloat(r.TOTAL_SALE || r.totalSale || '0') || 0;
-      inhouseSale += parseFloat(r.INHOUSE_SAL || r.inhouseSal || '0') || 0;
+      const sale = parseFloat(r.TOTAL_SALE || r.totalSale || '0') || 0;
+      const brand = (r.BRAND || r.brand || '').toString().toUpperCase();
+      totalSale += sale;
+      // If BRAND is INHOUSE, add to inhouseSale
+      if (brand === 'INHOUSE') {
+        inhouseSale += sale;
+      }
       if (r.SMNO || r.smno) staffSet.add(r.SMNO || r.smno);
       if (r.SHRTNAME || r.shrtname) unitSet.add(r.SHRTNAME || r.shrtname);
     });
@@ -283,9 +294,14 @@ export default function SalesPage() {
       if (!unitMap[unit]) {
         unitMap[unit] = { totalSale: 0, inhouseSale: 0, staffCount: 0, deptSet: new Set() };
       }
-      unitMap[unit].totalSale += parseFloat(r.TOTAL_SALE || r.totalSale || '0') || 0;
-      unitMap[unit].inhouseSale += parseFloat(r.INHOUSE_SAL || r.inhouseSal || '0') || 0;
-      if (r.DEPT || r.dept) unitMap[unit].deptSet.add(r.DEPT || r.dept);
+      const sale = parseFloat(r.TOTAL_SALE || r.totalSale || '0') || 0;
+      const brand = (r.BRAND || r.brand || '').toString().toUpperCase();
+      unitMap[unit].totalSale += sale;
+      // If BRAND is INHOUSE, add to inhouseSale
+      if (brand === 'INHOUSE') {
+        unitMap[unit].inhouseSale += sale;
+      }
+      if (r.DEPT || r.dept || r.Div || r.DIV) unitMap[unit].deptSet.add(r.DEPT || r.dept || r.Div || r.DIV);
     });
 
     // Count unique staff per unit
@@ -376,7 +392,7 @@ export default function SalesPage() {
       const refreshRes = await fetch('/api/sales/monthly/refresh', {
         method: 'POST',
         headers: { 
-          Authorization: `Bearer ${localStorage.getItem('gms_token')}`,
+          "X-Session-Id": `${localStorage.getItem("gms_token") || ""}`,
           'Content-Type': 'application/json'
         }
       });
@@ -398,13 +414,23 @@ export default function SalesPage() {
       if (refreshData.success) {
         // After successful refresh, refetch monthly data
         await refetchMonthly();
+        // Also invalidate pivot data so sales-staff page gets updated too
+        await queryClient.invalidateQueries({ queryKey: ["/api/sales/pivot"] });
+        toast({
+          title: "Data Refreshed",
+          description: `Successfully fetched ${refreshData.recordCount || 0} records from the sales API.`,
+        });
       } else {
         throw new Error(refreshData.message || 'Refresh failed');
       }
     } catch (error: any) {
       console.error('Refresh error:', error);
       const errorMessage = error?.message || 'Failed to refresh data. Please try again.';
-      alert(`Failed to refresh data: ${errorMessage}`);
+      toast({
+        title: "Refresh Failed",
+        description: errorMessage,
+        variant: "destructive",
+      });
     } finally {
       setIsRefreshing(false);
     }
@@ -413,8 +439,8 @@ export default function SalesPage() {
   const pieData = useMemo(() => {
     if (!dashboardData?.kpis) return [];
     return [
+      { name: 'SOR', value: dashboardData.kpis.externalSale },
       { name: 'In-House', value: dashboardData.kpis.inhouseSale },
-      { name: 'External', value: dashboardData.kpis.externalSale },
     ];
   }, [dashboardData]);
 
@@ -450,22 +476,6 @@ export default function SalesPage() {
         <div className="flex-1">
           <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Sales Dashboard</h1>
           <p className="text-muted-foreground text-sm sm:text-base">Executive overview of sales performance</p>
-          {(dashboardData?.lastUpdateTime || monthRange) && (
-            <div className="flex flex-wrap items-center gap-3 mt-3">
-               {monthRange && (
-                 <div className={`${GLASS_STYLE} rounded-lg px-3 py-1.5 flex items-center gap-2`}>
-                   <Calendar className="h-4 w-4 text-primary" />
-                   <div className="flex flex-col">
-                     <span className="text-xs text-muted-foreground">Data Period</span>
-                     <span className="text-sm font-semibold text-foreground">
-                       {monthRange.from} to {monthRange.to}
-                       {dashboardData?.lastUpdateTime && ` • ${format(new Date(dashboardData.lastUpdateTime), 'HH:mm')}`}
-                     </span>
-                   </div>
-                 </div>
-               )}
-            </div>
-          )}
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -527,9 +537,30 @@ export default function SalesPage() {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <KPICard title="Total Sale" value={dashboardData?.kpis?.totalSale || 0} icon={IndianRupee} color="text-green-600" />
+        <KPICard title="SOR Sale" value={dashboardData?.kpis?.externalSale || 0} icon={Store} color="text-indigo-600" />
         <KPICard title="In-House Sale" value={dashboardData?.kpis?.inhouseSale || 0} icon={TrendingUp} color="text-blue-600" />
-        <KPICard title="Total Staff" value={dashboardData?.kpis?.totalStaff || 0} icon={Users} color="text-purple-600" isCurrency={false} />
-        <KPICard title="Total Units" value={dashboardData?.kpis?.totalUnits || 0} icon={Building2} color="text-amber-600" isCurrency={false} />
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className={`${GLASS_STYLE} rounded-2xl p-6 hover:scale-[1.02] transition-transform cursor-default`}
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-muted-foreground font-medium">Data Period</p>
+              <p className="text-xl font-bold text-amber-600 dark:text-opacity-90">
+                {monthRange ? monthRange.full : "No Data"}
+              </p>
+              <div className="flex items-center gap-2 text-xs mt-1 text-muted-foreground">
+                <span>{dashboardData?.kpis?.totalStaff || 0} Staff</span>
+                <span>•</span>
+                <span>{dashboardData?.kpis?.totalUnits || 0} Units</span>
+              </div>
+            </div>
+            <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-amber-100 to-orange-100 dark:from-amber-500/20 dark:to-orange-500/20 flex items-center justify-center">
+              <Calendar className="h-7 w-7 text-amber-600" />
+            </div>
+          </div>
+        </motion.div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -583,22 +614,6 @@ export default function SalesPage() {
           </Card>
         </motion.div>
       </div>
-
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}>
-        <Card className={GLASS_STYLE}>
-          <CardHeader><CardTitle className="text-foreground">Monthly Trend</CardTitle></CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={250}>
-              <LineChart data={dashboardData?.trendData || []}>
-                <XAxis dataKey="month" tickFormatter={(v) => format(new Date(v + '-01'), 'MMM')} />
-                <YAxis tickFormatter={(v) => `₹${(v/10000000).toFixed(1)}Cr`} />
-                <Tooltip formatter={(v: number | undefined) => v !== undefined ? formatCurrency(v) : ''} labelFormatter={(v) => format(new Date(v + '-01'), 'MMM yyyy')} />
-                <Line type="monotone" dataKey="sale" stroke="#6366f1" strokeWidth={3} dot={{ fill: '#6366f1', r: 6 }} />
-              </LineChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-      </motion.div>
     </div>
   );
 }
