@@ -1,9 +1,13 @@
 import dotenv from "dotenv";
 import path from "path";
 
-dotenv.config({
-  path: path.resolve(process.cwd(), ".env"),
-});
+// In production (Railway), DO NOT load .env from disk.
+// Railway injects environment variables (PORT, DATABASE_URL, etc.) and those must win.
+if (process.env.NODE_ENV !== "production") {
+  dotenv.config({
+    path: path.resolve(process.cwd(), ".env"),
+  });
+}
 
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
@@ -19,9 +23,14 @@ console.log(
   process.env.BIGQUERY_CREDENTIALS || process.env.GOOGLE_APPLICATION_CREDENTIALS
 );
 
+console.log("BOOT => NODE_ENV:", process.env.NODE_ENV, "PORT:", process.env.PORT);
 
 const app = express();
 const httpServer = createServer(app);
+
+// Health check must be fast and available in all envs.
+// Keep it BEFORE any auth/session middleware.
+app.get("/api/health", (_req, res) => res.status(200).send("ok"));
 
 declare module "http" {
   interface IncomingMessage {
@@ -77,21 +86,6 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  // Create SalesData table if it doesn't exist
-  try {
-    await createSalesDataTable();
-  } catch (error: any) {
-    console.warn('[Server] Could not create SalesData table (may already exist):', error.message);
-  }
-
-  // Sync policies from NAV_CONFIG to database
-  try {
-    await initializePolicySync();
-  } catch (error: any) {
-    console.error('[Server] ❌ Failed to sync policies:', error.message);
-    // Don't block server startup, but log the error
-  }
-
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
@@ -117,8 +111,29 @@ app.use((req, res, next) => {
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || "5000", 10);
-  httpServer.listen(port, () => {
+  httpServer.listen(port, "0.0.0.0", () => {
     log(`serving on port ${port}`);
     startAutoSync();
+
+    // Run DB-backed startup tasks WITHOUT blocking listen/healthcheck.
+    void (async () => {
+      // Create SalesData table if it doesn't exist
+      try {
+        await createSalesDataTable();
+      } catch (error: any) {
+        console.warn(
+          "[Server] Could not create SalesData table (may already exist):",
+          error.message,
+        );
+      }
+
+      // Sync policies from NAV_CONFIG to database
+      try {
+        await initializePolicySync();
+      } catch (error: any) {
+        console.error("[Server] ❌ Failed to sync policies:", error.message);
+        // Don't block server startup, but log the error
+      }
+    })();
   });
 })();

@@ -2,9 +2,12 @@ import dotenv from 'dotenv';
 import path from 'path';
 
 // Load environment variables
-dotenv.config({
-  path: path.resolve(process.cwd(), '.env'),
-});
+// Only load .env in local/dev. In production (Railway), env vars are injected.
+if (process.env.NODE_ENV !== "production") {
+  dotenv.config({
+    path: path.resolve(process.cwd(), '.env'),
+  });
+}
 
 import { prisma } from './lib/prisma';
 

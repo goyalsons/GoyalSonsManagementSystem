@@ -1,6 +1,9 @@
 import { BigQuery } from "@google-cloud/bigquery";
 import dotenv from "dotenv";
-dotenv.config();
+// Only load .env in local/dev. In production (Railway), env vars are injected.
+if (process.env.NODE_ENV !== "production") {
+  dotenv.config();
+}
 
 interface AttendanceRecord {
   card_no: string;

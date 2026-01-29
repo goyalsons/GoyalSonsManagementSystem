@@ -1,9 +1,12 @@
 import dotenv from "dotenv";
 import path from "path";
 
-dotenv.config({
-  path: path.resolve(process.cwd(), ".env"),
-});
+// Only load .env in local/dev. In production (Railway), env vars are injected.
+if (process.env.NODE_ENV !== "production") {
+  dotenv.config({
+    path: path.resolve(process.cwd(), ".env"),
+  });
+}
 
 import type { Express } from "express";
 import express from "express";
