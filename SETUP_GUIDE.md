@@ -430,10 +430,10 @@ npm run db:push
 
 ### Step 4: Seed Initial Data
 
-The project includes a seed script to create initial data (roles, policies, default admin user):
+The project includes a seed script to create initial data (roles, policies, etc.):
 
 ```bash
-npm run db:seed
+npm run seed
 ```
 
 Or run directly:
@@ -480,13 +480,7 @@ http://localhost:5000
 
 ### Default Login Credentials
 
-After seeding the database, you can log in with:
-
-| Field | Value |
-|-------|-------|
-| Email | akshat@goyalsons.com |
-| Password | akshat@123 |
-| Role | CEO (Super Admin) |
+This repo does not ship with hardcoded company emails. If user seeding is enabled for your environment, the seed output will print any created users and their generated passwords.
 
 ### Available Scripts
 
@@ -498,7 +492,7 @@ After seeding the database, you can log in with:
 | `npx prisma studio` | Open database GUI |
 | `npm run db:migrate` | Run database migrations |
 | `npm run db:push` | Push schema changes to database (Drizzle) |
-| `npm run db:seed` | Seed initial data |
+| `npm run seed` | Seed initial data |
 
 ---
 
@@ -697,7 +691,7 @@ npx prisma studio        # Open database GUI
 npx prisma generate      # Generate Prisma client
 npm run db:migrate       # Run database migrations
 npm run db:push          # Push schema changes (Drizzle)
-npm run db:seed          # Seed initial data
+npm run seed             # Seed initial data
 npm run db:reset         # Reset database and reseed (WARNING: deletes data)
 
 # Troubleshooting

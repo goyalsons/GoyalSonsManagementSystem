@@ -3,7 +3,7 @@ import { requireAuth, requirePolicy } from "../lib/auth-middleware";
 
 export function registerWorkflowRoutes(app: Express): void {
   // GET /api/roles/workflow - Get role hierarchy workflow
-  app.get("/api/roles/workflow", requireAuth, async (req, res) => {
+  app.get("/api/roles/workflow", requireAuth, requirePolicy("admin.panel"), async (req, res) => {
     try {
       const workflow = {
         roles: [],
@@ -18,7 +18,7 @@ export function registerWorkflowRoutes(app: Express): void {
   });
 
   // POST /api/roles/workflow - Save role hierarchy workflow
-  app.post("/api/roles/workflow", requireAuth, requirePolicy("admin.roles"), async (req, res) => {
+  app.post("/api/roles/workflow", requireAuth, requirePolicy("admin.panel"), async (req, res) => {
     try {
       const { roles, connections } = req.body;
 

@@ -1,9 +1,10 @@
 import type { Express } from "express";
 import { prisma } from "../lib/prisma";
-import { requireAuth, requireMDO, hashPassword } from "../lib/auth-middleware";
+import { requireAuth, requirePolicy, hashPassword } from "../lib/auth-middleware";
+import { POLICIES } from "../constants/policies";
 
 export function registerSettingsRoutes(app: Express): void {
-  app.get("/api/settings", requireAuth, requireMDO, async (req, res) => {
+  app.get("/api/settings", requireAuth, requirePolicy(POLICIES.SETTINGS_VIEW), async (req, res) => {
     try {
       let settings = await prisma.userSettings.findUnique({
         where: { userId: req.user!.id },
@@ -22,7 +23,7 @@ export function registerSettingsRoutes(app: Express): void {
     }
   });
 
-  app.put("/api/settings", requireAuth, requireMDO, async (req, res) => {
+  app.put("/api/settings", requireAuth, requirePolicy(POLICIES.SETTINGS_VIEW), async (req, res) => {
     try {
       const { theme, emailNotifications, smsNotifications, loginMethod, timezone, language } = req.body;
 
@@ -54,7 +55,7 @@ export function registerSettingsRoutes(app: Express): void {
     }
   });
 
-  app.put("/api/settings/profile", requireAuth, requireMDO, async (req, res) => {
+  app.put("/api/settings/profile", requireAuth, requirePolicy(POLICIES.SETTINGS_VIEW), async (req, res) => {
     try {
       const { name, phone } = req.body;
 
@@ -70,7 +71,7 @@ export function registerSettingsRoutes(app: Express): void {
     }
   });
 
-  app.put("/api/settings/password", requireAuth, requireMDO, async (req, res) => {
+  app.put("/api/settings/password", requireAuth, requirePolicy(POLICIES.SETTINGS_VIEW), async (req, res) => {
     try {
       const { currentPassword, newPassword } = req.body;
 

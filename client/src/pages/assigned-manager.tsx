@@ -709,10 +709,17 @@ export default function AssignedManagerPage() {
                   {employees.map((employee: any) => {
                     const isSelected = isEmployeeSelected(employee.id);
                     return (
-                      <button
+                      <div
                         key={employee.id}
-                        type="button"
+                        role="button"
+                        tabIndex={0}
                         onClick={() => handleToggleEmployee(employee)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            handleToggleEmployee(employee);
+                          }
+                        }}
                         className="w-full p-3 text-left hover:bg-slate-50 transition-colors flex items-center gap-3"
                       >
                         <div className="flex items-center">
@@ -752,7 +759,7 @@ export default function AssignedManagerPage() {
                         {isSelected && (
                           <Check className="h-5 w-5 text-indigo-600" />
                         )}
-                      </button>
+                      </div>
                     );
                   })}
                 </div>

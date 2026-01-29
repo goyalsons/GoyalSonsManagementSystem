@@ -65,15 +65,12 @@ interface NavItem {
   label: string;
   policy: string | null;
   subItems?: SubNavItem[];
-  managerOnly?: boolean; // Show only for managers
 }
 
 // Navigation items - policies come from NAV_CONFIG
 // Note: Some items may not be in NAV_CONFIG (like manager-only routes) - these use null policy
 const navItems: NavItem[] = [
   { href: "/", icon: LayoutDashboard, label: "Dashboard", policy: getPolicyForPath("/") },
-  // Manager Dashboard (shown only for managers) - not in NAV_CONFIG
-  { href: "/manager/dashboard", icon: TrendingUp, label: "Manager Dashboard", policy: null, managerOnly: true },
   { href: "/roles-assigned", icon: Shield, label: "Roles Assigned", policy: getPolicyForPath("/roles-assigned") },
   { 
     icon: Users, 
@@ -89,7 +86,7 @@ const navItems: NavItem[] = [
   { 
     icon: CalendarCheck, 
     label: "Work Log", 
-    policy: null, // Work Log is a container, sub-items have their own policies
+    policy: getPolicyForPath("/attendance/history"),
     subItems: [
       { href: "/attendance", icon: ClipboardList, label: "My Work Log" },
       { href: "/attendance/today", icon: CalendarDays, label: "Today Work Log" },
@@ -97,6 +94,8 @@ const navItems: NavItem[] = [
       { href: "/attendance/history", icon: History, label: "Task History" },
     ]
   },
+  // Standalone Sales for staff (employees don't have employees.view so "Members" submenu is hidden)
+  { href: "/sales-staff", icon: TrendingUp, label: "Sales", policy: getPolicyForPath("/sales-staff") },
   { 
     icon: Settings2, 
     label: "Integrations", 
@@ -111,12 +110,8 @@ const navItems: NavItem[] = [
   { href: "/requests", icon: HelpCircle, label: "Requests", policy: getPolicyForPath("/requests") },
   { href: "/salary", icon: IndianRupee, label: "Salary", policy: getPolicyForPath("/salary") },
   { href: "/settings", icon: Settings, label: "Settings", policy: getPolicyForPath("/settings") },
-  // Standalone Sales Staff for employees
-  { href: "/sales-staff", icon: BarChart3, label: "Sales Staff", policy: getPolicyForPath("/sales-staff") },
-  // Manager Team Routes (shown only for managers) - not in NAV_CONFIG
+  // (Sales pivot is shown as "Sales" above)
   { href: "/assigned-manager", icon: UserCheck, label: "Assigned Manager", policy: getPolicyForPath("/assigned-manager") },
-  { href: "/manager/team-task-history", icon: History, label: "Team Task History", policy: null, managerOnly: true },
-  { href: "/manager/team-sales-staff", icon: BarChart3, label: "Team Sales Staff", policy: null, managerOnly: true },
 ];
 
 const adminItems: NavItem[] = [];
@@ -124,7 +119,7 @@ const adminItems: NavItem[] = [];
 // Mobile bottom navigation items (base list - will be filtered by role)
 const baseMobileNavItems = [
   { href: "/", icon: Home, label: "Home" },
-  { href: "/attendance", icon: CalendarCheck, label: "Work Log" },
+  { href: "/attendance/history", icon: CalendarCheck, label: "Work Log" },
 ];
 
 const NavLink = React.memo(function NavLink({ 
@@ -355,15 +350,7 @@ const SidebarNav = React.memo(function SidebarNav({
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-xs sm:text-sm font-medium text-sidebar-foreground truncate">{encodeName(user.name)}</p>
-              <p className="text-[10px] sm:text-xs text-sidebar-foreground/60 truncate">
-                {user.loginType === "employee" && user.employeeCardNo 
-                  ? user.employeeCardNo 
-                  : user.email}
-              </p>
             </div>
-            {user.isSuperAdmin && (
-              <Shield className="h-3 w-3 sm:h-4 sm:w-4 text-amber-400 shrink-0" />
-            )}
           </div>
           
           <Button 
@@ -383,21 +370,14 @@ const SidebarNav = React.memo(function SidebarNav({
 // Mobile Bottom Navigation Component
 function MobileBottomNav({ location }: { location: string }) {
   const [showMore, setShowMore] = useState(false);
-  const { user, isEmployeeLogin } = useAuth();
-  const isEmployee = isEmployeeLogin();
-  const isMDO = user?.loginType === "mdo";
+  const { hasPolicy } = useAuth();
   
-  // Filter mobile nav items based on role - hide Work Log from members
   const mobileNavItems = useMemo(() => {
-    if (isEmployee) {
-      // Members only see Home (Work Log is hidden)
-      return baseMobileNavItems.filter(item => 
-        item.href === "/"
-      );
-    }
-    // MDO sees all items
-    return baseMobileNavItems;
-  }, [isEmployee]);
+    return baseMobileNavItems.filter(item => {
+      const policy = getPolicyForPath(item.href);
+      return policy !== null && hasPolicy(policy);
+    });
+  }, [hasPolicy]);
   
   return (
     <>
@@ -421,24 +401,21 @@ function MobileBottomNav({ location }: { location: string }) {
             </div>
           </div>
           <div className="p-2 max-h-[50vh] overflow-y-auto">
-            {/* Hide Training from members - MDO only */}
-            {isMDO && (
-              <>
-                <Link href="/training" onClick={() => setShowMore(false)}>
-                  <div className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 touch-manipulation">
-                    <GraduationCap className="h-5 w-5 text-muted-foreground" />
-                    <span className="text-slate-700 dark:text-slate-300">Training</span>
-                  </div>
-                </Link>
-              </>
-            )}
-            {isMDO && (
-            <Link href="/settings" onClick={() => setShowMore(false)}>
+            {getPolicyForPath("/training") && hasPolicy(getPolicyForPath("/training")!) && (
+              <Link href="/training" onClick={() => setShowMore(false)}>
                 <div className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 touch-manipulation">
-                <Settings className="h-5 w-5 text-muted-foreground" />
+                  <GraduationCap className="h-5 w-5 text-muted-foreground" />
+                  <span className="text-slate-700 dark:text-slate-300">Training</span>
+                </div>
+              </Link>
+            )}
+            {getPolicyForPath("/settings") && hasPolicy(getPolicyForPath("/settings")!) && (
+              <Link href="/settings" onClick={() => setShowMore(false)}>
+                <div className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 touch-manipulation">
+                  <Settings className="h-5 w-5 text-muted-foreground" />
                   <span className="text-slate-700 dark:text-slate-300">Settings</span>
-              </div>
-            </Link>
+                </div>
+              </Link>
             )}
           </div>
         </div>
@@ -504,7 +481,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
     });
     return initial;
   });
-  const { user, logout, hasPolicy, hasRole, isEmployeeLogin, isManager } = useAuth();
+  const { user, logout, hasPolicy } = useAuth();
   const { theme, toggleTheme } = useTheme();
 
   const toggleMenu = useCallback((label: string) => {
@@ -524,122 +501,35 @@ export default function MainLayout({ children }: MainLayoutProps) {
   }, []);
   
   const visibleNavItems = useMemo(() => {
-    const isEmployee = isEmployeeLogin();
-    const isMDO = user?.loginType === "mdo";
-    const isSMDesignation = user?.employee?.designationCode?.toUpperCase() === "SM";
-    const managerStatus = isManager();
-    
-    // Debug logging
-    console.log("[Nav Debug] Manager Check:", {
-      isManager: managerStatus,
-      userIsManager: user?.isManager,
-      employeeCardNo: user?.employeeCardNo,
-      employeeId: user?.employeeId,
-      managerScopes: user?.managerScopes,
-      userObject: user,
-    });
-    
-    // Log all managerOnly items
-    const managerOnlyItems = navItems.filter(item => item.managerOnly);
-    console.log("[Nav Debug] Manager-only items:", managerOnlyItems.map(i => i.label));
-    
-    // Items members/employees should see (restricted list - no Dashboard, Training)
-    // Work Log is partially visible - members see only Task History
-    // Member-visible items
-    const employeeAllowedItems = ["Work Log", "Sales Staff"];
-    
-    // Items that are MDO-only (hidden from members)
-    const mdoOnlyItems = ["Training"];
-    
     return navItems
       .filter(item => {
-        // Manager-only items - show only if user is a manager (even for employees)
-        if (item.managerOnly) {
-          return managerStatus; // Show if manager, hide if not
-        }
+        if (!item.policy || !hasPolicy(item.policy)) return false;
 
-        // Settings is ONLY for MDO
-        if (item.label === "Settings" && !isMDO) {
-          return false;
-        }
-
-        // Requests is ONLY for Managers and MDO (hide from regular employees)
-        if (item.label === "Requests") {
-          return managerStatus || isMDO;
-        }
-
-        // Hide MDO-only items from members (unless they're managers)
-        if (isEmployee && mdoOnlyItems.includes(item.label) && !managerStatus) {
-          return false;
-        }
-
-        if (isEmployee) {
-          // Regular members see only specific items
-          // Managers who are employees see manager items + their regular items
-          if (managerStatus) {
-            // Manager employees: show manager items OR employee allowed items
-            return employeeAllowedItems.includes(item.label) || item.managerOnly;
-          } else {
-            // Regular employees: only show employee allowed items
-            return employeeAllowedItems.includes(item.label);
-          }
-        }
-        
-        // Policy-based filtering - use NAV_CONFIG policies
-        if (item.policy !== null && !hasPolicy(item.policy)) return false;
-        
-        // For sub-items, check their individual policies from NAV_CONFIG
         if (item.subItems) {
-          // Filter sub-items based on their policies from NAV_CONFIG
           const visibleSubItems = item.subItems.filter(subItem => {
             const subPolicy = getPolicyForPath(subItem.href);
-            return subPolicy === null || hasPolicy(subPolicy);
+            return subPolicy !== null && hasPolicy(subPolicy);
           });
-          // Only show parent if at least one sub-item is visible
           if (visibleSubItems.length === 0) return false;
         }
-        
+
         return true;
       })
       .map(item => {
         if (!item.subItems) return item;
-        
-        // Filter sub-items based on policies from NAV_CONFIG
+
         const filteredSubItems = item.subItems.filter(subItem => {
           const subPolicy = getPolicyForPath(subItem.href);
-          // If no policy in NAV_CONFIG, allow it (for backward compatibility)
-          if (subPolicy === null) return true;
-          // Check if user has the policy
-          return hasPolicy(subPolicy);
+          return subPolicy !== null && hasPolicy(subPolicy);
         });
-        
-        // For MDO users: filter out Task History from Work Log (they see it under Members)
-        if (!isEmployee && item.label === "Work Log") {
-          return { 
-            ...item, 
-            subItems: filteredSubItems.filter(sub => sub.label !== "Task History") 
-          };
-        }
-        
-        // For members: show only Task History from Work Log section (hide My Work Log, Today Work Log, Fill Work Log)
-        // Managers (who are employees) should see only Task History in Work Log menu
-        if (isEmployee && item.label === "Work Log") {
-          // Always show only Task History for managers (they have separate Team Task History menu)
-          return { 
-            ...item, 
-            subItems: filteredSubItems.filter(sub => sub.label === "Task History") 
-          };
-        }
-        
-        // Return item with filtered sub-items
+
         return { ...item, subItems: filteredSubItems };
       });
-  }, [hasPolicy, isEmployeeLogin, hasRole, user]);
+  }, [hasPolicy]);
   
   const visibleAdminItems = useMemo(() => {
-    if (isEmployeeLogin()) return [];
-    return adminItems.filter(item => item.policy === null || hasPolicy(item.policy));
-  }, [hasPolicy, isEmployeeLogin]);
+    return adminItems.filter(item => item.policy !== null && hasPolicy(item.policy));
+  }, [hasPolicy]);
 
   const handleSignOut = useCallback(async () => {
     await logout();
@@ -789,11 +679,6 @@ export default function MainLayout({ children }: MainLayoutProps) {
                 <DropdownMenuLabel className="font-normal">
                   <div className="flex flex-col space-y-1">
                     <p className="text-sm font-medium truncate text-slate-900 dark:text-slate-100">{user?.name}</p>
-                    <p className="text-xs text-muted-foreground truncate">
-                      {user?.loginType === "employee" && user?.employeeCardNo 
-                        ? user.employeeCardNo 
-                        : user?.email}
-                    </p>
                   </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator className="bg-slate-200 dark:bg-slate-800" />

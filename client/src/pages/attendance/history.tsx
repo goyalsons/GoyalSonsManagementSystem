@@ -214,9 +214,9 @@ function calculateSummary(records: AttendanceRecord[]) {
 }
 
 export default function AttendanceHistoryPage() {
-  const { user, isEmployeeLogin } = useAuth();
-  const isEmployee = isEmployeeLogin();
+  const { user } = useAuth();
   const employeeCardNo = user?.employeeCardNo;
+  const hasEmployeeCardNo = Boolean(employeeCardNo);
   
   const [cardNo, setCardNo] = useState("");
   const [searchCardNo, setSearchCardNo] = useState("");
@@ -226,13 +226,13 @@ export default function AttendanceHistoryPage() {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [helpTicketOpen, setHelpTicketOpen] = useState(false);
 
-  // Auto-load employee's own data on mount
+  // Auto-load data when a card number is available
   useEffect(() => {
-    if (isEmployee && employeeCardNo) {
+    if (employeeCardNo) {
       setCardNo(employeeCardNo);
       setSearchCardNo(employeeCardNo);
     }
-  }, [isEmployee, employeeCardNo]);
+  }, [employeeCardNo]);
 
   const monthDate = useMemo(() => {
     const month = String(selectedMonth + 1).padStart(2, "0");
@@ -378,15 +378,15 @@ export default function AttendanceHistoryPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-foreground">
-          {isEmployee ? "My Work Log History" : "Task History"}
+          {hasEmployeeCardNo ? "My Work Log History" : "Task History"}
         </h1>
         <p className="text-muted-foreground">
-          {isEmployee ? "View your work log records" : "View member work log records by card number"}
+          {hasEmployeeCardNo ? "View your work log records" : "View member work log records by card number"}
         </p>
       </div>
 
-      {/* Search Card - Only show for MDO users, employees auto-load their own data */}
-      {!isEmployee && (
+      {/* Search Card - show when no default card number is available */}
+      {!hasEmployeeCardNo && (
         <Card className="border-border bg-card shadow-sm">
           <CardHeader className="pb-4">
             <CardTitle className="text-base font-medium flex items-center gap-2 text-foreground">

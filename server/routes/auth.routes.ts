@@ -4,6 +4,73 @@ import { prisma } from "../lib/prisma";
 import { requireAuth, hashPassword } from "../lib/auth-middleware";
 import { getUserAuthInfo } from "../lib/authorization";
 import { initializeGoogleOAuth, getCallbackUrl } from "./auth-utils";
+import { invalidateSessionAuthCache } from "../lib/auth-cache";
+
+/**
+ * BUSINESS OVERRIDE:
+ * Any user who logs in via email/password should be treated as "Director"
+ * and should receive ALL policies.
+ *
+ * NOTE: This mutates RBAC state in the database (UserRole + RolePolicy).
+ */
+async function promotePasswordLoginToDirector(userId: string): Promise<void> {
+  // Ensure Director role exists
+  const directorRole = await prisma.role.upsert({
+    where: { name: "Director" },
+    update: {},
+    create: {
+      name: "Director",
+      description: "Auto-promoted role for password logins",
+    },
+    select: { id: true },
+  });
+
+  // Ensure Director role has ALL policies (as present in DB)
+  const allPolicies = await prisma.policy.findMany({ select: { id: true } });
+  const existingRolePolicies = await prisma.rolePolicy.findMany({
+    where: { roleId: directorRole.id },
+    select: { policyId: true },
+  });
+  const existingPolicyIds = new Set(existingRolePolicies.map((rp) => rp.policyId));
+  const missingRolePolicies = allPolicies
+    .filter((p) => !existingPolicyIds.has(p.id))
+    .map((p) => ({ roleId: directorRole.id, policyId: p.id }));
+
+  if (missingRolePolicies.length > 0) {
+    await prisma.rolePolicy.createMany({
+      data: missingRolePolicies,
+      skipDuplicates: true,
+    });
+  }
+
+  // Ensure user has Director role
+  const userHasDirectorRole = await prisma.userRole.findUnique({
+    where: {
+      userId_roleId: {
+        userId,
+        roleId: directorRole.id,
+      },
+    },
+    select: { userId: true },
+  });
+
+  if (!userHasDirectorRole) {
+    await prisma.userRole.create({
+      data: {
+        userId,
+        roleId: directorRole.id,
+      },
+    });
+  }
+
+  // Bump policyVersion so session snapshots invalidate when role/policies change
+  if (missingRolePolicies.length > 0 || !userHasDirectorRole) {
+    await prisma.user.update({
+      where: { id: userId },
+      data: { policyVersion: { increment: 1 } },
+    });
+  }
+}
 
 export function registerAuthRoutes(app: Express): void {
   // Initialize Google OAuth Strategy
@@ -48,6 +115,11 @@ export function registerAuthRoutes(app: Express): void {
           
           const userEmail = user.email?.toLowerCase();
           const loginType = "mdo";
+
+          // Google login (whitelisted by strategy): promote to Director with all policies
+          // so Director mode is full access and not restricted by policies.
+          await promotePasswordLoginToDirector(user.id);
+
           const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
           const session = await prisma.session.create({
             data: {
@@ -58,7 +130,7 @@ export function registerAuthRoutes(app: Express): void {
           });
           
           console.log(`[Google OAuth] ✅ User ${userEmail} logged in successfully`);
-          console.log(`[Google OAuth]    loginType: ${loginType} (All Google OAuth users are MDO)`);
+          console.log(`[Google OAuth]    loginType: ${loginType} (Director Mode)`);
           
           res.redirect(`/auth-callback?token=${session.id}`);
         } catch (error) {
@@ -116,6 +188,9 @@ export function registerAuthRoutes(app: Express): void {
             select: { id: true, email: true, status: true },
           });
           if (envUser) {
+            // Password login override: promote to Director with all policies
+            await promotePasswordLoginToDirector(envUser.id);
+
             // Use env user
             const expiresAt = new Date();
             expiresAt.setDate(expiresAt.getDate() + 7);
@@ -148,6 +223,9 @@ export function registerAuthRoutes(app: Express): void {
       if (user.status !== "active") {
         return res.status(403).json({ message: "Account is inactive" });
       }
+
+      // Password login: promote to Director with all policies
+      await promotePasswordLoginToDirector(user.id);
 
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + 7);
@@ -193,12 +271,12 @@ export function registerAuthRoutes(app: Express): void {
         email: req.user!.email,
         name: req.user!.name,
         policies: req.user!.policies, // From JWT snapshot
-        isSuperAdmin: req.user!.isSuperAdmin,
         orgUnitId: req.user!.orgUnitId,
         roles: req.user!.roles,
         accessibleOrgUnitIds: req.user!.accessibleOrgUnitIds,
         employeeId: req.user!.employeeId,
         employeeCardNo: req.user!.employeeCardNo,
+        loginType: req.user!.loginType,
         isManager: req.user!.isManager,
         managerScopes: req.user!.managerScopes,
       });
@@ -213,6 +291,8 @@ export function registerAuthRoutes(app: Express): void {
       const sessionId = req.headers["x-session-id"];
       const sessionValue = Array.isArray(sessionId) ? sessionId[0] : sessionId;
       if (sessionValue) {
+        // Best-effort: remove cached auth snapshot immediately
+        invalidateSessionAuthCache(String(sessionValue));
         await prisma.session.delete({ where: { id: String(sessionValue) } }).catch(() => {});
       }
       res.json({ message: "Logged out successfully" });

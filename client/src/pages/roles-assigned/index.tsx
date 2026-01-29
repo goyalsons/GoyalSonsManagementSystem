@@ -43,7 +43,6 @@ interface Role {
   id: string;
   name: string;
   description: string;
-  level: number;
   userCount: number;
   activeEmployeeCount?: number;
   policies?: Policy[]; // Role's default policies
@@ -608,7 +607,6 @@ export default function RolesAssignedPage() {
       return rolesApi.create({
         name: data.name,
         description: data.description || undefined,
-        level: 0, // Default level
         policyIds: data.policyIds,
       });
     },

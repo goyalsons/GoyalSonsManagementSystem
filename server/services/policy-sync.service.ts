@@ -43,55 +43,103 @@ const NAV_CONFIG: NavConfigItem[] = [
     key: "roles-assigned", 
     label: "Roles Assigned", 
     path: "/roles-assigned", 
-    policy: "roles.assigned.view" 
+    policy: "roles-assigned.view" 
+  },
+  { 
+    key: "roles", 
+    label: "Roles", 
+    path: "/roles", 
+    policy: "roles-assigned.view" 
+  },
+  { 
+    key: "roles-edit", 
+    label: "Edit Role", 
+    path: "/roles/:id", 
+    policy: "roles-assigned.view" 
+  },
+  { 
+    key: "roles-assign-manager", 
+    label: "Assign Manager", 
+    path: "/roles/manager/assign", 
+    policy: "roles-assigned.view" 
   },
   { 
     key: "members", 
     label: "Members", 
     path: "/employees", 
-    policy: "members.view" 
+    policy: "employees.view" 
+  },
+  { 
+    key: "members-create", 
+    label: "Create Member", 
+    path: "/employees/create", 
+    policy: "employees.view" 
   },
   { 
     key: "tasks-history", 
     label: "Task History", 
     path: "/attendance/history", 
-    policy: "tasks.history.view" 
+    policy: "attendance.history.view" 
+  },
+  { 
+    key: "attendance", 
+    label: "Work Log", 
+    path: "/attendance", 
+    policy: "attendance.worklog.view" 
+  },
+  { 
+    key: "attendance-today", 
+    label: "Today Work Log", 
+    path: "/attendance/today", 
+    policy: "attendance.worklog.view" 
+  },
+  { 
+    key: "attendance-fill", 
+    label: "Fill Work Log", 
+    path: "/attendance/fill", 
+    policy: "attendance.worklog.view" 
+  },
+  { 
+    key: "work-log", 
+    label: "Work Log", 
+    path: "/work-log", 
+    policy: "attendance.history.view" 
   },
   { 
     key: "sales", 
     label: "Sales", 
     path: "/sales", 
-    policy: "sales.view" 
+    policy: "staff-sales.view" 
   },
   { 
     key: "sales-staff", 
     label: "Sales Staff", 
     path: "/sales-staff", 
-    policy: "sales.staff.view" 
+    policy: "sales-staff.view" 
   },
   { 
     key: "integrations", 
     label: "Integrations", 
     path: "/integrations", 
-    policy: "integrations.view" 
+    policy: "admin.panel" 
   },
   { 
     key: "api-settings", 
     label: "API Setting", 
     path: "/admin/routing", 
-    policy: "api.settings.view" 
+    policy: "admin.routing.view" 
   },
   { 
     key: "masters-settings", 
     label: "Masters Settings", 
     path: "/admin/master-settings", 
-    policy: "masters.settings.view" 
+    policy: "admin.master-settings.view" 
   },
   { 
     key: "fetched-data", 
     label: "Fetched Data", 
     path: "/integrations/fetched-data", 
-    policy: "fetched.data.view" 
+    policy: "integrations.fetched-data.view" 
   },
   { 
     key: "trainings", 
@@ -121,7 +169,7 @@ const NAV_CONFIG: NavConfigItem[] = [
     key: "manager-assigned", 
     label: "Assigned Manager", 
     path: "/assigned-manager", 
-    policy: "manager.assigned.view" 
+    policy: "assigned-manager.view" 
   },
   {
     key: "help-tickets",
@@ -134,6 +182,12 @@ const NAV_CONFIG: NavConfigItem[] = [
       assign: "help_tickets.assign",
       close: "help_tickets.close"
     }
+  },
+  {
+    key: "no-policy",
+    label: "No Policy",
+    path: "/no-policy",
+    policy: "no_policy.view"
   }
 ];
 
@@ -179,24 +233,54 @@ function getAllPoliciesFromNavConfig(): Array<{ key: string; description: string
  * This function:
  * 1. Extracts all policies from NAV_CONFIG
  * 2. Checks which policies exist in DB
- * 3. Creates missing policies
- * 4. Never deletes existing policies (immutable)
+ * 3. Deletes policies not in the allowlist
+ * 4. Creates missing policies
  */
 export async function syncPoliciesFromNavConfig(): Promise<{
   total: number;
   created: number;
   existing: number;
+  removed: number;
   errors: string[];
 }> {
   const policies = getAllPoliciesFromNavConfig();
+  const allowedPolicyKeys = new Set(policies.map((policy) => policy.key));
   const result = {
     total: policies.length,
     created: 0,
     existing: 0,
+    removed: 0,
     errors: [] as string[]
   };
 
   console.log(`[Policy Sync] Starting sync of ${policies.length} policies from NAV_CONFIG...`);
+
+  // Remove any policies that are not in the allowlist
+  try {
+    const disallowedPolicies = await prisma.policy.findMany({
+      where: { key: { notIn: Array.from(allowedPolicyKeys) } },
+      select: { id: true, key: true },
+    });
+
+    if (disallowedPolicies.length > 0) {
+      const disallowedIds = disallowedPolicies.map((policy) => policy.id);
+      await prisma.$transaction([
+        prisma.rolePolicy.deleteMany({
+          where: { policyId: { in: disallowedIds } },
+        }),
+        prisma.policy.deleteMany({
+          where: { id: { in: disallowedIds } },
+        }),
+      ]);
+
+      result.removed = disallowedPolicies.length;
+      console.log(`[Policy Sync] 🧹 Removed ${disallowedPolicies.length} disallowed policies`);
+    }
+  } catch (error: any) {
+    const errorMsg = `Failed to remove disallowed policies: ${error.message}`;
+    result.errors.push(errorMsg);
+    console.error(`[Policy Sync] ❌ ${errorMsg}`);
+  }
 
   for (const policy of policies) {
     try {
@@ -230,9 +314,88 @@ export async function syncPoliciesFromNavConfig(): Promise<{
     }
   }
 
-  console.log(`[Policy Sync] Complete: ${result.created} created, ${result.existing} existing, ${result.errors.length} errors`);
+  console.log(`[Policy Sync] Complete: ${result.created} created, ${result.existing} existing, ${result.removed} removed, ${result.errors.length} errors`);
   
   return result;
+}
+
+async function ensureRoleHasPolicies(roleName: string, policyKeys: string[]): Promise<void> {
+  const role = await prisma.role.findUnique({
+    where: { name: roleName },
+    select: { id: true },
+  });
+  if (!role) return;
+
+  const policies = await prisma.policy.findMany({
+    where: { key: { in: policyKeys } },
+    select: { id: true },
+  });
+  if (policies.length === 0) return;
+
+  const created = await prisma.rolePolicy.createMany({
+    data: policies.map((p) => ({ roleId: role.id, policyId: p.id })),
+    skipDuplicates: true,
+  });
+
+  if (created.count > 0) {
+    // Ensure existing sessions pick up new policies quickly
+    await prisma.user.updateMany({
+      where: {
+        roles: {
+          some: {
+            roleId: role.id,
+          },
+        },
+      },
+      data: {
+        policyVersion: { increment: 1 },
+      },
+    });
+    console.log(`[Policy Sync] ✅ Added ${created.count} policies to role "${roleName}"`);
+  }
+}
+
+async function ensureDefaultRolePolicies(): Promise<void> {
+  // Task History is protected by attendance.history.view.
+  // Other requested pages/actions:
+  // - sales-staff.view (pivot)
+  // - requests.view
+  // - help_tickets.view
+  // - help_tickets.create
+  await ensureRoleHasPolicies("Employee", [
+    "attendance.history.view",
+    "sales-staff.view",
+    "requests.view",
+    "help_tickets.view",
+    "help_tickets.create",
+  ]);
+}
+
+async function removeRolePolicies(roleName: string, policyKeys: string[]): Promise<void> {
+  const role = await prisma.role.findUnique({
+    where: { name: roleName },
+    select: { id: true },
+  });
+  if (!role) return;
+
+  const policies = await prisma.policy.findMany({
+    where: { key: { in: policyKeys } },
+    select: { id: true },
+  });
+  if (policies.length === 0) return;
+
+  const policyIds = policies.map((p) => p.id);
+  const removed = await prisma.rolePolicy.deleteMany({
+    where: { roleId: role.id, policyId: { in: policyIds } },
+  });
+
+  if (removed.count > 0) {
+    await prisma.user.updateMany({
+      where: { roles: { some: { roleId: role.id } } },
+      data: { policyVersion: { increment: 1 } },
+    });
+    console.log(`[Policy Sync] 🧹 Removed ${removed.count} policies from role "${roleName}"`);
+  }
 }
 
 /**
@@ -248,6 +411,11 @@ export async function initializePolicySync(): Promise<void> {
     } else {
       console.log(`[Policy Sync] ✅ Successfully synced ${result.total} policies`);
     }
+
+    // Keep default role policies aligned with expected access
+    await ensureDefaultRolePolicies();
+    // Employees should not see the /sales dashboard by default
+    await removeRolePolicies("Employee", ["staff-sales.view"]);
   } catch (error: any) {
     console.error(`[Policy Sync] ❌ Fatal error during policy sync:`, error);
     throw error;

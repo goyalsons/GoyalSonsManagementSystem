@@ -31,7 +31,6 @@ model User {
   phone         String?
   passwordHash  String
   status        String        @default("active")
-  isSuperAdmin  Boolean       @default(false)
   policyVersion Int           @default(1) // Increments when policies change, forces JWT refresh
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
@@ -54,7 +53,6 @@ model Role {
   id          String       @id @default(uuid())
   name        String       @unique
   description String?
-  level       Int          @default(0)
   users       UserRole[]
   policies    RolePolicy[]
   createdAt   DateTime     @default(now())

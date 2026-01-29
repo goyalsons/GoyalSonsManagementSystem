@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import type { Server } from "http";
 import passport from "passport";
-import { loadUserFromSession, requireMDO } from "../lib/auth-middleware";
+import { loadUserFromSession } from "../lib/auth-middleware";
 import { registerSalesRoutes } from "./sales.routes";
 import { registerSalesStaffRoutes } from "./sales-staff.routes";
 import { registerLookupRoutes } from "./lookup.routes";
@@ -29,9 +29,6 @@ export async function registerRoutes(
   // Register authentication and OTP routes
   registerAuthRoutes(app);
   registerOtpRoutes(app);
-
-  // Protect all /api/mdo/* routes with requireMDO middleware
-  app.use("/api/mdo", requireMDO);
 
   // Register all route modules
   registerSalesRoutes(app);

@@ -67,29 +67,27 @@ async function main() {
 
   // Get existing data from database
   const existingOrgUnits = await prisma.orgUnit.findMany();
-  const existingDepartments = await prisma.department.findMany();
-  const existingDesignations = await prisma.designation.findMany();
+  const existingDepartmentsInitial = await prisma.department.findMany();
+  const existingDesignationsInitial = await prisma.designation.findMany();
 
   console.log(`📋 Existing in database:`);
   console.log(`   - ${existingOrgUnits.length} org units`);
-  console.log(`   - ${existingDepartments.length} departments`);
-  console.log(`   - ${existingDesignations.length} designations`);
+  console.log(`   - ${existingDepartmentsInitial.length} departments`);
+  console.log(`   - ${existingDesignationsInitial.length} designations`);
 
   // Use employees data - these are the real units/departments/designations
   const finalOrgUnits = existingOrgUnits.length > 0 ? existingOrgUnits : Array.from(orgUnitsFromEmployees.values());
-  const finalDepartments = existingDepartments.length > 0 ? existingDepartments : Array.from(departmentsFromEmployees.values());
-  const finalDesignations = existingDesignations.length > 0 ? existingDesignations : Array.from(designationsFromEmployees.values());
+  const finalDepartments = existingDepartmentsInitial.length > 0 ? existingDepartmentsInitial : Array.from(departmentsFromEmployees.values());
+  const finalDesignations = existingDesignationsInitial.length > 0 ? existingDesignationsInitial : Array.from(designationsFromEmployees.values());
 
   console.log(`✅ Using ${finalOrgUnits.length} org units, ${finalDepartments.length} departments, ${finalDesignations.length} designations from database`);
 
   // Use units from employees data (real data)
-  const ceoUnit = finalOrgUnits.length > 0 ? finalOrgUnits[0] : null;
-  const managementUnit = finalOrgUnits.length > 0 ? finalOrgUnits[0] : null;
-  const hrUnit = finalOrgUnits.length > 0 ? finalOrgUnits[0] : null;
-  const financeUnit = finalOrgUnits.length > 1 ? finalOrgUnits[1] : finalOrgUnits[0] || null;
-  const itUnit = finalOrgUnits.length > 2 ? finalOrgUnits[2] : finalOrgUnits[0] || null;
-  const marketingUnit = finalOrgUnits.length > 3 ? finalOrgUnits[3] : finalOrgUnits[0] || null;
-  const operationsUnit = finalOrgUnits.length > 4 ? finalOrgUnits[4] : finalOrgUnits[0] || null;
+  const defaultOrgUnitId = finalOrgUnits[0]?.id;
+  const ceoOrgUnitId = defaultOrgUnitId;
+  const managementOrgUnitId = defaultOrgUnitId;
+  const hrOrgUnitId = defaultOrgUnitId;
+  const financeOrgUnitId = finalOrgUnits[1]?.id ?? defaultOrgUnitId;
 
   // Check if database already has departments - if yes, skip creation
   const existingDepartments = await prisma.department.findMany();
@@ -145,104 +143,44 @@ async function main() {
   // ==================== SEED ROLES AND POLICIES ====================
   console.log("🌱 Seeding Roles and Policies...");
 
-  // Create Policies based on application routes
+  // Create Policies based on the locked allowlist
   const policies = [
-    // Dashboard Routes
-    { key: "dashboard.view", description: "Access main dashboard (/)", category: "Dashboard" },
-    { key: "manager.dashboard.view", description: "Access manager dashboard (/manager/dashboard)", category: "Dashboard" },
-
-    // Member Management Routes
-    { key: "employees.view", description: "View all members (/employees)", category: "Member Management" },
-    { key: "employees.create", description: "Create new employee (/employees/create)", category: "Member Management" },
-    { key: "roles-assigned.view", description: "View roles assigned page (/roles-assigned)", category: "Member Management" },
-    { key: "roles.view", description: "View roles page (/roles)", category: "Member Management" },
-    { key: "roles.edit", description: "Edit role permissions (/roles/:id)", category: "Member Management" },
-
-    // Work Log/Attendance Routes
-    { key: "attendance.view", description: "View my work log (/attendance)", category: "Work Log/Attendance" },
-    { key: "attendance.today.view", description: "View today's work log (/attendance/today)", category: "Work Log/Attendance" },
-    { key: "attendance.fill", description: "Fill work log (/attendance/fill)", category: "Work Log/Attendance" },
-    { key: "attendance.history.view", description: "View attendance history (/attendance/history)", category: "Work Log/Attendance" },
-    { key: "work-log.view", description: "View task history (/work-log)", category: "Work Log/Attendance" },
-
-    // Sales Routes
-    { key: "sales.view", description: "View sales page (/sales)", category: "Sales" },
-    { key: "sales.unit.view", description: "View sales unit page (/sales/unit/:unitName)", category: "Sales" },
-    { key: "sales-staff.view", description: "View sales staff page (/sales-staff)", category: "Sales" },
-
-    // Manager Routes
-    { key: "assigned-manager.view", description: "View assigned manager page (/assigned-manager)", category: "Manager" },
-    { key: "manager.team-task-history.view", description: "View team task history (/manager/team-task-history)", category: "Manager" },
-    { key: "manager.team-sales-staff.view", description: "View team sales staff (/manager/team-sales-staff)", category: "Manager" },
-
-    // Admin/Integrations Routes
-    { key: "admin.routing.view", description: "Access API routing page (/admin/routing)", category: "Admin/Integrations" },
-    { key: "admin.master-settings.view", description: "Access master settings (/admin/master-settings)", category: "Admin/Integrations" },
-    { key: "integrations.fetched-data.view", description: "View fetched data (/integrations/fetched-data)", category: "Admin/Integrations" },
-
-    // Other Routes
-    { key: "training.view", description: "Access training page (/training)", category: "Other" },
-    { key: "requests.view", description: "View requests page (/requests)", category: "Other" },
-    { key: "settings.view", description: "Access settings page (/settings)", category: "Other" },
-    { key: "login.view", description: "Access login page (/login)", category: "Other" },
-    { key: "apply.view", description: "Access apply page (/apply)", category: "Other" },
-
-    // Legacy/Additional Policies (for backward compatibility and API access)
-    { key: "users.view", description: "View users", category: "users" },
-    { key: "users.create", description: "Create users", category: "users" },
-    { key: "users.edit", description: "Edit users", category: "users" },
-    { key: "users.delete", description: "Delete users", category: "users" },
-    { key: "users.assign_role", description: "Assign roles to users", category: "users" },
-    { key: "employees.edit", description: "Edit employees", category: "employees" },
-    { key: "employees.delete", description: "Delete employees", category: "employees" },
-    { key: "employees.export", description: "Export employee data", category: "employees" },
-    { key: "attendance.create", description: "Check in/out and create attendance records", category: "attendance" },
-    { key: "attendance.manage", description: "Manage attendance records", category: "attendance" },
-    { key: "attendance.approve", description: "Approve attendance corrections", category: "attendance" },
-    { key: "tasks.view", description: "View tasks", category: "tasks" },
-    { key: "tasks.create", description: "Create tasks", category: "tasks" },
-    { key: "tasks.edit", description: "Edit tasks", category: "tasks" },
-    { key: "tasks.delete", description: "Delete tasks", category: "tasks" },
-    { key: "tasks.assign", description: "Assign tasks to others", category: "tasks" },
-    { key: "tasks.view_team", description: "View team tasks", category: "tasks" },
-    { key: "claims.view", description: "View claims", category: "claims" },
-    { key: "claims.create", description: "Create claims", category: "claims" },
-    { key: "claims.edit", description: "Edit claims", category: "claims" },
-    { key: "claims.delete", description: "Delete claims", category: "claims" },
-    { key: "claims.approve", description: "Approve claims", category: "claims" },
-    { key: "claims.reject", description: "Reject claims", category: "claims" },
-    { key: "claims.view_team", description: "View team claims", category: "claims" },
+    { key: "dashboard.view", description: "Access dashboard", category: "dashboard" },
+    { key: "roles-assigned.view", description: "Access roles assigned page", category: "roles" },
+    { key: "employees.view", description: "Access employees page", category: "employees" },
+    { key: "attendance.history.view", description: "Access attendance history", category: "attendance" },
+    { key: "sales.view", description: "Access sales page", category: "sales" },
+    { key: "sales-staff.view", description: "Access sales staff page", category: "sales" },
+    { key: "admin.panel", description: "Access admin panel", category: "admin" },
+    { key: "admin.routing.view", description: "Access API routing", category: "admin" },
+    { key: "admin.master-settings.view", description: "Access master settings", category: "admin" },
+    { key: "integrations.fetched-data.view", description: "Access fetched data", category: "integrations" },
+    { key: "trainings.view", description: "Access trainings", category: "training" },
+    { key: "requests.view", description: "Access requests", category: "requests" },
+    { key: "salary.view", description: "Access salary", category: "salary" },
+    { key: "settings.view", description: "Access settings", category: "settings" },
+    { key: "assigned-manager.view", description: "Access assigned manager", category: "manager" },
     { key: "help_tickets.view", description: "View help tickets", category: "help_tickets" },
     { key: "help_tickets.create", description: "Create help tickets", category: "help_tickets" },
-    { key: "help_tickets.edit", description: "Edit help tickets", category: "help_tickets" },
-    { key: "help_tickets.resolve", description: "Resolve help tickets", category: "help_tickets" },
-    { key: "help_tickets.view_team", description: "View team help tickets", category: "help_tickets" },
-    { key: "announcements.view", description: "View announcements", category: "announcements" },
-    { key: "announcements.create", description: "Create announcements", category: "announcements" },
-    { key: "announcements.edit", description: "Edit announcements", category: "announcements" },
-    { key: "announcements.delete", description: "Delete announcements", category: "announcements" },
-    { key: "targets.view", description: "View targets", category: "targets" },
-    { key: "targets.create", description: "Create targets", category: "targets" },
-    { key: "targets.edit", description: "Edit targets", category: "targets" },
-    { key: "targets.delete", description: "Delete targets", category: "targets" },
-    { key: "targets.view_team", description: "View team targets", category: "targets" },
-    { key: "sales.manage", description: "Manage sales data", category: "sales" },
-    { key: "sales.export", description: "Export sales data", category: "sales" },
-    { key: "store.view", description: "View store/inventory", category: "store" },
-    { key: "store.manage", description: "Manage store/inventory", category: "store" },
-    { key: "purchase.view", description: "View purchase data", category: "purchase" },
-    { key: "purchase.create", description: "Create purchase requests", category: "purchase" },
-    { key: "purchase.edit", description: "Edit purchase requests", category: "purchase" },
-    { key: "purchase.approve", description: "Approve purchases", category: "purchase" },
-    { key: "purchase.reject", description: "Reject purchase requests", category: "purchase" },
-    { key: "admin.roles", description: "Manage roles and permissions", category: "admin" },
-    { key: "admin.panel", description: "Access admin panel and integrations (API Routing, Master Settings, Data Fetcher)", category: "admin" },
-    { key: "admin.settings", description: "Access system settings", category: "admin" },
-    { key: "admin.sync", description: "Manage data sync", category: "admin" },
-    { key: "admin.audit", description: "View audit logs", category: "admin" },
-    { key: "admin.org_units", description: "Manage organizational units", category: "admin" },
-    { key: "admin.reports", description: "Access all reports", category: "admin" },
+    { key: "help_tickets.update", description: "Update help tickets", category: "help_tickets" },
+    { key: "help_tickets.assign", description: "Assign help tickets", category: "help_tickets" },
+    { key: "help_tickets.close", description: "Close help tickets", category: "help_tickets" },
+    { key: "no_policy.view", description: "Access no policy page", category: "system" },
   ];
+
+  // Remove any policies not in the allowlist
+  const allowedPolicyKeys = policies.map((policy) => policy.key);
+  const disallowedPolicies = await prisma.policy.findMany({
+    where: { key: { notIn: allowedPolicyKeys } },
+    select: { id: true },
+  });
+  if (disallowedPolicies.length > 0) {
+    const disallowedIds = disallowedPolicies.map((policy) => policy.id);
+    await prisma.$transaction([
+      prisma.rolePolicy.deleteMany({ where: { policyId: { in: disallowedIds } } }),
+      prisma.policy.deleteMany({ where: { id: { in: disallowedIds } } }),
+    ]);
+  }
 
   // Create policies (canonical set)
   const createdPolicies: Record<string, any> = {};
@@ -264,59 +202,78 @@ async function main() {
 
   console.log(`✅ Created/Updated ${Object.keys(createdPolicies).length} canonical policies`);
 
-  // Create Roles - Sabko default SalesMan wala access (attendance.view, sales.view)
-  const defaultPolicies = ["attendance.view", "sales.view"];
+  // Create Roles - Policies are the only source of access
+  const defaultPolicies = ["attendance.history.view", "sales.view"];
+  const employeeDefaultPolicies = [
+    "attendance.history.view",
+    "requests.view",
+    "help_tickets.view",
+    "help_tickets.create",
+  ];
+  const allPolicyKeys = Object.keys(createdPolicies);
 
   const roles = [
     {
       name: "Director",
       description: "Top management with full system access",
-      level: 100,
-      policies: defaultPolicies, // Default: SalesMan access
+      policies: allPolicyKeys,
+    },
+    {
+      name: "Employee",
+      description: "Default role for all employees",
+      policies: employeeDefaultPolicies,
     },
     {
       name: "MDO",
       description: "Management Development Officer",
-      level: 90,
       policies: defaultPolicies,
     },
     {
       name: "DME",
       description: "Department Manager/Executive",
-      level: 80,
       policies: defaultPolicies,
     },
     {
       name: "HR",
       description: "Human Resources",
-      level: 70,
       policies: defaultPolicies,
     },
     {
       name: "Store Manager",
       description: "Store operations management",
-      level: 60,
       policies: defaultPolicies,
     },
     {
       name: "Floor Manager",
       description: "Floor operations management",
-      level: 50,
       policies: defaultPolicies,
     },
     {
       name: "Purchaser",
       description: "Purchase operations",
-      level: 40,
       policies: defaultPolicies,
     },
     {
       name: "SalesMan",
       description: "Sales staff - View sales and attendance",
-      level: 30,
       policies: defaultPolicies,
     },
   ];
+
+  const allowedRoleNames = roles.map((role) => role.name);
+
+  // Remove any roles that are not in the allowed list
+  await prisma.userRole.deleteMany({
+    where: { role: { name: { notIn: allowedRoleNames } } },
+  });
+  await prisma.rolePolicy.deleteMany({
+    where: { role: { name: { notIn: allowedRoleNames } } },
+  });
+  await prisma.role.deleteMany({
+    where: { name: { notIn: allowedRoleNames } },
+  });
+
+  const rolesByName = new Map<string, { id: string; name: string }>();
 
   // Create roles with policies
   for (const roleData of roles) {
@@ -326,10 +283,10 @@ async function main() {
       where: { name: roleData.name },
       update: {
         description: roleData.description,
-        level: roleData.level,
       },
       create: roleInfo,
     });
+    rolesByName.set(role.name, role);
 
     // Delete existing role policies
     await prisma.rolePolicy.deleteMany({
@@ -358,172 +315,188 @@ async function main() {
 
   console.log("✅ Roles and Policies seeded successfully!");
 
-  const ceoUser = await prisma.user.upsert({
-    where: { email: "ceo@goyalsons.com" },
-    update: {},
-    create: {
-      name: "Rajesh Goyal",
-      email: "ceo@goyalsons.com",
-      passwordHash: hashPassword("ceo123"),
-      status: "active",
-      isSuperAdmin: true,
-      orgUnitId: ceoUnit.id,
-    },
-  });
+  const employeeRole = rolesByName.get("Employee");
+  if (employeeRole) {
+    const employeeUsers = await prisma.user.findMany({
+      where: { employeeId: { not: null } },
+      select: { id: true },
+    });
 
-  // UserRole assignments removed - Role tables deleted
-  // await prisma.userRole.upsert({...});
-
-  const managerUser = await prisma.user.upsert({
-    where: { email: "manager@goyalsons.com" },
-    update: {},
-    create: {
-      name: "Priya Sharma",
-      email: "manager@goyalsons.com",
-      passwordHash: hashPassword("manager123"),
-      status: "active",
-      isSuperAdmin: false,
-      orgUnitId: managementUnit.id,
-    },
-  });
-
-  // UserRole assignments removed - Role tables deleted
-  // await prisma.userRole.upsert({...});
-
-  const hrUser = await prisma.user.upsert({
-    where: { email: "hr@goyalsons.com" },
-    update: {},
-    create: {
-      name: "Amit Kumar",
-      email: "hr@goyalsons.com",
-      passwordHash: hashPassword("hr123"),
-      status: "active",
-      isSuperAdmin: false,
-      orgUnitId: hrUnit.id,
-    },
-  });
-
-  // UserRole assignments removed - Role tables deleted
-  // await prisma.userRole.upsert({...});
-
-  const financeUser = await prisma.user.upsert({
-    where: { email: "finance@goyalsons.com" },
-    update: {},
-    create: {
-      name: "Sunita Patel",
-      email: "finance@goyalsons.com",
-      passwordHash: hashPassword("finance123"),
-      status: "active",
-      isSuperAdmin: false,
-      orgUnitId: financeUnit.id,
-    },
-  });
-
-  // UserRole assignments removed - Role tables deleted
-  // await prisma.userRole.upsert({...});
-
-  const hrEmployee = await prisma.employee.upsert({
-    where: { employeeCode: "EMP001" },
-    update: {},
-    create: {
-      firstName: "Vikram",
-      lastName: "Singh",
-      employeeCode: "EMP001",
-      departmentId: departmentsMap.get("HR"),
-      designationId: staffDesignation.id,
-      phone: "+91-9876543210",
-      joiningDate: new Date("2023-01-15"),
-      orgUnitId: hrUnit.id,
-    },
-  });
-
-  const employeeUser = await prisma.user.upsert({
-    where: { email: "vikram@goyalsons.com" },
-    update: {},
-    create: {
-      name: "Vikram Singh",
-      email: "vikram@goyalsons.com",
-      passwordHash: hashPassword("employee123"),
-      status: "active",
-      isSuperAdmin: false,
-      orgUnitId: hrUnit.id,
-      employeeId: hrEmployee.id,
-    },
-  });
-
-  // UserRole assignments removed - Role tables deleted
-  // await prisma.userRole.upsert({...});
-
-  // Only create sample employees if we have real data from employees
-  if (finalOrgUnits.length > 0 && finalDepartments.length > 0 && staffDesignation) {
-    let empCounter = 2;
-    const deptList = finalDepartments.slice(0, 5); // Use first 5 departments from real data
-    
-    for (const dept of deptList) {
-      for (let i = 0; i < 5; i++) {
-        const empCode = `EMP${String(empCounter).padStart(3, "0")}`;
-        await prisma.employee.upsert({
-          where: { employeeCode: empCode },
-          update: {},
-          create: {
-            firstName: `Employee${empCounter}`,
-            lastName: dept.name,
-            employeeCode: empCode,
-            departmentId: dept.id,
-            designationId: staffDesignation.id,
-            phone: `+91-98765${String(empCounter).padStart(5, "0")}`,
-            joiningDate: new Date(`2023-0${Math.min(i + 1, 9)}-${Math.min((i + 1) * 5, 28)}`),
-            orgUnitId: hrUnit?.id || finalOrgUnits[0]?.id || null,
-          },
-        });
-        empCounter++;
-      }
-    }
-    console.log("Created sample employees using real data");
-  } else {
-    console.log("Skipping sample employee creation - using existing employees data");
-  }
-
-  console.log("Created sample employees");
-
-  const allEmployees = await prisma.employee.findMany();
-  const today = new Date();
-  
-  for (const employee of allEmployees) {
-    for (let d = 0; d < 7; d++) {
-      const date = new Date(today);
-      date.setDate(date.getDate() - d);
-      date.setHours(0, 0, 0, 0);
-
-      const isWeekend = date.getDay() === 0 || date.getDay() === 6;
-      if (isWeekend) continue;
-
-      const isPresent = Math.random() > 0.1;
-      const checkInHour = 8 + Math.floor(Math.random() * 2);
-      const checkInMinute = Math.floor(Math.random() * 60);
-      const checkOutHour = 17 + Math.floor(Math.random() * 2);
-      const checkOutMinute = Math.floor(Math.random() * 60);
-
-      const checkInAt = new Date(date);
-      checkInAt.setHours(checkInHour, checkInMinute, 0, 0);
-
-      const checkOutAt = new Date(date);
-      checkOutAt.setHours(checkOutHour, checkOutMinute, 0, 0);
-
-      await prisma.attendance.create({
-        data: {
-          employeeId: employee.id,
-          date: date,
-          checkInAt: isPresent ? checkInAt : null,
-          checkOutAt: isPresent ? checkOutAt : null,
-          status: isPresent ? (checkInHour > 9 ? "late" : "present") : "absent",
-        },
+    if (employeeUsers.length > 0) {
+      await prisma.userRole.createMany({
+        data: employeeUsers.map((user) => ({
+          userId: user.id,
+          roleId: employeeRole.id,
+        })),
+        skipDuplicates: true,
       });
     }
   }
 
-  console.log("Created attendance records");
+  let taskCreatorId: string | undefined;
+  const allowedEmails = (process.env.ALLOWED_GOOGLE_EMAILS || "")
+    .split(",")
+    .map((email) => email.trim())
+    .filter(Boolean);
 
+  if (allowedEmails.length === 0) {
+    console.log("No ALLOWED_GOOGLE_EMAILS configured - skipping user creation");
+  } else {
+    const directorEmail = allowedEmails[0];
+    const defaultRole = rolesByName.get("SalesMan");
+    const directorRole = rolesByName.get("Director");
+
+    const roleOrder = [
+      "Director",
+      "MDO",
+      "DME",
+      "HR",
+      "Store Manager",
+      "Floor Manager",
+      "Purchaser",
+      "SalesMan",
+    ];
+
+    const getRoleForEmail = (email: string, index: number) => {
+      if (email.toLowerCase() === directorEmail.toLowerCase()) {
+        return directorRole || defaultRole;
+      }
+      const roleName = roleOrder[Math.min(index, roleOrder.length - 1)];
+      return rolesByName.get(roleName) || defaultRole;
+    };
+
+    const getDepartmentIdForRole = (roleName?: string) => {
+      if (!roleName) return departmentsMap.values().next().value;
+      if (roleName === "HR") return departmentsMap.get("HR");
+      if (roleName === "Purchaser") return departmentsMap.get("FIN");
+      if (roleName === "Store Manager" || roleName === "Floor Manager") return departmentsMap.get("OPS");
+      if (roleName === "SalesMan") return departmentsMap.get("MKT");
+      return departmentsMap.values().next().value;
+    };
+
+    const makeDisplayName = (email: string) =>
+      email
+        .split("@")[0]
+        .split(/[._-]+/)
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(" ");
+
+    // Optional fixed passwords (per email) via env:
+    //   ALLOWED_EMAIL_PASSWORDS="user1@example.com=pass1,user2@example.com=pass2"
+    // Aliases supported: ALLOWED_PASSWORD, ALLOWED_PASSWORDS
+    const parseEmailPasswordMap = (raw: string | undefined): Map<string, string> => {
+      const map = new Map<string, string>();
+      (raw || "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .forEach((pair) => {
+          const idx = pair.indexOf("=");
+          if (idx <= 0) return;
+          const email = pair.slice(0, idx).trim().toLowerCase();
+          const password = pair.slice(idx + 1).trim();
+          if (!email || !password) return;
+          map.set(email, password);
+        });
+      return map;
+    };
+
+    const allowedEmailPasswords = parseEmailPasswordMap(
+      process.env.ALLOWED_EMAIL_PASSWORDS || process.env.ALLOWED_PASSWORDS || process.env.ALLOWED_PASSWORD,
+    );
+
+    const makePassword = (email: string) =>
+      allowedEmailPasswords.get(email.toLowerCase()) ??
+      `Gms@${crypto.createHash("sha256").update(email).digest("hex").slice(0, 8)}`;
+
+    const seededUsers: Array<{ id: string; email: string; password: string; role?: string }> = [];
+
+    for (const [index, email] of allowedEmails.entries()) {
+      const role = getRoleForEmail(email, index);
+      const password = makePassword(email);
+
+      const displayName = makeDisplayName(email);
+      const existingEmployee = await prisma.employee.findFirst({
+        where: {
+          OR: [
+            { companyEmail: email },
+            { personalEmail: email },
+            { externalId: email },
+          ],
+        },
+        select: { id: true },
+      });
+
+      const departmentId = getDepartmentIdForRole(role?.name) ?? undefined;
+      const employee = existingEmployee
+        ? await prisma.employee.update({
+            where: { id: existingEmployee.id },
+            data: {
+              firstName: displayName.split(" ")[0],
+              lastName: displayName.split(" ").slice(1).join(" ") || null,
+              companyEmail: email,
+              externalId: email,
+              departmentId,
+              designationId: staffDesignation.id,
+              orgUnitId: managementOrgUnitId ?? defaultOrgUnitId ?? undefined,
+            },
+          })
+        : await prisma.employee.create({
+            data: {
+              firstName: displayName.split(" ")[0],
+              lastName: displayName.split(" ").slice(1).join(" ") || null,
+              employeeCode: email.split("@")[0].toUpperCase(),
+              companyEmail: email,
+              externalId: email,
+              departmentId,
+              designationId: staffDesignation.id,
+              orgUnitId: managementOrgUnitId ?? defaultOrgUnitId ?? undefined,
+              status: "ACTIVE",
+            },
+          });
+
+      const user = await prisma.user.upsert({
+        where: { email },
+        update: {
+          name: displayName,
+          passwordHash: hashPassword(password),
+          status: "active",
+          employeeId: employee.id,
+        },
+        create: {
+          name: displayName,
+          email,
+          passwordHash: hashPassword(password),
+          status: "active",
+          orgUnitId: managementOrgUnitId ?? undefined,
+          employeeId: employee.id,
+        },
+      });
+
+      if (role) {
+        await prisma.userRole.upsert({
+          where: { userId_roleId: { userId: user.id, roleId: role.id } },
+          update: {},
+          create: { userId: user.id, roleId: role.id },
+        });
+      }
+
+      seededUsers.push({ id: user.id, email, password, role: role?.name });
+    }
+
+    taskCreatorId = seededUsers[0]?.id;
+
+    console.log("\nSeeded Users (from ALLOWED_GOOGLE_EMAILS):");
+    seededUsers.forEach((user) => {
+      const roleLabel = user.role ? ` [${user.role}]` : "";
+      console.log(`${user.email}${roleLabel} / ${user.password}`);
+    });
+  }
+
+  console.log("Skipping sample employee creation - users are seeded from ALLOWED_GOOGLE_EMAILS");
+
+  const taskEmployees = await prisma.employee.findMany();
   const taskTitles = [
     "Review quarterly reports",
     "Update employee handbook",
@@ -537,34 +510,32 @@ async function main() {
     "Review vendor contracts",
   ];
 
-  for (let i = 0; i < 24; i++) {
-    const randomEmployee = allEmployees[Math.floor(Math.random() * allEmployees.length)];
-    const randomTitle = taskTitles[Math.floor(Math.random() * taskTitles.length)];
-    const dueDate = new Date();
-    dueDate.setDate(dueDate.getDate() + Math.floor(Math.random() * 14));
+  if (taskEmployees.length === 0 || !taskCreatorId) {
+    console.log("Skipping task creation - no employees or no creator available");
+  } else {
+    for (let i = 0; i < 24; i++) {
+      const randomEmployee = taskEmployees[Math.floor(Math.random() * taskEmployees.length)];
+      const randomTitle = taskTitles[Math.floor(Math.random() * taskTitles.length)];
+      const dueDate = new Date();
+      dueDate.setDate(dueDate.getDate() + Math.floor(Math.random() * 14));
 
-    await prisma.task.create({
-      data: {
-        title: `${randomTitle} - ${i + 1}`,
-        description: `Task description for ${randomTitle}`,
-        assigneeId: randomEmployee.id,
-        creatorId: ceoUser.id,
-        status: Math.random() > 0.5 ? "open" : "in_progress",
-        priority: ["low", "medium", "high"][Math.floor(Math.random() * 3)],
-        dueDate: dueDate,
-      },
-    });
+      await prisma.task.create({
+        data: {
+          title: `${randomTitle} - ${i + 1}`,
+          description: `Task description for ${randomTitle}`,
+          assigneeId: randomEmployee.id,
+          creatorId: taskCreatorId,
+          status: Math.random() > 0.5 ? "open" : "in_progress",
+          priority: ["low", "medium", "high"][Math.floor(Math.random() * 3)],
+          dueDate: dueDate,
+        },
+      });
+    }
+
+    console.log("Created tasks");
   }
 
-  console.log("Created tasks");
-
   console.log("Seed completed successfully!");
-  console.log("\nTest Users:");
-  console.log("CEO: ceo@goyalsons.com / ceo123");
-  console.log("Manager: manager@goyalsons.com / manager123");
-  console.log("HR: hr@goyalsons.com / hr123");
-  console.log("Finance: finance@goyalsons.com / finance123");
-  console.log("Employee: vikram@goyalsons.com / employee123");
 }
 
 main()

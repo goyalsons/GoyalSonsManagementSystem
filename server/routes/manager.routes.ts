@@ -1,11 +1,12 @@
 import type { Express } from "express";
 import { prisma } from "../lib/prisma";
-import { requireAuth, requireMDO } from "../lib/auth-middleware";
+import { requireAuth, requirePolicy } from "../lib/auth-middleware";
+import { POLICIES } from "../constants/policies";
 import { normalizeCardNumber } from "../bigquery-service";
 
 export function registerManagerRoutes(app: Express): void {
   // GET employee by card number
-  app.get("/api/employees/by-card/:cardNumber", requireAuth, requireMDO, async (req, res) => {
+  app.get("/api/employees/by-card/:cardNumber", requireAuth, requirePolicy(POLICIES.ASSIGNED_MANAGER_VIEW), async (req, res) => {
     try {
       const { cardNumber } = req.params;
       
@@ -132,7 +133,7 @@ export function registerManagerRoutes(app: Express): void {
   });
 
   // POST assign manager
-  app.post("/api/manager/assign", requireAuth, requireMDO, async (req, res) => {
+  app.post("/api/manager/assign", requireAuth, requirePolicy(POLICIES.ASSIGNED_MANAGER_VIEW), async (req, res) => {
     try {
       const { cardNumber, orgUnitId, departmentIds } = req.body;
 

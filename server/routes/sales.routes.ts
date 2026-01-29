@@ -632,7 +632,7 @@ export function registerSalesRoutes(app: Express): void {
     }
   });
 
-  app.get("/api/sales", requireAuth, requirePolicy("sales.view"), async (req, res) => {
+  app.get("/api/sales", requireAuth, requirePolicy("staff-sales.view"), async (req, res) => {
     try {
       const { page = "1", limit = "100", dept, brand, search } = req.query;
       const pageNum = Math.max(1, parseInt(page as string));
@@ -984,7 +984,7 @@ export function registerSalesRoutes(app: Express): void {
   });
 
   // Get staff for a unit/department
-  app.get("/api/sales/staff", requireAuth, requirePolicy("sales.staff.view"), async (req, res) => {
+  app.get("/api/sales/staff", requireAuth, requirePolicy("sales-staff.view"), async (req, res) => {
     try {
       const { unit, department, month } = req.query;
       const isEmployeeLogin = req.user!.loginType === "employee";
@@ -1271,7 +1271,19 @@ export function registerSalesRoutes(app: Express): void {
         stack: error?.stack,
         name: error?.name,
       });
-      res.status(500).json({
+      if (error?.code === "P1001" || String(errorMessage).includes("Can't reach database")) {
+        return res.status(503).json({
+          success: false,
+          message: "Database unavailable. Please try again later.",
+        });
+      }
+      if (String(errorMessage).includes("SALES_API_PIVOT_URL") || String(errorMessage).includes("SALES_API_MONTHLY_SQL_QUERY")) {
+        return res.status(400).json({
+          success: false,
+          message: errorMessage,
+        });
+      }
+      return res.status(500).json({
         success: false,
         message: `Failed to refresh monthly sales data: ${errorMessage}`,
       });

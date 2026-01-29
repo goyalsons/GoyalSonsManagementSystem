@@ -114,6 +114,21 @@ function sortDatesDescending(dates: string[]): string[] {
   });
 }
 
+function getMonthKey(dateStr: string): string | null {
+  const d = parseDate(dateStr);
+  if (!d) return null;
+  // Normalize to monthKey (yyyy-MM)
+  const normalized = new Date(d.getFullYear(), d.getMonth(), 1);
+  return format(normalized, "yyyy-MM");
+}
+
+function formatMonthDisplayFromKey(monthKey: string): string {
+  // monthKey is yyyy-MM
+  const d = new Date(`${monthKey}-01`);
+  if (isNaN(d.getTime())) return monthKey;
+  return format(d, "MMM yyyy");
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Aggregation Logic
 // ─────────────────────────────────────────────────────────────────────────────
@@ -184,6 +199,8 @@ export default function SalesExcelPivotTable({
   defaultSmno = null,
   employeeName = ""
 }: SalesExcelPivotTableProps) {
+  // Employee mode (defaultSmno set) must never show "All Salesmen" dropdown.
+  const effectiveShowSalesmanFilter = showSalesmanFilter && defaultSmno === null;
   
   // Extract unique salesmen from data
   const availableSalesmen = useMemo(() => {
@@ -221,18 +238,27 @@ export default function SalesExcelPivotTable({
     return record ? { smno: record.smno, sm: record.sm } : null;
   }, [data, defaultSmno]);
 
-  // Extract unique dates from data (sorted descending - latest first)
-  const availableDates = useMemo(() => {
-    const uniqueDates = Array.from(new Set(data.map((d) => d.dat))).filter(d => d);
-    const allDates = sortDatesDescending(uniqueDates);
-    
-    return allDates;
+  // Extract unique months from data (sorted descending - latest first)
+  const availableMonths = useMemo(() => {
+    const monthKeys = new Set<string>();
+    for (const row of data) {
+      const mk = getMonthKey(row.dat);
+      if (mk) monthKeys.add(mk);
+    }
+    const sorted = Array.from(monthKeys).sort((a, b) => (a < b ? 1 : a > b ? -1 : 0));
+    return sorted;
   }, [data]);
 
-  // State for selected date (default: "all" to show all dates)
-  const [selectedDate, setSelectedDate] = useState<string>("all");
+  // State for selected month (default: latest month)
+  const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
 
-  // Filter data by selected salesman and date
+  // Auto-select latest month on first load (and keep selection valid)
+  useEffect(() => {
+    if (availableMonths.length === 0) return;
+    setSelectedMonth((prev) => (prev && availableMonths.includes(prev) ? prev : availableMonths[0]));
+  }, [availableMonths]);
+
+  // Filter data by selected salesman and month
   const filteredData = useMemo(() => {
     let result = data;
     
@@ -241,13 +267,14 @@ export default function SalesExcelPivotTable({
       result = result.filter((row) => row.smno === selectedSmno);
     }
     
-    // Filter by date
-    if (selectedDate !== "all") {
-      result = result.filter((row) => row.dat === selectedDate);
+    // Filter by month (always, default is latest)
+    const monthKey = selectedMonth || availableMonths[0] || null;
+    if (monthKey) {
+      result = result.filter((row) => getMonthKey(row.dat) === monthKey);
     }
     
     return result;
-  }, [data, selectedSmno, selectedDate]);
+  }, [data, selectedSmno, selectedMonth, availableMonths]);
 
   // Get selected salesman info
   const selectedSalesmanInfo = useMemo(() => {
@@ -284,7 +311,7 @@ export default function SalesExcelPivotTable({
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div className="flex flex-wrap items-center gap-3">
           {/* Salesman Filter - Only for MDO */}
-          {showSalesmanFilter ? (
+          {effectiveShowSalesmanFilter ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" className="flex items-center gap-2 min-w-[200px] justify-between">
@@ -353,58 +380,35 @@ export default function SalesExcelPivotTable({
             </div>
           )}
 
-          {/* Date Filter */}
+          {/* Month Filter */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" className="flex items-center gap-2 min-w-[180px] justify-between">
                 <div className="flex items-center gap-2">
                   <Calendar className="h-4 w-4 text-indigo-500" />
                   <span>
-                    {selectedDate === "all" 
-                      ? "All Dates" 
-                      : formatDateDisplay(selectedDate)
-                    }
+                    {formatMonthDisplayFromKey(selectedMonth || availableMonths[0] || "")}
                   </span>
                 </div>
                 <ChevronDown className="h-4 w-4 text-slate-400" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="max-h-[300px] overflow-y-auto">
-              <DropdownMenuItem 
-                onClick={() => setSelectedDate("all")}
-                className={selectedDate === "all" ? "bg-indigo-50 text-indigo-700" : ""}
-              >
-                All Dates ({filteredData.length > 0 ? data.filter(d => selectedSmno === "all" || d.smno === selectedSmno).length : data.length} records)
-              </DropdownMenuItem>
-              {availableDates.map((date) => {
-                const count = data.filter((d) => d.dat === date && (selectedSmno === "all" || d.smno === selectedSmno)).length;
+              {availableMonths.map((monthKey) => {
+                const count = data.filter((d) => getMonthKey(d.dat) === monthKey && (selectedSmno === "all" || d.smno === selectedSmno)).length;
                 if (count === 0) return null;
                 return (
                   <DropdownMenuItem
-                    key={date}
-                    onClick={() => setSelectedDate(date)}
-                    className={selectedDate === date ? "bg-indigo-50 text-indigo-700" : ""}
+                    key={monthKey}
+                    onClick={() => setSelectedMonth(monthKey)}
+                    className={(selectedMonth || availableMonths[0]) === monthKey ? "bg-indigo-50 text-indigo-700" : ""}
                   >
-                    {formatDateDisplay(date)} ({count} records)
+                    {formatMonthDisplayFromKey(monthKey)} ({count} records)
                   </DropdownMenuItem>
                 );
               })}
             </DropdownMenuContent>
           </DropdownMenu>
-          
-          {/* Clear Filters Button - Only show for date filter */}
-          {selectedDate !== "all" && (
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              onClick={() => {
-                setSelectedDate("all");
-              }}
-              className="text-xs text-slate-500"
-            >
-              Clear Date Filter
-            </Button>
-          )}
         </div>
 
         <div className="text-sm text-slate-500">

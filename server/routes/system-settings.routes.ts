@@ -3,7 +3,7 @@ import { prisma } from "../lib/prisma";
 import { requireAuth, requirePolicy } from "../lib/auth-middleware";
 
 export function registerSystemSettingsRoutes(app: Express): void {
-  app.get("/api/admin/system-settings", requireAuth, requirePolicy("admin.panel"), async (req, res) => {
+  app.get("/api/admin/system-settings", requireAuth, requirePolicy("admin.master-settings.view"), async (req, res) => {
     try {
       const settings = await prisma.systemSettings.findMany({
         orderBy: { category: "asc" },
@@ -15,7 +15,7 @@ export function registerSystemSettingsRoutes(app: Express): void {
     }
   });
 
-  app.get("/api/admin/system-settings/:key", requireAuth, requirePolicy("admin.panel"), async (req, res) => {
+  app.get("/api/admin/system-settings/:key", requireAuth, requirePolicy("admin.master-settings.view"), async (req, res) => {
     try {
       const setting = await prisma.systemSettings.findUnique({
         where: { key: req.params.key },
@@ -27,7 +27,7 @@ export function registerSystemSettingsRoutes(app: Express): void {
     }
   });
 
-  app.put("/api/admin/system-settings/:key", requireAuth, requirePolicy("admin.panel"), async (req, res) => {
+  app.put("/api/admin/system-settings/:key", requireAuth, requirePolicy("admin.master-settings.view"), async (req, res) => {
     try {
       const { key } = req.params;
       const { value, description, category } = req.body;

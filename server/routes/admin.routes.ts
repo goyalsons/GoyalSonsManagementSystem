@@ -5,7 +5,8 @@ import express from "express";
 import multer from "multer";
 import { prisma } from "../lib/prisma";
 import { requireAuth, requirePolicy } from "../lib/auth-middleware";
-import { refreshSyncSchedules, triggerManualSync } from "../auto-sync";
+import { refreshSyncSchedules } from "../auto-sync";
+import { enqueueManualSync } from "../lib/sync-jobs";
 
 const uploadsDir = path.join(process.cwd(), "uploads");
 if (!fs.existsSync(uploadsDir)) {
@@ -37,7 +38,7 @@ const upload = multer({
 });
 
 export function registerAdminRoutes(app: Express): void {
-  app.get("/api/admin/routing", requireAuth, requirePolicy("admin.panel"), async (req, res) => {
+  app.get("/api/admin/routing", requireAuth, requirePolicy("admin.routing.view"), async (req, res) => {
     try {
       const routes = await prisma.apiRouting.findMany({
         orderBy: { createdAt: "desc" },
@@ -49,7 +50,7 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/admin/upload", requireAuth, requirePolicy("admin.panel"), (req: any, res, next) => {
+  app.post("/api/admin/upload", requireAuth, requirePolicy("admin.routing.view"), (req: any, res, next) => {
     upload.single("file")(req, res, (err: any) => {
       if (err) {
         if (err.message === "Only CSV, JSON, and Excel files are allowed") {
@@ -78,7 +79,7 @@ export function registerAdminRoutes(app: Express): void {
 
   app.use("/uploads", requireAuth, express.static(uploadsDir));
 
-  app.post("/api/admin/routing", requireAuth, requirePolicy("admin.panel"), async (req, res) => {
+  app.post("/api/admin/routing", requireAuth, requirePolicy("admin.routing.view"), async (req, res) => {
     try {
       const { name, description, endpoint, method, sourceType, csvFilePath, csvUrl, headers, syncEnabled, syncIntervalHours, syncIntervalMinutes } = req.body;
 
@@ -111,7 +112,7 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
-  app.put("/api/admin/routing/:id", requireAuth, requirePolicy("admin.panel"), async (req, res) => {
+  app.put("/api/admin/routing/:id", requireAuth, requirePolicy("admin.routing.view"), async (req, res) => {
     try {
       const { id } = req.params;
       const { name, description, endpoint, method, sourceType, csvFilePath, csvUrl, headers, syncEnabled, syncIntervalHours, syncIntervalMinutes, isActive, status } = req.body;
@@ -144,7 +145,7 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
-  app.delete("/api/admin/routing/:id", requireAuth, requirePolicy("admin.panel"), async (req, res) => {
+  app.delete("/api/admin/routing/:id", requireAuth, requirePolicy("admin.routing.view"), async (req, res) => {
     try {
       const { id } = req.params;
 
@@ -161,7 +162,7 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/admin/routing/:id/test", requireAuth, requirePolicy("admin.panel"), async (req, res) => {
+  app.post("/api/admin/routing/:id/test", requireAuth, requirePolicy("admin.routing.view"), async (req, res) => {
     try {
       const { id } = req.params;
 
@@ -369,7 +370,7 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/admin/routing/:id/sync", requireAuth, requirePolicy("admin.panel"), async (req, res) => {
+  app.post("/api/admin/routing/:id/sync", requireAuth, requirePolicy("admin.routing.view"), async (req, res) => {
     try {
       const { id } = req.params;
 
@@ -389,11 +390,8 @@ export function registerAdminRoutes(app: Express): void {
         },
       });
 
-      setImmediate(() => {
-        triggerManualSync(id).catch((err) => {
-          console.error(`[Sync] Background sync failed for ${route.name}:`, err);
-        });
-      });
+      // Enqueue sync as a background job; respond 202 immediately.
+      enqueueManualSync(id);
 
       res.status(202).json({ 
         success: true, 

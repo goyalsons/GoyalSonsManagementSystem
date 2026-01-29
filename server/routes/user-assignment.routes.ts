@@ -8,7 +8,7 @@ import { logUserRoleAssignment } from "../lib/audit-log";
 
 export function registerUserAssignmentRoutes(app: Express): void {
   // POST /api/users/assign-role - Assign role to user
-  app.post("/api/users/assign-role", requireAuth, requirePolicy(POLICIES.USERS_ASSIGN_ROLE), async (req, res) => {
+  app.post("/api/users/assign-role", requireAuth, requirePolicy(POLICIES.ADMIN_PANEL), async (req, res) => {
     try {
       const { userId, roleId } = req.body;
 
@@ -102,7 +102,7 @@ export function registerUserAssignmentRoutes(app: Express): void {
   });
 
   // DELETE /api/users/:userId/roles/:roleId - Remove role from user
-  app.delete("/api/users/:userId/roles/:roleId", requireAuth, requirePolicy(POLICIES.USERS_ASSIGN_ROLE), async (req, res) => {
+  app.delete("/api/users/:userId/roles/:roleId", requireAuth, requirePolicy(POLICIES.ADMIN_PANEL), async (req, res) => {
     try {
       const { userId, roleId } = req.params;
 
@@ -165,7 +165,7 @@ export function registerUserAssignmentRoutes(app: Express): void {
   // POST /api/users/update-role-permissions - Update role's policies (affects all users with that role)
   // NOTE: This endpoint name is misleading - it updates the role, not user permissions
   // Consider deprecating in favor of PUT /api/roles/:id
-  app.post("/api/users/update-role-permissions", requireAuth, requirePolicy(POLICIES.ADMIN_ROLES), async (req, res) => {
+  app.post("/api/users/update-role-permissions", requireAuth, requirePolicy(POLICIES.ADMIN_PANEL), async (req, res) => {
     try {
       const { roleId, policyIds } = req.body;
 

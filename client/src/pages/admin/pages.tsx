@@ -74,7 +74,7 @@ export default function PagesManagementPage() {
       if (!res.ok) throw new Error("Failed to fetch pages");
       return res.json();
     },
-    enabled: !!token && hasPolicy("admin.pages.manage"),
+    enabled: !!token && hasPolicy("admin.panel"),
   });
 
   // Create page mutation
@@ -182,7 +182,7 @@ export default function PagesManagementPage() {
     setFormData({ ...formData, actions: newActions });
   };
 
-  if (!hasPolicy("admin.pages.manage")) {
+  if (!hasPolicy("admin.panel")) {
     return (
       <Card>
         <CardContent className="pt-6">

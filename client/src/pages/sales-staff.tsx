@@ -19,7 +19,7 @@ export default function SalesStaffPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const isEmployee = user?.loginType === "employee";
+  const isEmployee = user?.loginType === "employee" || Boolean(user?.employeeCardNo);
   const employeeCardNo = user?.employeeCardNo;
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastApiHit, setLastApiHit] = useState<string | null>(null);
@@ -151,7 +151,7 @@ export default function SalesStaffPage() {
           <CardContent>
             <SalesExcelPivotTable
               data={pivotData}
-              showSalesmanFilter={true}
+              showSalesmanFilter={!isEmployee}
               defaultSmno={isEmployee && employeeCardNo ? parseInt(employeeCardNo, 10) : null}
               employeeName={user?.name || ""}
             />

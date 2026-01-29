@@ -183,9 +183,9 @@ async function masterSetup() {
     console.log("   npm run dev\n");
     console.log("   Then open: http://localhost:5000\n");
 
-    console.log("📚 Default login credentials:\n");
-    console.log("   Email: akshat@goyalsons.com");
-    console.log("   Password: akshat@123\n");
+    console.log("📚 Login credentials:\n");
+    console.log("   This repo does not ship with hardcoded company emails.");
+    console.log("   Use the credentials printed by the seed script (or create a user via admin/OTP flows).\n");
   } else {
     console.log("╔══════════════════════════════════════════════════════════════╗");
     console.log("║  ⚠️ SETUP COMPLETED WITH ISSUES                              ║");

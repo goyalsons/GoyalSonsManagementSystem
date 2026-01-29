@@ -10,6 +10,14 @@ export default function AuthCallbackPage() {
     const params = new URLSearchParams(searchParams);
     const token = params.get("token");
     const error = params.get("error");
+
+    const getDefaultLandingPath = (policies?: string[]) => {
+      const p = new Set(policies || []);
+      if (p.has("attendance.history.view")) return "/attendance/history";
+      if (p.has("staff-sales.view")) return "/sales";
+      if (p.has("requests.view")) return "/requests";
+      return "/";
+    };
     
     if (error) {
       setLocation(`/login?error=${encodeURIComponent(error)}`);
@@ -19,7 +27,7 @@ export default function AuthCallbackPage() {
     if (token) {
       localStorage.setItem("gms_token", token);
       
-      // Fetch user data to check role and redirect accordingly
+      // Fetch user data to redirect based on policies
       fetch("/api/auth/me", {
         headers: {
           "X-Session-Id": token,
@@ -32,23 +40,11 @@ export default function AuthCallbackPage() {
           throw new Error("Failed to fetch user");
         })
         .then((userData) => {
-          // Check if user is MDO (Master Decision Officer)
-          const isMDO = userData.loginType === "mdo";
-          
-          // MDO users should be redirected to MDO dashboard
-          if (isMDO) {
-            window.location.href = "/mdo/dashboard";
+          if (userData?.policies?.length === 0) {
+            window.location.href = "/no-policy";
             return;
           }
-          
-          // Check if user is a manager
-          if (userData.isManager) {
-            window.location.href = "/manager/dashboard";
-            return;
-          }
-          
-          // Default redirect
-          window.location.href = "/";
+          window.location.href = getDefaultLandingPath(userData?.policies);
         })
         .catch(() => {
           window.location.href = "/";

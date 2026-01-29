@@ -2,11 +2,34 @@
  * Policy Guard Middleware
  * 
  * Centralized policy validation middleware.
- * Policies are loaded from database/JWT, not hardcoded.
+ * Policies are checked strictly from req.user.policies (cached auth snapshot).
+ *
+ * Performance/Security notes:
+ * - No DB queries on the request path (including the "deny" path).
+ * - Validate policy keys against a precomputed allowlist to catch typos/misconfig early.
  */
 
 import { Request, Response, NextFunction } from "express";
-import { prisma } from "./prisma";
+import { POLICIES } from "../constants/policies";
+
+// Precompute allowed policy keys once (module scope) to avoid per-request work.
+const ALLOWED_POLICY_KEYS = new Set(Object.values(POLICIES) as unknown as string[]);
+
+function assertValidPolicyKey(policyKey: string): true | { error: any } {
+  if (ALLOWED_POLICY_KEYS.has(policyKey)) return true;
+  return {
+    error: {
+      code: "INVALID_POLICY",
+      message: "Policy key is not in the allowed list",
+      requiredPolicy: policyKey,
+    },
+  };
+}
+
+function hasPolicy(userPolicies: string[] | undefined, policyKey: string): boolean {
+  if (!userPolicies || userPolicies.length === 0) return false;
+  return userPolicies.includes(policyKey);
+}
 
 /**
  * Policy guard middleware factory
@@ -23,53 +46,22 @@ export function policyGuard(policyKey: string) {
       return res.status(401).json({ message: "Authentication required" });
     }
 
-    // SuperAdmin bypasses all policy checks
-    if (req.user.isSuperAdmin) {
+    const valid = assertValidPolicyKey(policyKey);
+    if (valid !== true) {
+      return res.status(500).json(valid.error);
+    }
+
+    // Check if user has the required policy (from cached auth snapshot)
+    if (hasPolicy(req.user.policies, policyKey)) {
       return next();
     }
 
-    // Check if user has the required policy (from JWT snapshot)
-    if (req.user.policies && req.user.policies.includes(policyKey)) {
-      return next();
-    }
-
-    // Policy not found in JWT - verify it exists in DB and check user again
-    // This handles cases where policy was added after JWT was issued
-    try {
-      const policy = await prisma.policy.findUnique({
-        where: { key: policyKey },
-        select: { isActive: true },
-      });
-
-      if (!policy) {
-        return res.status(403).json({
-          message: "Access denied",
-          reason: "policy_not_found",
-          requiredPolicy: policyKey,
-        });
-      }
-
-      if (!policy.isActive) {
-        return res.status(403).json({
-          message: "Access denied",
-          reason: "policy_inactive",
-          requiredPolicy: policyKey,
-        });
-      }
-
-      // Policy exists but user doesn't have it
-      return res.status(403).json({
-        message: "Access denied",
-        reason: "missing_policy",
-        requiredPolicy: policyKey,
-      });
-    } catch (error) {
-      console.error("[Policy Guard] Error checking policy:", error);
-      return res.status(500).json({
-        message: "Internal server error",
-        reason: "policy_check_failed",
-      });
-    }
+    // Deny fast: do not hit DB on missing policy.
+    return res.status(403).json({
+      message: "Access denied",
+      reason: "missing_policy",
+      requiredPolicy: policyKey,
+    });
   };
 }
 
@@ -85,14 +77,17 @@ export function policyGuardAny(policyKeys: string[]) {
       return res.status(401).json({ message: "Authentication required" });
     }
 
-    if (req.user.isSuperAdmin) {
-      return next();
+    for (const policyKey of policyKeys) {
+      const valid = assertValidPolicyKey(policyKey);
+      if (valid !== true) return res.status(500).json(valid.error);
     }
 
-    // Check if user has any of the required policies
-    for (const policyKey of policyKeys) {
-      if (req.user.policies && req.user.policies.includes(policyKey)) {
-        return next();
+    const userPolicies = req.user.policies || [];
+    if (userPolicies.length > 0) {
+      // Build a Set once for multi-key checks.
+      const userPolicySet = new Set(userPolicies);
+      for (const policyKey of policyKeys) {
+        if (userPolicySet.has(policyKey)) return next();
       }
     }
 
@@ -116,14 +111,23 @@ export function policyGuardAll(policyKeys: string[]) {
       return res.status(401).json({ message: "Authentication required" });
     }
 
-    if (req.user.isSuperAdmin) {
-      return next();
+    for (const policyKey of policyKeys) {
+      const valid = assertValidPolicyKey(policyKey);
+      if (valid !== true) return res.status(500).json(valid.error);
     }
 
-    // Check if user has all required policies
-    const hasAll = policyKeys.every(
-      (policyKey) => req.user.policies && req.user.policies.includes(policyKey)
-    );
+    const userPolicies = req.user.policies || [];
+    if (userPolicies.length === 0) {
+      return res.status(403).json({
+        message: "Access denied",
+        reason: "missing_policies",
+        requiredPolicies: policyKeys,
+      });
+    }
+
+    // Check if user has all required policies (Set for O(1) lookups)
+    const userPolicySet = new Set(userPolicies);
+    const hasAll = policyKeys.every((k) => userPolicySet.has(k));
 
     if (!hasAll) {
       return res.status(403).json({

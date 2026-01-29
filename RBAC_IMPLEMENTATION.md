@@ -24,12 +24,11 @@ User
 
 Role
 ├── name (String, unique)
-├── level (Int)
 ├── policies (RolePolicy[]) - Many-to-many with Policy
 └── ...
 
 Policy
-├── key (String, unique) - Canonical policy key (e.g., "users.view")
+├── key (String, unique) - Canonical policy key (e.g., "dashboard.view")
 ├── isActive (Boolean) - Admin can enable/disable
 ├── description (String)
 └── category (String)
@@ -95,35 +94,36 @@ These are the ONLY policies that exist in the system:
 
 ```typescript
 dashboard.view
-users.view
-users.assign_role
-attendance.view
-attendance.create
+
+roles-assigned.view
+employees.view
+
+attendance.history.view
+
 sales.view
-sales.refresh
-sales.staff.view
-sales.staff.refresh
-tasks.view
-tasks.create
-claims.view
-announcements.view
-targets.view
-roles.view
-roles.create
-roles.edit
-roles.delete
-policies.view
-policies.create
-manager.view
-manager.assign
-manager.delete
-manager.team.view
+sales-staff.view
+
+admin.panel
+admin.routing.view
+admin.master-settings.view
+
+integrations.fetched-data.view
+
+trainings.view
+
+requests.view
+salary.view
+settings.view
+
+assigned-manager.view
+
 help_tickets.view
 help_tickets.create
 help_tickets.update
-settings.view
-settings.edit
-admin.panel
+help_tickets.assign
+help_tickets.close
+
+no_policy.view
 ```
 
 ⚠️ **DO NOT RENAME OR ADD POLICIES** without client approval.
@@ -132,22 +132,21 @@ admin.panel
 
 ### Rules
 
-1. **Assigner must have `users.assign_role` policy**
+1. **Assigner must have `admin.panel` policy**
 2. **Assigner must own ALL non-org-scoped policies in the role being assigned**
    - Prevents privilege escalation
-   - Non-org-scoped policies: `dashboard.view`, `roles.*`, `policies.*`, `admin.panel`, `settings.*`
-3. **Target user must be within assigner's org scope** (unless SuperAdmin)
+   - Non-org-scoped policies are restricted to the locked allowlist
+3. **Target user must be within assigner's org scope**
 
 ### Example
 
 User A wants to assign Role X to User B.
 
 Role X contains:
-- `attendance.view` (org-scoped) ✅
-- `roles.create` (non-org-scoped) ❌ User A doesn't have this
-- `sales.view` (org-scoped) ✅
+- `attendance.history.view` ✅
+- `admin.panel` ❌ User A doesn't have this
 
-**Result**: ❌ Denied - User A cannot grant `roles.create` because they don't have it.
+**Result**: ❌ Denied - User A cannot grant `admin.panel` because they don't have it.
 
 ## Admin APIs
 
@@ -191,7 +190,7 @@ On next API request, JWT's `policyVersion` won't match user's current version �
   "user": {
     "id": "user-123",
     "email": "user@example.com",
-    "policies": ["dashboard.view", "users.view", "attendance.view"]
+    "policies": ["dashboard.view", "employees.view", "attendance.history.view"]
   }
 }
 ```
@@ -200,8 +199,8 @@ On next API request, JWT's `policyVersion` won't match user's current version �
 
 ```typescript
 // Show/hide navigation items
-if (user.policies.includes("users.view")) {
-  // Show "Users" nav item
+if (user.policies.includes("employees.view")) {
+  // Show "Members" nav item
 }
 
 // Enable/disable buttons

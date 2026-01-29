@@ -6,6 +6,7 @@
 
 import type { Express } from "express";
 import { requireAuth, requirePolicy } from "../lib/auth-middleware";
+import { POLICIES } from "../constants/policies";
 import {
   createPage,
   updatePage,
@@ -19,7 +20,7 @@ import {
 
 export function registerPagesRoutes(app: Express): void {
   // GET /api/pages - Get all pages with their policies
-  app.get("/api/pages", requireAuth, async (req, res) => {
+  app.get("/api/pages", requireAuth, requirePolicy(POLICIES.ADMIN_PANEL), async (req, res) => {
     try {
       const pages = await getAllPages();
       res.json(pages);
@@ -30,7 +31,7 @@ export function registerPagesRoutes(app: Express): void {
   });
 
   // GET /api/pages/active - Get only active pages (for navigation)
-  app.get("/api/pages/active", requireAuth, async (req, res) => {
+  app.get("/api/pages/active", requireAuth, requirePolicy(POLICIES.ADMIN_PANEL), async (req, res) => {
     try {
       const { prisma } = await import("../lib/prisma");
       const pages = await prisma.uiPage.findMany({
@@ -55,7 +56,7 @@ export function registerPagesRoutes(app: Express): void {
   });
 
   // GET /api/pages/:id - Get single page
-  app.get("/api/pages/:id", requireAuth, async (req, res) => {
+  app.get("/api/pages/:id", requireAuth, requirePolicy(POLICIES.ADMIN_PANEL), async (req, res) => {
     try {
       const { id } = req.params;
       const page = await getPageById(id);
@@ -70,7 +71,7 @@ export function registerPagesRoutes(app: Express): void {
   });
 
   // GET /api/pages/by-path/:path - Get page by path
-  app.get("/api/pages/by-path/*", requireAuth, async (req, res) => {
+  app.get("/api/pages/by-path/*", requireAuth, requirePolicy(POLICIES.ADMIN_PANEL), async (req, res) => {
     try {
       const path = "/" + req.params[0]; // Reconstruct path
       const page = await getPageByPath(path);
@@ -88,7 +89,7 @@ export function registerPagesRoutes(app: Express): void {
   app.post(
     "/api/pages",
     requireAuth,
-    requirePolicy("admin.pages.manage"), // Admin policy for page management
+    requirePolicy(POLICIES.ADMIN_PANEL),
     async (req, res) => {
       try {
         const input: CreatePageInput = req.body;
@@ -121,7 +122,7 @@ export function registerPagesRoutes(app: Express): void {
   app.put(
     "/api/pages/:id",
     requireAuth,
-    requirePolicy("admin.pages.manage"),
+    requirePolicy(POLICIES.ADMIN_PANEL),
     async (req, res) => {
       try {
         const { id } = req.params;
@@ -146,7 +147,7 @@ export function registerPagesRoutes(app: Express): void {
   app.delete(
     "/api/pages/:id",
     requireAuth,
-    requirePolicy("admin.pages.manage"),
+    requirePolicy(POLICIES.ADMIN_PANEL),
     async (req, res) => {
       try {
         const { id } = req.params;
@@ -165,7 +166,7 @@ export function registerPagesRoutes(app: Express): void {
   app.post(
     "/api/pages/sync",
     requireAuth,
-    requirePolicy("admin.pages.manage"),
+    requirePolicy(POLICIES.ADMIN_PANEL),
     async (req, res) => {
       try {
         const result = await syncPagesFromNavConfig();

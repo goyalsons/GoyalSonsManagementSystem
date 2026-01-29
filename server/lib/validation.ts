@@ -15,7 +15,7 @@ export function validatePolicyKey(key: string): { valid: boolean; error?: string
   if (!isValidPolicyKey(key)) {
     return {
       valid: false,
-      error: `Policy key must match format: {resource}.{action} (lowercase, dots only, 2-3 parts)`,
+      error: `Policy key must match format: {resource}.{action} (lowercase, dots, hyphen/underscore allowed, 2-3 parts)`,
     };
   }
 
@@ -44,25 +44,6 @@ export function validateRoleName(name: string): { valid: boolean; error?: string
       valid: false,
       error: "Role name contains invalid characters. Only letters, numbers, spaces, and basic punctuation are allowed.",
     };
-  }
-
-  return { valid: true };
-}
-
-/**
- * Validate role level
- */
-export function validateRoleLevel(level: number | undefined | null): { valid: boolean; error?: string } {
-  if (level === undefined || level === null) {
-    return { valid: true }; // Optional field
-  }
-
-  if (typeof level !== "number" || !Number.isInteger(level)) {
-    return { valid: false, error: "Role level must be an integer" };
-  }
-
-  if (level < -100 || level > 100) {
-    return { valid: false, error: "Role level must be between -100 and 100" };
   }
 
   return { valid: true };

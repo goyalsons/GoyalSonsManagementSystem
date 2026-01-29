@@ -102,11 +102,14 @@ export default function ManagerDashboard() {
     queryKey: ["/api/manager/dashboard/attendance", dateType],
     queryFn: async () => {
       const token = localStorage.getItem("gms_token");
+      const headers: HeadersInit = {
+        "Content-Type": "application/json",
+      };
+      if (token) {
+        headers["X-Session-Id"] = token;
+      }
       const res = await fetch(`/api/manager/dashboard/attendance?dateType=${dateType}`, {
-        headers: {
-          "X-Session-Id": token,
-          "Content-Type": "application/json",
-        },
+        headers,
         credentials: "include",
       });
       const result = await res.json();

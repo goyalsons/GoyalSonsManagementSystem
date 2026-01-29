@@ -7,6 +7,13 @@ function getAuthHeaders(): HeadersInit {
     : { "Content-Type": "application/json" };
 }
 
+function handleUnauthorized(): void {
+  localStorage.removeItem("gms_token");
+  if (typeof window !== "undefined") {
+    window.location.href = "/login";
+  }
+}
+
 export async function apiGet<T>(endpoint: string): Promise<T> {
   const response = await fetch(`${API_BASE}${endpoint}`, {
     headers: getAuthHeaders(),
@@ -15,6 +22,9 @@ export async function apiGet<T>(endpoint: string): Promise<T> {
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({ message: "Request failed" }));
     const err: any = new Error(errorBody.message || "Request failed");
+    if (response.status === 401) {
+      handleUnauthorized();
+    }
     if (response.status === 403 && errorBody.code) {
       err.code = errorBody.code;
     }
@@ -33,6 +43,9 @@ export async function apiPost<T>(endpoint: string, data?: unknown): Promise<T> {
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ message: "Request failed" }));
+    if (response.status === 401) {
+      handleUnauthorized();
+    }
     throw new Error(error.message);
   }
 
@@ -48,6 +61,9 @@ export async function apiPut<T>(endpoint: string, data: unknown): Promise<T> {
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ message: "Request failed" }));
+    if (response.status === 401) {
+      handleUnauthorized();
+    }
     throw new Error(error.message);
   }
 
@@ -62,6 +78,9 @@ export async function apiDelete<T>(endpoint: string): Promise<T> {
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ message: "Request failed" }));
+    if (response.status === 401) {
+      handleUnauthorized();
+    }
     throw new Error(error.message);
   }
 
@@ -223,9 +242,9 @@ export const claimsApi = {
 export const rolesApi = {
   getAll: () => apiGet<any[]>("/roles"),
   getById: (id: string) => apiGet<any>(`/roles/${id}`),
-  create: (data: { name: string; description?: string; level?: number; policyIds?: string[] }) =>
+  create: (data: { name: string; description?: string; policyIds?: string[] }) =>
     apiPost<any>("/roles", data),
-  update: (id: string, data: { name?: string; description?: string; level?: number; policyIds?: string[] }) =>
+  update: (id: string, data: { name?: string; description?: string; policyIds?: string[] }) =>
     apiPut<any>(`/roles/${id}`, data),
   delete: (id: string) => apiDelete<any>(`/roles/${id}`),
 };

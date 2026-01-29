@@ -3,99 +3,11 @@ import { prisma } from "../lib/prisma";
 import { requireAuth, requirePolicy } from "../lib/auth-middleware";
 
 export function registerHelpTicketsRoutes(app: Express) {
-  // GET /api/help-tickets - Get help tickets based on user role:
-  // - Regular employees: only their own tickets
-  // - Managers: tickets from their team members
-  // - MDO: tickets from managers
+  // GET /api/help-tickets - Get help tickets (policy-based)
   app.get("/api/help-tickets", requireAuth, requirePolicy("help_tickets.view"), async (req, res) => {
     try {
-      const user = req.user!;
       const { status, category } = req.query;
-      
-      // First, check if new columns exist by querying the information_schema
-      let columnsExist = false;
-      try {
-        const columnCheck = await prisma.$queryRaw<Array<{ column_name: string }>>`
-          SELECT column_name 
-          FROM information_schema.columns 
-          WHERE table_name = 'HelpTicket' 
-          AND column_name IN ('assignedToRole', 'assignedToId', 'raisedByRole', 'managerId')
-        `;
-        columnsExist = columnCheck.length >= 2; // At least assignedToRole and assignedToId should exist
-      } catch (checkError) {
-        console.warn("[Help Tickets] Could not check for columns, assuming they don't exist:", checkError);
-        columnsExist = false;
-      }
-      
       const where: any = {};
-      
-      // Super admin sees all tickets
-      if (user.isSuperAdmin) {
-        // No filter - show all tickets
-      }
-      // MDO sees tickets assigned to MDO role
-      else if (user.loginType === "mdo") {
-        if (columnsExist) {
-          where.assignedToRole = "MDO";
-          console.log(`[Help Ticket] MDO (${user.id}) fetching tickets with assignedToRole = "MDO"`);
-        } else {
-          console.log(`[Help Ticket] MDO (${user.id}) fetching tickets - columns don't exist, showing all as fallback`);
-        }
-        // If columns don't exist, no filter (show all for MDO as fallback)
-      }
-      // Managers see tickets assigned to them
-      else if (user.isManager && user.id) {
-        if (columnsExist) {
-          where.assignedToRole = "MANAGER";
-          where.assignedToId = user.id;
-        } else {
-          // Fallback: show tickets from team members (old logic)
-          if (user.employeeCardNo) {
-            const managers = await prisma.$queryRaw<Array<{
-              mdepartmentId: string | null;
-              mdesignationId: string | null;
-              morgUnitId: string | null;
-            }>>`
-              SELECT "mdepartmentId", "mdesignationId", "morgUnitId"
-              FROM "emp_manager"
-              WHERE "mcardno" = ${user.employeeCardNo} AND "mis_extinct" = false
-            `;
-
-            if (managers.length > 0) {
-              const whereConditions: any[] = [];
-              managers.forEach((manager) => {
-                const condition: any = {}; // Remove status check from condition, will apply globally
-                if (manager.mdepartmentId) condition.departmentId = manager.mdepartmentId;
-                if (manager.mdesignationId) condition.designationId = manager.mdesignationId;
-                if (manager.morgUnitId) condition.orgUnitId = manager.morgUnitId;
-                if (manager.mdepartmentId || manager.mdesignationId || manager.morgUnitId) {
-                  whereConditions.push(condition);
-                }
-              });
-
-              if (whereConditions.length > 0) {
-                const teamMembers = await prisma.employee.findMany({
-                  where: { AND: [{ lastInterviewDate: null }, { OR: whereConditions }] }, // Only active employees
-                  select: { id: true },
-                });
-                const teamMemberIds = teamMembers.map(e => e.id);
-                where.employeeId = teamMemberIds.length > 0 ? { in: teamMemberIds } : { in: [] };
-              } else {
-                where.employeeId = { in: [] };
-              }
-            } else {
-              where.employeeId = { in: [] };
-            }
-          } else {
-            where.employeeId = { in: [] };
-          }
-        }
-      }
-      // Regular employees should not see Requests (handled by frontend navigation, but add safety check)
-      else {
-        // No access - return empty
-        where.employeeId = { in: [] };
-      }
       
       if (status && typeof status === 'string') {
         where.status = status;
@@ -180,8 +92,6 @@ export function registerHelpTicketsRoutes(app: Express) {
         console.log(`[Help Ticket] Auto-reset ${ticketsToReset.length} tickets to pending status`);
       }
       
-      console.log(`[Help Ticket] Found ${tickets.length} tickets for user ${user.id} (loginType: ${user.loginType}, isManager: ${user.isManager})`);
-      
       res.json({ success: true, tickets });
     } catch (error: any) {
       console.error("Get help tickets error:", error);
@@ -221,12 +131,7 @@ export function registerHelpTicketsRoutes(app: Express) {
       }
 
       // Determine raisedByRole
-      let raisedByRole = "EMPLOYEE";
-      if (user.loginType === "mdo") {
-        raisedByRole = "MDO";
-      } else if (user.isManager) {
-        raisedByRole = "MANAGER";
-      }
+      const raisedByRole = "EMPLOYEE";
 
       // Get employee details to find manager assignment
       const employee = await prisma.employee.findUnique({
@@ -356,23 +261,21 @@ export function registerHelpTicketsRoutes(app: Express) {
         return res.status(404).json({ success: false, message: "Ticket not found" });
       }
       
-      // Allow managers/MDO to update tickets assigned to them, or employees to update their own tickets, or admin to update any
-      const canUpdate = user.isSuperAdmin || 
-                        ticket.employeeId === user.employeeId ||
-                        (user.loginType === "mdo" && ticket.assignedToRole === "MDO") ||
-                        (user.isManager && ticket.assignedToRole === "MANAGER" && ticket.assignedToId === user.id);
-      
-      if (!canUpdate) {
-        return res.status(403).json({ 
-          success: false, 
-          message: "You don't have permission to update this ticket" 
+      const hasUpdatePolicy = user.policies?.includes("help_tickets.update") || false;
+      const hasClosePolicy = user.policies?.includes("help_tickets.close") || false;
+      const isClosingStatus = status && ["resolved", "closed", "dismissed"].includes(status);
+
+      if (isClosingStatus && !hasClosePolicy) {
+        return res.status(403).json({
+          success: false,
+          message: "You don't have permission to close this ticket",
         });
       }
       
       const updateData: any = {};
       
-      // Allow status updates for managers/MDO/admins
-      if (status && (user.isSuperAdmin || user.loginType === "mdo" || user.isManager)) {
+      // Allow status updates for users with update policy
+      if (status && hasUpdatePolicy) {
         updateData.status = status;
         if (status === "resolved" || status === "closed") {
           updateData.resolvedById = user.id;
@@ -384,8 +287,8 @@ export function registerHelpTicketsRoutes(app: Express) {
         }
       }
       
-      // Only admin/MDO can update response
-      if (response !== undefined && (user.isSuperAdmin || user.loginType === "mdo")) {
+      // Only users with update policy can update response
+      if (response !== undefined && hasUpdatePolicy) {
         updateData.response = response;
       }
       

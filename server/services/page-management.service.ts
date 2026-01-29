@@ -30,14 +30,31 @@ export interface CreatePageInput {
 }
 
 /**
- * Standard CRUD policies that are auto-generated for every page
+ * Locked allowlist of policies
  */
-const STANDARD_POLICIES = [
-  { action: "view", description: "View {name}" },
-  { action: "create", description: "Create {name}" },
-  { action: "update", description: "Update {name}" },
-  { action: "delete", description: "Delete {name}" },
-];
+const ALLOWED_POLICIES = new Set([
+  "dashboard.view",
+  "roles-assigned.view",
+  "employees.view",
+  "attendance.history.view",
+  "staff-sales.view",
+  "sales-staff.view",
+  "admin.panel",
+  "admin.routing.view",
+  "admin.master-settings.view",
+  "integrations.fetched-data.view",
+  "trainings.view",
+  "requests.view",
+  "salary.view",
+  "settings.view",
+  "assigned-manager.view",
+  "help_tickets.view",
+  "help_tickets.create",
+  "help_tickets.update",
+  "help_tickets.assign",
+  "help_tickets.close",
+  "no_policy.view",
+]);
 
 /**
  * Generate policy key from prefix and action
@@ -56,18 +73,23 @@ function generatePoliciesForPage(
 ): Array<{ key: string; description: string; category: string }> {
   const policies: Array<{ key: string; description: string; category: string }> = [];
 
-  // Generate standard CRUD policies
-  STANDARD_POLICIES.forEach(({ action, description }) => {
+  const viewKey = generatePolicyKey(policyPrefix, "view");
+  if (ALLOWED_POLICIES.has(viewKey)) {
     policies.push({
-      key: generatePolicyKey(policyPrefix, action),
-      description: description.replace("{name}", pageName),
-      category: policyPrefix.split("_")[0] || policyPrefix, // Use first part as category
+      key: viewKey,
+      description: `View ${pageName}`,
+      category: policyPrefix.split("_")[0] || policyPrefix,
     });
-  });
+  } else {
+    throw new Error(`Policy ${viewKey} is not in the allowed list`);
+  }
 
   // Add custom actions
   if (customActions) {
     customActions.forEach((action) => {
+      if (!ALLOWED_POLICIES.has(action.policyKey)) {
+        throw new Error(`Policy ${action.policyKey} is not in the allowed list`);
+      }
       policies.push({
         key: action.policyKey,
         description: action.description || `${action.name} ${pageName}`,

@@ -5,7 +5,6 @@ export interface UserAuth {
   id: string;
   name: string;
   email: string;
-  isSuperAdmin: boolean;
   orgUnitId: string | null;
   roles: { id: string; name: string }[];
   policies: string[];
@@ -20,12 +19,6 @@ export interface UserAuth {
     designationCode: string | null;
     designationName: string | null;
   } | null;
-  isManager?: boolean;
-  managerScopes?: {
-    departmentIds: string[] | null;
-    designationIds: string[] | null;
-    orgUnitIds: string[] | null;
-  } | null;
 }
 
 interface AuthContextType {
@@ -35,11 +28,7 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   hasPolicy: (policy: string) => boolean;
-  hasRole: (roleName: string) => boolean;
   canAccessOrg: (orgUnitId: string) => boolean;
-  isEmployeeLogin: () => boolean;
-  isManager: () => boolean;
-  getManagerScopes: () => { departmentIds: string[] | null; designationIds: string[] | null; orgUnitIds: string[] | null; } | null;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -133,34 +122,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   function hasPolicy(policy: string): boolean {
     if (!user) return false;
-    if (user.isSuperAdmin) return true;
     return user.policies.includes(policy);
-  }
-
-  function hasRole(roleName: string): boolean {
-    if (!user) return false;
-    return user.roles.some((r) => r.name.toLowerCase() === roleName.toLowerCase());
   }
 
   function canAccessOrg(orgUnitId: string): boolean {
     if (!user) return false;
-    if (user.isSuperAdmin) return true;
     return user.accessibleOrgUnitIds.includes(orgUnitId);
-  }
-
-  function isEmployeeLogin(): boolean {
-    if (!user) return false;
-    return user.loginType === "employee";
-  }
-
-  function isManager(): boolean {
-    if (!user) return false;
-    return user.isManager === true;
-  }
-
-  function getManagerScopes() {
-    if (!user || !user.isManager) return null;
-    return user.managerScopes;
   }
 
   return (
@@ -172,11 +139,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         login,
         logout,
         hasPolicy,
-        hasRole,
         canAccessOrg,
-        isEmployeeLogin,
-        isManager,
-        getManagerScopes,
       }}
     >
       {children}

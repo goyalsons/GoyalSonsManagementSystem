@@ -1,7 +1,9 @@
 import { Request, Response, NextFunction } from "express";
 import { prisma } from "./prisma";
 import { getUserAuthInfo } from "./authorization";
+import { POLICIES } from "../constants/policies";
 import * as crypto from "crypto";
+import { getSessionAuthSnapshot, putSessionAuthSnapshot } from "./auth-cache";
 
 declare global {
   namespace Express {
@@ -10,7 +12,6 @@ declare global {
         id: string;
         name: string;
         email: string;
-        isSuperAdmin: boolean;
         orgUnitId: string | null;
         roles: { id: string; name: string }[];
         policies: string[];
@@ -18,6 +19,7 @@ declare global {
         loginType: "mdo" | "employee";
         employeeCardNo: string | null;
         employeeId: string | null;
+        // Optional fields used by some legacy routes
         isManager?: boolean;
         managerScopes?: {
           departmentIds: string[] | null;
@@ -82,14 +84,28 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
  * This middleware checks if the authenticated user has the required policy.
  * Policies are checked from the JWT token (no DB query needed).
  * 
- * SuperAdmin bypasses all policy checks.
- * 
- * @param policyKey - Policy key to check (e.g., "users.view")
+ * @param policyKey - Policy key to check (e.g., "dashboard.view")
  */
 export function requirePolicy(policyKey: string) {
   return async (req: Request, res: Response, next: NextFunction) => {
     if (!req.user) {
       return res.status(401).json({ message: "Authentication required" });
+    }
+
+    // Director mode: bypass all policy restrictions
+    if (req.user.roles?.some((r) => r.name === "Director")) {
+      return next();
+    }
+
+    // POLICIES is a const map; its Object.values() becomes a string-literal union.
+    // Cast for runtime membership check without forcing callers to use the union type.
+    const allowedPolicies = new Set(Object.values(POLICIES) as unknown as string[]);
+    if (!allowedPolicies.has(policyKey)) {
+      return res.status(500).json({
+        code: "INVALID_POLICY",
+        message: "Policy key is not in the allowed list",
+        requiredPolicy: policyKey,
+      });
     }
 
     // If user has no policies at all, treat as NO_POLICY
@@ -98,11 +114,6 @@ export function requirePolicy(policyKey: string) {
         code: "NO_POLICY",
         message: "User has no applicable policy",
       });
-    }
-
-    // SuperAdmin bypasses all policy checks
-    if (req.user.isSuperAdmin) {
-      return next();
     }
 
     // Check if user has the required policy (from JWT snapshot)
@@ -124,10 +135,6 @@ export function requireOrgAccess(getTargetOrgUnitId: (req: Request) => string | 
       return res.status(401).json({ message: "Authentication required" });
     }
 
-    if (req.user.isSuperAdmin) {
-      return next();
-    }
-
     const targetOrgUnitId = getTargetOrgUnitId(req);
     if (targetOrgUnitId && !req.user.accessibleOrgUnitIds.includes(targetOrgUnitId)) {
       return res.status(403).json({ 
@@ -140,56 +147,43 @@ export function requireOrgAccess(getTargetOrgUnitId: (req: Request) => string | 
   };
 }
 
-// MDO email whitelist - users with these emails are automatically assigned MDO role
-const MDO_EMAIL_WHITELIST = [
-  "ankush@goyalsons.com",
-  "abhishek@goyalsons.com",
-  "mukesh@goyalsons.com",
-].map(email => email.toLowerCase());
-
-export function requireMDO(req: Request, res: Response, next: NextFunction) {
-  if (!req.user) {
-    return res.status(401).json({ message: "Authentication required" });
-  }
-
-  // Check if user is employee login type (card-based login) - block these
-  if (req.user.loginType === "employee") {
-    return res.status(403).json({ 
-      message: "Access denied", 
-      reason: "employee_restricted" 
-    });
-  }
-
-  // If loginType is "mdo", allow access (all Google OAuth users have loginType="mdo")
-  if (req.user.loginType === "mdo") {
-    return next();
-  }
-
-  // For other login types, check email whitelist (backward compatibility)
-  const userEmail = req.user.email?.toLowerCase();
-  const isMDOEmail = MDO_EMAIL_WHITELIST.includes(userEmail || "");
-
-  // Check if ENV_LOGIN_EMAIL is set - only that user gets MDO access (unless whitelisted)
-  const envLoginEmail = process.env.ENV_LOGIN_EMAIL;
-  if (envLoginEmail && !isMDOEmail) {
-    if (userEmail !== envLoginEmail.toLowerCase()) {
-      return res.status(403).json({ 
-        message: "Access denied. Only authorized MDO users can access this resource.", 
-        reason: "mdo_access_restricted"
-      });
-    }
-  }
-
-  // If email is in whitelist or matches ENV_LOGIN_EMAIL, allow access
-  next();
-}
-
 function getSessionId(req: Request): string | null {
   const sessionHeader = req.headers["x-session-id"];
   if (Array.isArray(sessionHeader)) {
     return sessionHeader[0] || null;
   }
   return sessionHeader ? String(sessionHeader) : null;
+}
+
+async function ensureUserHasRole(userId: string, roleName: string): Promise<boolean> {
+  const role = await prisma.role.upsert({
+    where: { name: roleName },
+    update: {},
+    create: { name: roleName },
+    select: { id: true },
+  });
+
+  const existing = await prisma.userRole.findUnique({
+    where: {
+      userId_roleId: {
+        userId,
+        roleId: role.id,
+      },
+    },
+    select: { userId: true },
+  });
+  if (existing) return false;
+
+  await prisma.userRole.create({
+    data: { userId, roleId: role.id },
+  });
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: { policyVersion: { increment: 1 } },
+  });
+
+  return true;
 }
 
 /**
@@ -209,6 +203,18 @@ export async function loadUserFromSession(req: Request, res: Response, next: Nex
   }
 
   try {
+    // 1) Fast path: session-level cached auth snapshot
+    const cached = await getSessionAuthSnapshot(sessionId);
+    if (cached.hit) {
+      req.user = {
+        ...cached.snapshot,
+        loginType: cached.loginType,
+        employeeCardNo: cached.employeeCardNo,
+      };
+      return next();
+    }
+
+    // 2) Cache miss: load session from DB (cheap) and compute snapshot (expensive)
     const session = await prisma.session.findUnique({
       where: { id: sessionId },
       select: { id: true, userId: true, expiresAt: true, loginType: true, employeeCardNo: true },
@@ -225,9 +231,29 @@ export async function loadUserFromSession(req: Request, res: Response, next: Nex
       });
     }
 
-    const authInfo = await getUserAuthInfo(session.userId);
+    // Lightweight policyVersion read for cache invalidation (no joins)
+    const userVersion = await prisma.user.findUnique({
+      where: { id: session.userId },
+      select: { policyVersion: true },
+    });
+    const policyVersion = userVersion?.policyVersion ?? 0;
+
+    let authInfo = await getUserAuthInfo(session.userId);
     if (!authInfo) {
       return next();
+    }
+
+    // If user has no policies, auto-attach default role for employee sessions.
+    // This matches desired behavior: users with zero policies get default access automatically.
+    if (
+      (!authInfo.policies || authInfo.policies.length === 0) &&
+      !authInfo.roles?.some((r) => r.name === "Director") &&
+      (session.loginType === "employee" || Boolean(authInfo.employeeId))
+    ) {
+      const changed = await ensureUserHasRole(session.userId, "Employee");
+      if (changed) {
+        authInfo = await getUserAuthInfo(session.userId);
+      }
     }
 
     req.user = {
@@ -235,11 +261,29 @@ export async function loadUserFromSession(req: Request, res: Response, next: Nex
       loginType: session.loginType === "employee" ? "employee" : "mdo",
       employeeCardNo: session.employeeCardNo || null,
     };
-  } catch (error) {
+
+    // Cache the snapshot (session-scoped)
+    // Note: we cache the same structure as getUserAuthInfo returns.
+    await putSessionAuthSnapshot({
+      sessionId: session.id,
+      userId: session.userId,
+      sessionExpiresAt: session.expiresAt,
+      sessionLoginType: session.loginType === "employee" ? "employee" : "mdo",
+      sessionEmployeeCardNo: session.employeeCardNo || null,
+      policyVersion: (await prisma.user.findUnique({ where: { id: session.userId }, select: { policyVersion: true } }))?.policyVersion ?? policyVersion,
+      snapshot: authInfo,
+    });
+  } catch (error: any) {
+    if (error?.code === "P1001") {
+      return res.status(503).json({
+        message: "Database unavailable. Please try again later.",
+        reason: "db_unreachable",
+      });
+    }
     console.error("[loadUserFromSession] ❌ Session load error:", error);
   }
 
-  next();
+  return next();
 }
 
 // Helper function for org subtree (needed in this file)

@@ -3,12 +3,12 @@
  * 
  * Prevents privilege escalation by enforcing strict rules:
  * 
- * 1. Assigner must have users.assign_role policy
+ * 1. Assigner must have admin.panel policy
  * 2. Assigner must own ALL non-org-scoped policies in the role being assigned
- * 3. Cannot assign roles to users outside org scope (unless SuperAdmin)
+ * 3. Cannot assign roles to users outside org scope
  * 
- * Org-scoped policies are those that filter data by orgUnit (e.g., employees.view).
- * Non-org-scoped policies are global (e.g., roles.create, admin.panel).
+ * Org-scoped policies are those that filter data by orgUnit.
+ * Non-org-scoped policies are global system permissions.
  * 
  * Rationale:
  * - A user cannot grant permissions they don't have
@@ -32,15 +32,26 @@ export interface RoleAssignmentCheckResult {
  */
 const NON_ORG_SCOPED_POLICIES = [
   "dashboard.view",
-  "roles.view",
-  "roles.create",
-  "roles.edit",
-  "roles.delete",
-  "policies.view",
-  "policies.create",
+  "roles-assigned.view",
+  "employees.view",
+  "attendance.history.view",
+  "staff-sales.view",
+  "sales-staff.view",
   "admin.panel",
+  "admin.routing.view",
+  "admin.master-settings.view",
+  "integrations.fetched-data.view",
+  "trainings.view",
+  "requests.view",
+  "salary.view",
   "settings.view",
-  "settings.edit",
+  "assigned-manager.view",
+  "help_tickets.view",
+  "help_tickets.create",
+  "help_tickets.update",
+  "help_tickets.assign",
+  "help_tickets.close",
+  "no_policy.view",
 ] as const;
 
 /**
@@ -57,9 +68,9 @@ function isOrgScopedPolicy(policyKey: string): boolean {
  * Check if a user can assign a role to another user
  * 
  * Security Rules:
- * 1. Assigner must have users.assign_role policy
+ * 1. Assigner must have admin.panel policy
  * 2. Assigner must own all non-org-scoped policies in the role
- * 3. Target user must be within assigner's org scope (unless SuperAdmin)
+ * 3. Target user must be within assigner's org scope
  * 
  * @param assignerUserId - User ID of the person assigning the role
  * @param targetUserId - User ID of the person receiving the role
@@ -78,7 +89,6 @@ export async function canAssignRole(params: {
     where: { id: assignerUserId },
     select: {
       id: true,
-      isSuperAdmin: true,
       orgUnitId: true,
     },
   });
@@ -87,14 +97,9 @@ export async function canAssignRole(params: {
     return { allowed: false, reason: "assigner_not_found" };
   }
 
-  // SuperAdmin bypass (but log it for audit)
-  if (assigner.isSuperAdmin) {
-    return { allowed: true };
-  }
-
-  // Rule 1: Check if assigner has users.assign_role policy
+  // Rule 1: Check if assigner has admin.panel policy
   const assignerPolicies = await getUserPolicies(assignerUserId);
-  if (!assignerPolicies.includes("users.assign_role")) {
+  if (!assignerPolicies.includes("admin.panel")) {
     return { allowed: false, reason: "missing_assign_role_policy" };
   }
 
@@ -111,7 +116,7 @@ export async function canAssignRole(params: {
     return { allowed: false, reason: "target_user_not_found" };
   }
 
-  // Rule 3: Check org scope (unless SuperAdmin)
+  // Rule 3: Check org scope
   if (targetUser.orgUnitId && assigner.orgUnitId) {
     const accessibleOrgUnitIds = await getAccessibleOrgUnitIds(assignerUserId);
     if (!accessibleOrgUnitIds.includes(targetUser.orgUnitId)) {
@@ -165,7 +170,7 @@ export async function canAssignRole(params: {
  * Check if a user can remove a role from another user
  * 
  * Same security rules as assignment, but slightly relaxed:
- * - Still requires users.assign_role policy
+ * - Still requires admin.panel policy
  * - Still requires org scope check
  * - No need to check policy ownership (removal is less dangerous)
  */
@@ -180,7 +185,6 @@ export async function canRemoveRole(params: {
     where: { id: assignerUserId },
     select: {
       id: true,
-      isSuperAdmin: true,
       orgUnitId: true,
     },
   });
@@ -189,13 +193,9 @@ export async function canRemoveRole(params: {
     return { allowed: false, reason: "assigner_not_found" };
   }
 
-  if (assigner.isSuperAdmin) {
-    return { allowed: true };
-  }
-
-  // Must have users.assign_role policy
+  // Must have admin.panel policy
   const assignerPolicies = await getUserPolicies(assignerUserId);
-  if (!assignerPolicies.includes("users.assign_role")) {
+  if (!assignerPolicies.includes("admin.panel")) {
     return { allowed: false, reason: "missing_assign_role_policy" };
   }
 

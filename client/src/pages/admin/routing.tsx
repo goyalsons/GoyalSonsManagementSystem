@@ -74,7 +74,7 @@ export default function ApiRoutingPage() {
       if (!res.ok) throw new Error("Failed to fetch routes");
       return res.json();
     },
-    enabled: !!token && hasPolicy("admin.panel"),
+    enabled: !!token && hasPolicy("admin.routing.view"),
   });
 
   const createRouteMutation = useMutation({
@@ -271,7 +271,7 @@ export default function ApiRoutingPage() {
     }
   };
 
-  if (!hasPolicy("admin.panel")) {
+  if (!hasPolicy("admin.routing.view")) {
     return (
       <div className="flex items-center justify-center h-64">
         <p className="text-muted-foreground">You don't have permission to access this page.</p>

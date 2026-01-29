@@ -130,11 +130,9 @@ function TicketCard({ ticket, isAdmin }: { ticket: HelpTicket; isAdmin: boolean 
   const [viewOpen, setViewOpen] = useState(false);
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const { user } = useAuth();
+  const { user, hasPolicy } = useAuth();
   
-  const canUpdate = user?.isSuperAdmin || 
-                    user?.loginType === "mdo" || 
-                    user?.isManager || false;
+  const canUpdate = hasPolicy("help_tickets.update");
   
   const updateStatusMutation = useMutation({
     mutationFn: async (newStatus: string) => {
@@ -330,8 +328,8 @@ function TicketCard({ ticket, isAdmin }: { ticket: HelpTicket; isAdmin: boolean 
 }
 
 export default function RequestsPage() {
-  const { user } = useAuth();
-  const isAdmin = user?.isSuperAdmin || false;
+  const { hasPolicy } = useAuth();
+  const isAdmin = hasPolicy("help_tickets.update");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [helpTicketOpen, setHelpTicketOpen] = useState(false);
@@ -401,11 +399,7 @@ export default function RequestsPage() {
             Help Requests
           </h1>
           <p className="text-slate-500 mt-1">
-            {user?.loginType === "mdo" 
-              ? "View help tickets raised by managers"
-              : user?.isManager 
-              ? "View help tickets from your team members"
-              : "View and manage your help tickets"}
+            View help tickets you have access to.
           </p>
         </div>
         <Button

@@ -16,8 +16,7 @@ import {
   requireAuth, 
   requirePolicy, 
   loadUserFromSession,
-  hashPassword,
-  requireMDO
+  hashPassword
 } from "./lib/auth-middleware";
 import { getUserAuthInfo, getAccessibleOrgUnitIds } from "./lib/authorization";
 import { getDepartmentName, getDesignationName, refreshSyncSchedules, triggerManualSync } from "./auto-sync";
@@ -43,7 +42,6 @@ declare global {
       id: string;
       name: string;
       email: string;
-      isSuperAdmin: boolean;
       orgUnitId: string | null;
       roles: { id: string; name: string }[];
       policies: string[];
@@ -90,9 +88,9 @@ const upload = multer({
   },
 });
 
-// MDO email whitelist - users with these emails can login via Google OAuth and get MDO role
+// MDO email whitelist - emails listed in ALLOWED_GOOGLE_EMAILS can login via Google OAuth and get MDO role
 // You can add more emails via ALLOWED_GOOGLE_EMAILS environment variable (comma-separated)
-// Example: ALLOWED_GOOGLE_EMAILS=ankush@goyalsons.com,abhishek@goyalsons.com,mukesh@goyalsons.com,newuser@goyalsons.com
+// Example: ALLOWED_GOOGLE_EMAILS=user1@example.com,user2@example.com
 const getAllowedGoogleEmails = (): string[] => {
   if (process.env.ALLOWED_GOOGLE_EMAILS) {
     return process.env.ALLOWED_GOOGLE_EMAILS.split(",")
@@ -221,7 +219,6 @@ function initializeGoogleOAuth(): boolean {
               name: profile.displayName || profile.name?.givenName || email.split("@")[0],
               passwordHash,
               status: "active",
-              isSuperAdmin: false, // MDO users don't need to be super admin
             },
           });
           console.log(`[Google OAuth] ✅ Created new MDO user via Google OAuth: ${email}`);
@@ -357,9 +354,7 @@ export async function registerLegacyRoutes(
     });
   }
 
-  // Protect all /api/mdo/* routes with requireMDO middleware
-  // This must be placed after auth routes to avoid blocking authentication
-  app.use("/api/mdo", requireAuth, requireMDO);
+  // /api/mdo routes are protected via policy checks on each route
 
   if (enableLegacyAuthRoutes) {
   app.post("/api/auth/login", async (req, res) => {
@@ -395,41 +390,9 @@ export async function registerLegacyRoutes(
         employeeCardNo = employee?.cardNumber || null;
       }
 
-      // Check if user is a manager
-      let isManager = false;
-      let managerScopes = null;
-      if (employeeCardNo) {
-        const managerAssignments = await prisma.$queryRaw<Array<{
-          mid: string;
-          mcardno: string;
-          mdepartmentId: string | null;
-          mdesignationId: string | null;
-          morgUnitId: string | null;
-          mis_extinct: boolean;
-        }>>`
-          SELECT "mid", "mcardno", "mdepartmentId", "mdesignationId", "morgUnitId", "mis_extinct"
-          FROM "emp_manager"
-          WHERE "mcardno" = ${employeeCardNo} AND "mis_extinct" = false
-        `;
-        
-        if (managerAssignments.length > 0) {
-          isManager = true;
-          const departmentIds = Array.from(new Set(managerAssignments.map(m => m.mdepartmentId).filter((id): id is string => id !== null)));
-          const designationIds = Array.from(new Set(managerAssignments.map(m => m.mdesignationId).filter((id): id is string => id !== null)));
-          const orgUnitIds = Array.from(new Set(managerAssignments.map(m => m.morgUnitId).filter((id): id is string => id !== null)));
-          managerScopes = {
-            departmentIds: departmentIds.length > 0 ? departmentIds : null,
-            designationIds: designationIds.length > 0 ? designationIds : null,
-            orgUnitIds: orgUnitIds.length > 0 ? orgUnitIds : null,
-          };
-        }
-      }
-
       const userWithManager = {
         ...user,
         employeeCardNo,
-        isManager,
-        managerScopes,
       };
 
       res.json({
@@ -446,12 +409,6 @@ export async function registerLegacyRoutes(
     try {
       const userData = { ...req.user };
       
-      console.log("[Auth Me] Checking manager status for user:", {
-        userId: req.user!.id,
-        employeeId: req.user!.employeeId,
-        employeeCardNo: req.user!.employeeCardNo,
-      });
-      
       // Get employee card number from session or from user's employee record
       let employeeCardNo = req.user!.employeeCardNo;
       
@@ -466,56 +423,6 @@ export async function registerLegacyRoutes(
           (userData as any).employeeCardNo = employeeCardNo;
         }
       }
-      
-      // If user has an employee card number, check if they're a manager
-      if (employeeCardNo) {
-        const managerAssignments = await prisma.$queryRaw<Array<{
-          mid: string;
-          mcardno: string;
-          mdepartmentId: string | null;
-          mdesignationId: string | null;
-          morgUnitId: string | null;
-          mis_extinct: boolean;
-        }>>`
-          SELECT "mid", "mcardno", "mdepartmentId", "mdesignationId", "morgUnitId", "mis_extinct"
-          FROM "emp_manager"
-          WHERE "mcardno" = ${employeeCardNo} AND "mis_extinct" = false
-          ORDER BY "mid" DESC
-        `;
-        
-        if (managerAssignments.length > 0) {
-          // Get unique scopes (combine all manager assignments)
-          const departmentIds = Array.from(new Set(managerAssignments.map(m => m.mdepartmentId).filter((id): id is string => id !== null)));
-          const designationIds = Array.from(new Set(managerAssignments.map(m => m.mdesignationId).filter((id): id is string => id !== null)));
-          const orgUnitIds = Array.from(new Set(managerAssignments.map(m => m.morgUnitId).filter((id): id is string => id !== null)));
-          
-          (userData as any).isManager = true;
-          (userData as any).managerScopes = {
-            departmentIds: departmentIds.length > 0 ? departmentIds : null,
-            designationIds: designationIds.length > 0 ? designationIds : null,
-            orgUnitIds: orgUnitIds.length > 0 ? orgUnitIds : null,
-          };
-          
-          console.log("[Auth Me] ✅ User is a manager:", {
-            cardNo: employeeCardNo,
-            assignments: managerAssignments.length,
-            scopes: (userData as any).managerScopes,
-          });
-        } else {
-          (userData as any).isManager = false;
-          (userData as any).managerScopes = null;
-          console.log("[Auth Me] ❌ User is NOT a manager (no assignments found)");
-        }
-      } else {
-        (userData as any).isManager = false;
-        (userData as any).managerScopes = null;
-        console.log("[Auth Me] ❌ User is NOT a manager (no card number)");
-      }
-      
-      console.log("[Auth Me] Returning user data:", {
-        isManager: (userData as any).isManager,
-        employeeCardNo: (userData as any).employeeCardNo,
-      });
       
       res.json(userData);
     } catch (error) {
@@ -541,21 +448,8 @@ export async function registerLegacyRoutes(
 
   app.get("/api/org-units", requireAuth, async (req, res) => {
     try {
-      // Allowed unit codes - only these units will be shown
-      const allowedUnitCodes = [
-        "UNIT-1", "UNIT-2", "UNIT-3", "UNIT-4", 
-        "UNIT-5", "UNIT-6", "UNIT-7", "UNIT-8", 
-        "GSHO"
-      ];
-      
       const orgUnits = await prisma.orgUnit.findMany({
-        where: {
-          id: { in: req.user!.accessibleOrgUnitIds },
-          code: { in: allowedUnitCodes }, // Filter by allowed codes
-        },
-        orderBy: [
-          { code: "asc" }, // Sort by code to get Unit 1, Unit 2, etc. in order
-        ],
+        orderBy: { name: "asc" },
       });
       res.json(orgUnits);
     } catch (error) {
@@ -568,13 +462,29 @@ export async function registerLegacyRoutes(
     try {
       const accessibleOrgUnitIds = req.user!.accessibleOrgUnitIds;
       
-      const branches = await prisma.orgUnit.findMany({
-        where: {
-          id: { in: accessibleOrgUnitIds },
-          type: "branch",
-        },
+      const whereClause: any = { type: "branch" };
+      // If scope is empty (e.g., orgUnitId is null), treat as global access for lookups.
+      if (accessibleOrgUnitIds && accessibleOrgUnitIds.length > 0) {
+        whereClause.id = { in: accessibleOrgUnitIds };
+      }
+
+      let branches = await prisma.orgUnit.findMany({
+        where: whereClause,
         orderBy: { code: "asc" },
       });
+
+      // Backward-compatible fallback: if no orgUnits are typed as "branch" yet,
+      // return all org units so the UI dropdown isn't empty.
+      if (branches.length === 0) {
+        const fallbackWhere: any = {};
+        if (accessibleOrgUnitIds && accessibleOrgUnitIds.length > 0) {
+          fallbackWhere.id = { in: accessibleOrgUnitIds };
+        }
+        branches = await prisma.orgUnit.findMany({
+          where: fallbackWhere,
+          orderBy: { code: "asc" },
+        });
+      }
 
       const branchesWithCounts = await Promise.all(
         branches.map(async (branch) => {
@@ -597,34 +507,11 @@ export async function registerLegacyRoutes(
 
   app.get("/api/departments", requireAuth, async (req, res) => {
     try {
-      const accessibleOrgUnitIds = req.user!.accessibleOrgUnitIds;
-      const unitId = req.query.unitId as string | undefined;
-
       const departments = await prisma.department.findMany({
+        where: { isActive: true },
         orderBy: { name: "asc" },
       });
-
-      const departmentsWithCounts = await Promise.all(
-        departments.map(async (dept) => {
-          const whereClause: any = { departmentId: dept.id };
-          
-          if (unitId) {
-            whereClause.orgUnitId = unitId;
-          } else {
-            whereClause.orgUnitId = { in: accessibleOrgUnitIds };
-          }
-
-          const employeeCount = await prisma.employee.count({
-            where: whereClause,
-          });
-          return {
-            ...dept,
-            employeeCount,
-          };
-        })
-      );
-
-      res.json(departmentsWithCounts);
+      res.json(departments);
     } catch (error) {
       console.error("Departments error:", error);
       res.status(500).json({ message: "Failed to fetch departments" });
@@ -739,7 +626,7 @@ export async function registerLegacyRoutes(
     }
   });
 
-  app.get("/api/employees", requireAuth, requireMDO, requirePolicy("employees.view"), async (req, res) => {
+  app.get("/api/employees", requireAuth, requirePolicy("employees.view"), async (req, res) => {
     try {
       const accessibleOrgUnitIds = req.user!.accessibleOrgUnitIds;
       const { unitId, departmentId, designationId, search, page, limit: limitParam, statusFilter } = req.query;
@@ -748,11 +635,12 @@ export async function registerLegacyRoutes(
       // Only filter by orgUnit if not superadmin and accessibleOrgUnitIds is not empty
       const where: any = {};
       
-      // Filter: Only show employees fetched from API (have externalId or metadata with API fields)
-      // This excludes demo/test employees that were created manually
-      where.externalId = { not: null };
+      // Filter: Only show real employees synced from Employee Master.
+      // The sync always uses CARD_NO -> stored as employee.cardNumber.
+      // This excludes seeded "login users" created from ALLOWED_GOOGLE_EMAILS which have no cardNumber.
+      where.cardNumber = { not: null };
       
-      if (!req.user!.isSuperAdmin && accessibleOrgUnitIds.length > 0) {
+      if (accessibleOrgUnitIds.length > 0) {
         where.orgUnitId = { in: accessibleOrgUnitIds };
       }
       
@@ -769,11 +657,17 @@ export async function registerLegacyRoutes(
       // Filter by active/inactive status based on lastInterviewDate
       // Active = lastInterviewDate is null
       // Inactive = lastInterviewDate has a value
-      // Default: Only show active employees (inactive employees are hidden everywhere)
-      if (statusFilter === 'inactive') {
+      // Default: Only show active employees
+      //
+      // statusFilter behavior:
+      // - "inactive" => only inactive
+      // - "all"      => active + inactive (no lastInterviewDate filter)
+      // - anything else (incl "active" / undefined) => only active
+      if (statusFilter === "inactive") {
         where.lastInterviewDate = { not: null };
+      } else if (statusFilter === "all") {
+        // no-op: include both active and inactive
       } else {
-        // Default behavior: Only active employees (statusFilter === 'active' or 'all' or not provided)
         where.lastInterviewDate = null;
       }
       
@@ -880,7 +774,7 @@ export async function registerLegacyRoutes(
     }
   });
 
-  app.post("/api/employees/assign-role", requireAuth, requirePolicy("users.create"), async (req, res) => {
+  app.post("/api/employees/assign-role", requireAuth, requirePolicy("admin.panel"), async (req, res) => {
     try {
       const { employeeId, roleId, tempPassword } = req.body;
       const accessibleOrgUnitIds = req.user!.accessibleOrgUnitIds;
@@ -925,7 +819,8 @@ export async function registerLegacyRoutes(
         return res.status(400).json({ message: "This employee already has a user account" });
       }
 
-      const email = employee.companyEmail || employee.personalEmail || `${employee.cardNumber || employee.id}@goyalsons.com`;
+      // Use a reserved non-routable domain to avoid generating real company emails
+      const email = employee.companyEmail || employee.personalEmail || `${employee.cardNumber || employee.id}@example.invalid`;
 
       const emailExists = await prisma.user.findUnique({
         where: { email },
@@ -974,7 +869,7 @@ export async function registerLegacyRoutes(
     }
   });
 
-  app.get("/api/attendance", requireAuth, requirePolicy("attendance.view"), async (req, res) => {
+  app.get("/api/attendance", requireAuth, requirePolicy("attendance.history.view"), async (req, res) => {
     try {
       const accessibleOrgUnitIds = req.user!.accessibleOrgUnitIds;
       const { from, to, employeeId } = req.query;
@@ -1020,7 +915,7 @@ export async function registerLegacyRoutes(
     }
   });
 
-  app.post("/api/attendance/checkin", requireAuth, requirePolicy("attendance.create"), async (req, res) => {
+  app.post("/api/attendance/checkin", requireAuth, requirePolicy("attendance.history.view"), async (req, res) => {
     try {
       const { employeeId } = req.body;
       const accessibleOrgUnitIds = req.user!.accessibleOrgUnitIds;
@@ -1075,7 +970,7 @@ export async function registerLegacyRoutes(
 
   // Today's attendance with present/absent status for all employees
   // Priority: 1. Local Prisma DB (real-time synced), 2. BigQuery (historical/backup)
-  app.get("/api/attendance/today", requireAuth, requirePolicy("attendance.view"), async (req, res) => {
+  app.get("/api/attendance/today", requireAuth, requirePolicy("attendance.history.view"), async (req, res) => {
     try {
       const accessibleOrgUnitIds = req.user!.accessibleOrgUnitIds;
       const { unitId, departmentId, designationId, status: filterStatus, page = "1", limit = "50" } = req.query;
@@ -1669,13 +1564,10 @@ export async function registerLegacyRoutes(
   });
 
   app.get("/api/attendance/history/config", requireAuth, async (req, res) => {
-    // Allow employees to check config (they can view their own attendance)
-    const isEmployee = req.user!.loginType === "employee";
-    const hasPolicy = req.user!.policies?.includes("attendance.view");
-    const isSuperAdmin = req.user!.isSuperAdmin;
+    const hasPolicy = req.user!.policies?.includes("attendance.history.view");
     
-    if (!isEmployee && !hasPolicy && !isSuperAdmin) {
-      return res.status(403).json({ message: "Access denied", reason: "missing_policy", required: "attendance.view" });
+    if (!hasPolicy) {
+      return res.status(403).json({ message: "Access denied", reason: "missing_policy", required: "attendance.history.view" });
     }
     
     res.json({ configured: isBigQueryConfigured() });
@@ -1688,61 +1580,10 @@ export async function registerLegacyRoutes(
       res.set('Expires', '0');
       res.set('Pragma', 'no-cache');
 
-      // STEP 1: Normalize user card once at the top
-      const normalizedUserCard = req.user?.employeeCardNo
-        ? String(req.user.employeeCardNo).trim()
-        : null;
-
-      let isManager = Boolean(req.user?.isManager);
-      const isEmployee = req.user!.loginType === "employee";
+      const hasPolicy = req.user!.policies?.includes("attendance.history.view");
       
-      console.log(`[Attendance History] Initial state: isManager=${isManager} (from session), isEmployee=${isEmployee}, normalizedUserCard=${normalizedUserCard}`);
-      
-      // STEP 2: RUN FALLBACK MANAGER CHECK FIRST (before ANY 403)
-      // If isManager is false AND normalizedUserCard exists, check database
-      if (!isManager && normalizedUserCard) {
-        console.log(`[Attendance History] 🔍 Running fallback manager check for card: ${normalizedUserCard}`);
-        try {
-          const managerCheck = await prisma.$queryRaw<Array<{ count: bigint }>>`
-            SELECT COUNT(*)::int as count
-            FROM "emp_manager"
-            WHERE "mcardno" = ${normalizedUserCard} AND "mis_extinct" = false
-          `;
-          const count = Number(managerCheck[0]?.count || 0);
-          isManager = count > 0;
-          console.log(`[Attendance History] 🔍 Manager count = ${count}, Final isManager = ${isManager}`);
-        } catch (error) {
-          console.error(`[Attendance History] ❌ Error in fallback manager check for card ${normalizedUserCard}:`, error);
-          // Do NOT silently fail - log clearly and keep isManager as false
-          isManager = false;
-          console.log(`[Attendance History] 🔍 Final isManager = false (error occurred)`);
-        }
-      } else if (isManager) {
-        console.log(`[Attendance History] ⏭️ Skipping fallback manager check (already marked as manager in session)`);
-      } else if (!normalizedUserCard) {
-        console.log(`[Attendance History] ⏭️ Skipping fallback manager check (no card number available)`);
-      }
-      
-      console.log(`[Attendance History] Final manager status: isManager=${isManager} (session value was ${req.user?.isManager})`);
-      
-      const hasPolicy = req.user!.policies?.includes("attendance.view");
-      const isSuperAdmin = req.user!.isSuperAdmin;
-      
-      console.log(`[Attendance History] Auth check:`, {
-        isEmployee,
-        isManager,
-        isManagerRaw: req.user?.isManager,
-        hasPolicy,
-        isSuperAdmin,
-        normalizedUserCard,
-        loginType: req.user!.loginType,
-      });
-      
-      // Non-employees need the attendance.view policy OR be a manager
-      // Managers can view their team members' attendance
-      if (!isEmployee && !hasPolicy && !isSuperAdmin && !isManager) {
-        console.log(`[Attendance History] ❌ Access denied: missing policy or manager status`);
-        return res.status(403).json({ message: "Access denied", reason: "missing_policy", required: "attendance.view" });
+      if (!hasPolicy) {
+        return res.status(403).json({ message: "Access denied", reason: "missing_policy", required: "attendance.history.view" });
       }
 
       if (!isBigQueryConfigured()) {
@@ -1754,141 +1595,9 @@ export async function registerLegacyRoutes(
 
       // Normalize requested card number
       const normalizedRequestedCard = String(cardNo).trim();
+      cardNo = normalizedRequestedCard;
 
-      // STEP 3: Apply employee restriction ONLY AFTER manager resolution
-      // Employee restriction must run ONLY if: isEmployee === true AND isManager === false
-      console.log(`[Attendance History] Checking employee restriction: isEmployee=${isEmployee}, isManager=${isManager}, will restrict=${isEmployee && !isManager}`);
-      if (isEmployee && !isManager) {
-        // Compare normalized values
-        if (normalizedUserCard && normalizedRequestedCard !== normalizedUserCard) {
-          console.log(`[Attendance History] ❌ Card number mismatch: requested="${normalizedRequestedCard}", employee="${normalizedUserCard}"`);
-          console.log(`[Attendance History] ❌ Blocking employee access - not their own card`);
-          return res.status(403).json({
-            message: "Access denied: You can only view your own attendance"
-          });
-        }
-        console.log(`[Attendance History] ✅ Employee access allowed - viewing own card`);
-        cardNo = normalizedUserCard || cardNo;
-        
-        // STEP 4: Month restriction - apply last-3-month rule ONLY when:
-        // isEmployee === true AND isManager === false
-        // Managers must bypass month restriction completely
-        if (month) {
-          const requestedMonth = new Date(month as string);
-          const now = new Date();
-          const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 2, 1);
-          if (requestedMonth < threeMonthsAgo) {
-            return res.status(403).json({ message: "Access denied: You can only view attendance from the last 3 months" });
-          }
-        }
-      }
-
-      // Manager login: verify the card number belongs to their team
-      // Managers can view team members' attendance even if they're also employees
-      // Managers can also view their own attendance
-      if (isManager) {
-        if (!normalizedUserCard) {
-          console.log("[Attendance History] ❌ Manager card number not found in session");
-          return res.status(403).json({ message: "Access denied: Manager card number not found" });
-        }
-
-        console.log(`[Attendance History] Manager access check: managerCardNo=${normalizedUserCard}, requestedCardNo=${normalizedRequestedCard}`);
-
-        // Allow managers to view their own attendance
-        if (normalizedRequestedCard === normalizedUserCard) {
-          console.log(`[Attendance History] ✅ Manager viewing own attendance: ${normalizedRequestedCard}`);
-          cardNo = normalizedRequestedCard;
-          // Continue to fetch attendance (bypass team check)
-        } else {
-          // For team members, verify they're in the manager's team
-          // Get manager's team members (use normalized card number for consistency)
-          const managers = await prisma.$queryRaw<Array<{
-            mid: string;
-            mcardno: string;
-            mdepartmentId: string | null;
-            mdesignationId: string | null;
-            morgUnitId: string | null;
-            mis_extinct: boolean;
-          }>>`
-            SELECT "mid", "mcardno", "mdepartmentId", "mdesignationId", "morgUnitId", "mis_extinct"
-            FROM "emp_manager"
-            WHERE "mcardno" = ${normalizedUserCard} AND "mis_extinct" = false
-          `;
-
-          console.log(`[Attendance History] Manager assignments found: ${managers.length}`);
-
-          if (managers.length === 0) {
-            console.log("[Attendance History] ❌ No manager assignments found");
-            return res.status(403).json({ 
-              message: "Access denied: No manager assignments found" 
-            });
-          }
-
-          // Build where clause based on manager's scope
-          const whereConditions: any[] = [];
-          
-          managers.forEach((manager) => {
-            const condition: any = { status: "ACTIVE" };
-            if (manager.mdepartmentId) {
-              condition.departmentId = manager.mdepartmentId;
-            }
-            if (manager.mdesignationId) {
-              condition.designationId = manager.mdesignationId;
-            }
-            if (manager.morgUnitId) {
-              condition.orgUnitId = manager.morgUnitId;
-            }
-            
-            if (manager.mdepartmentId || manager.mdesignationId || manager.morgUnitId) {
-              whereConditions.push(condition);
-            }
-          });
-
-          console.log(`[Attendance History] Where conditions: ${whereConditions.length}`);
-
-          if (whereConditions.length === 0) {
-            console.log("[Attendance History] ❌ No valid where conditions (manager has no scope defined)");
-            return res.status(403).json({ 
-              message: "Access denied: Manager has no team scope defined" 
-            });
-          }
-
-          // Get team member card numbers
-          const teamMembers = await prisma.employee.findMany({
-            where: {
-              OR: whereConditions,
-            },
-            select: { cardNumber: true },
-          });
-
-          const teamCardNumbers = teamMembers
-            .map(e => e.cardNumber)
-            .filter((card): card is string => card !== null)
-            .map(card => String(card).trim()); // Normalize to strings
-
-          console.log(`[Attendance History] Team members found: ${teamCardNumbers.length}`);
-          console.log(`[Attendance History] Requested card "${normalizedRequestedCard}" in team: ${teamCardNumbers.includes(normalizedRequestedCard)}`);
-          console.log(`[Attendance History] Sample team cards: ${teamCardNumbers.slice(0, 5).join(", ")}`);
-
-          // Verify the requested card number is in the team
-          if (!teamCardNumbers.includes(normalizedRequestedCard)) {
-            console.log(`[Attendance History] ❌ Card "${normalizedRequestedCard}" not in team. Team cards: ${teamCardNumbers.slice(0, 10).join(", ")}...`);
-            return res.status(403).json({ 
-              message: "Access denied: You can only view attendance for your team members" 
-            });
-          }
-
-          console.log(`[Attendance History] ✅ Manager access granted for team member card ${normalizedRequestedCard}`);
-          cardNo = normalizedRequestedCard;
-        }
-      }
-
-      // Ensure cardNo is set correctly after all checks
-      // For employees, it's already set to their own card
-      // For managers, use the requested card (already validated)
-      if (isManager && !cardNo) {
-        cardNo = normalizedRequestedCard;
-      }
+      // Authorization is handled purely by policy; no manager-specific checks.
 
       console.log(`[API] Attendance history request: cardNo=${cardNo}, month=${month}`);
 
@@ -1989,7 +1698,7 @@ export async function registerLegacyRoutes(
     }
   });
 
-  app.get("/api/tasks", requireAuth, requirePolicy("tasks.view"), async (req, res) => {
+  app.get("/api/tasks", requireAuth, requirePolicy("admin.panel"), async (req, res) => {
     try {
       const accessibleOrgUnitIds = req.user!.accessibleOrgUnitIds;
       const { status, priority } = req.query;
@@ -2043,7 +1752,7 @@ export async function registerLegacyRoutes(
     }
   });
 
-  app.post("/api/tasks", requireAuth, requirePolicy("tasks.create"), async (req, res) => {
+  app.post("/api/tasks", requireAuth, requirePolicy("admin.panel"), async (req, res) => {
     try {
       const { title, description, assigneeId, priority, dueDate } = req.body;
       const accessibleOrgUnitIds = req.user!.accessibleOrgUnitIds;
@@ -2084,7 +1793,7 @@ export async function registerLegacyRoutes(
     }
   });
 
-  app.get("/api/users", requireAuth, requireMDO, requirePolicy("users.view"), async (req, res) => {
+  app.get("/api/users", requireAuth, requirePolicy("admin.panel"), async (req, res) => {
     try {
       const users = await (prisma as any).user.findMany({
         include: {
@@ -2121,7 +1830,7 @@ export async function registerLegacyRoutes(
     }
   });
 
-  app.get("/api/claims", requireAuth, requirePolicy("claims.view"), async (req, res) => {
+  app.get("/api/claims", requireAuth, requirePolicy("admin.panel"), async (req, res) => {
     try {
       const accessibleOrgUnitIds = req.user!.accessibleOrgUnitIds;
       const { status } = req.query;
@@ -2167,7 +1876,7 @@ export async function registerLegacyRoutes(
     }
   });
 
-  app.get("/api/announcements", requireAuth, requirePolicy("announcements.view"), async (req, res) => {
+  app.get("/api/announcements", requireAuth, requirePolicy("admin.panel"), async (req, res) => {
     try {
       const accessibleOrgUnitIds = req.user!.accessibleOrgUnitIds;
 
@@ -2210,7 +1919,7 @@ export async function registerLegacyRoutes(
     }
   });
 
-  app.get("/api/targets", requireAuth, requirePolicy("targets.view"), async (req, res) => {
+  app.get("/api/targets", requireAuth, requirePolicy("admin.panel"), async (req, res) => {
     try {
       const accessibleOrgUnitIds = req.user!.accessibleOrgUnitIds;
 
@@ -2279,7 +1988,7 @@ export async function registerLegacyRoutes(
   });
 
   // POST /api/roles/workflow - Save role hierarchy workflow
-  app.post("/api/roles/workflow", requireAuth, requirePolicy("admin.roles"), async (req, res) => {
+  app.post("/api/roles/workflow", requireAuth, requirePolicy("admin.panel"), async (req, res) => {
     try {
       const { roles, connections } = req.body;
 
@@ -2365,7 +2074,7 @@ export async function registerLegacyRoutes(
 
   // ==================== SETTINGS API ====================
   
-  app.get("/api/settings", requireAuth, requireMDO, async (req, res) => {
+  app.get("/api/settings", requireAuth, requirePolicy("settings.view"), async (req, res) => {
     try {
       let settings = await prisma.userSettings.findUnique({
         where: { userId: req.user!.id },
@@ -2384,7 +2093,7 @@ export async function registerLegacyRoutes(
     }
   });
 
-  app.put("/api/settings", requireAuth, requireMDO, async (req, res) => {
+  app.put("/api/settings", requireAuth, requirePolicy("settings.view"), async (req, res) => {
     try {
       const { theme, emailNotifications, smsNotifications, loginMethod, timezone, language } = req.body;
 
@@ -2416,7 +2125,7 @@ export async function registerLegacyRoutes(
     }
   });
 
-  app.put("/api/settings/profile", requireAuth, requireMDO, async (req, res) => {
+  app.put("/api/settings/profile", requireAuth, requirePolicy("settings.view"), async (req, res) => {
     try {
       const { name, phone } = req.body;
 
@@ -2432,7 +2141,7 @@ export async function registerLegacyRoutes(
     }
   });
 
-  app.put("/api/settings/password", requireAuth, requireMDO, async (req, res) => {
+  app.put("/api/settings/password", requireAuth, requirePolicy("settings.view"), async (req, res) => {
     try {
       const { currentPassword, newPassword } = req.body;
 
@@ -2464,7 +2173,7 @@ export async function registerLegacyRoutes(
   // ==================== MANAGER ASSIGNMENT API ====================
   
   // GET employee by card number
-  app.get("/api/employees/by-card/:cardNumber", requireAuth, requireMDO, async (req, res) => {
+  app.get("/api/employees/by-card/:cardNumber", requireAuth, requirePolicy("assigned-manager.view"), async (req, res) => {
     try {
       const { cardNumber } = req.params;
       
@@ -2606,7 +2315,7 @@ export async function registerLegacyRoutes(
   });
 
   // POST assign manager
-  app.post("/api/manager/assign", requireAuth, requireMDO, async (req, res) => {
+  app.post("/api/manager/assign", requireAuth, requirePolicy("assigned-manager.view"), async (req, res) => {
     try {
       const { cardNumber, orgUnitId, departmentIds } = req.body;
 
@@ -2891,7 +2600,7 @@ export async function registerLegacyRoutes(
           
           let email = employee.companyEmail || employee.personalEmail;
           if (!email) {
-            email = `emp-${employee.id.slice(0, 8)}@goyalsons.local`;
+            email = `emp-${employee.id.slice(0, 8)}@example.invalid`;
           }
           
           const existingEmailUser = await prisma.user.findUnique({
@@ -2899,7 +2608,7 @@ export async function registerLegacyRoutes(
           });
           
           if (existingEmailUser) {
-            email = `emp-${employee.id}@goyalsons.local`;
+            email = `emp-${employee.id}@example.invalid`;
           }
           
           user = await prisma.user.create({
@@ -3284,7 +2993,7 @@ export async function registerLegacyRoutes(
           
           let email = employee.companyEmail || employee.personalEmail;
           if (!email) {
-            email = `emp-${employee.cardNumber}@goyalsons.local`;
+            email = `emp-${employee.cardNumber}@example.invalid`;
           }
           
           const existingEmailUser = await prisma.user.findUnique({
@@ -3292,7 +3001,7 @@ export async function registerLegacyRoutes(
           });
           
           if (existingEmailUser) {
-            email = `emp-${employee.id}@goyalsons.local`;
+            email = `emp-${employee.id}@example.invalid`;
           }
           
           user = await prisma.user.create({
@@ -3346,7 +3055,7 @@ export async function registerLegacyRoutes(
 
   // ==================== ADMIN API ROUTING ====================
 
-  app.get("/api/admin/routing", requireAuth, requirePolicy("admin.panel"), async (req, res) => {
+  app.get("/api/admin/routing", requireAuth, requirePolicy("admin.routing.view"), async (req, res) => {
     try {
       const routes = await prisma.apiRouting.findMany({
         orderBy: { createdAt: "desc" },
@@ -3358,7 +3067,7 @@ export async function registerLegacyRoutes(
     }
   });
 
-  app.post("/api/admin/upload", requireAuth, requirePolicy("admin.panel"), (req: any, res, next) => {
+  app.post("/api/admin/upload", requireAuth, requirePolicy("admin.routing.view"), (req: any, res, next) => {
     upload.single("file")(req, res, (err: any) => {
       if (err) {
         if (err.message === "Only CSV, JSON, and Excel files are allowed") {
@@ -3387,7 +3096,7 @@ export async function registerLegacyRoutes(
 
   app.use("/uploads", requireAuth, express.static(uploadsDir));
 
-  app.post("/api/admin/routing", requireAuth, requirePolicy("admin.panel"), async (req, res) => {
+  app.post("/api/admin/routing", requireAuth, requirePolicy("admin.routing.view"), async (req, res) => {
     try {
       const { name, description, endpoint, method, sourceType, csvFilePath, csvUrl, headers, syncEnabled, syncIntervalHours, syncIntervalMinutes } = req.body;
 
@@ -3420,7 +3129,7 @@ export async function registerLegacyRoutes(
     }
   });
 
-  app.put("/api/admin/routing/:id", requireAuth, requirePolicy("admin.panel"), async (req, res) => {
+  app.put("/api/admin/routing/:id", requireAuth, requirePolicy("admin.routing.view"), async (req, res) => {
     try {
       const { id } = req.params;
       const { name, description, endpoint, method, sourceType, csvFilePath, csvUrl, headers, syncEnabled, syncIntervalHours, syncIntervalMinutes, isActive, status } = req.body;
@@ -3453,7 +3162,7 @@ export async function registerLegacyRoutes(
     }
   });
 
-  app.delete("/api/admin/routing/:id", requireAuth, requirePolicy("admin.panel"), async (req, res) => {
+  app.delete("/api/admin/routing/:id", requireAuth, requirePolicy("admin.routing.view"), async (req, res) => {
     try {
       const { id } = req.params;
 
@@ -3470,7 +3179,7 @@ export async function registerLegacyRoutes(
     }
   });
 
-  app.post("/api/admin/routing/:id/test", requireAuth, requirePolicy("admin.panel"), async (req, res) => {
+  app.post("/api/admin/routing/:id/test", requireAuth, requirePolicy("admin.routing.view"), async (req, res) => {
     try {
       const { id } = req.params;
 
@@ -3683,7 +3392,7 @@ export async function registerLegacyRoutes(
     }
   });
 
-  app.post("/api/admin/routing/:id/sync", requireAuth, requirePolicy("admin.panel"), async (req, res) => {
+  app.post("/api/admin/routing/:id/sync", requireAuth, requirePolicy("admin.routing.view"), async (req, res) => {
     try {
       const { id } = req.params;
 
@@ -3721,7 +3430,7 @@ export async function registerLegacyRoutes(
 
   // ==================== SYSTEM SETTINGS API ====================
 
-  app.get("/api/admin/system-settings", requireAuth, requirePolicy("admin.panel"), async (req, res) => {
+  app.get("/api/admin/system-settings", requireAuth, requirePolicy("admin.master-settings.view"), async (req, res) => {
     try {
       const settings = await prisma.systemSettings.findMany({
         orderBy: { category: "asc" },
@@ -3733,7 +3442,7 @@ export async function registerLegacyRoutes(
     }
   });
 
-  app.get("/api/admin/system-settings/:key", requireAuth, requirePolicy("admin.panel"), async (req, res) => {
+  app.get("/api/admin/system-settings/:key", requireAuth, requirePolicy("admin.master-settings.view"), async (req, res) => {
     try {
       const setting = await prisma.systemSettings.findUnique({
         where: { key: req.params.key },
@@ -3745,7 +3454,7 @@ export async function registerLegacyRoutes(
     }
   });
 
-  app.put("/api/admin/system-settings/:key", requireAuth, requirePolicy("admin.panel"), async (req, res) => {
+  app.put("/api/admin/system-settings/:key", requireAuth, requirePolicy("admin.master-settings.view"), async (req, res) => {
     try {
       const { key } = req.params;
       const { value, description, category } = req.body;
@@ -3765,7 +3474,7 @@ export async function registerLegacyRoutes(
 
   // ==================== DATA FETCHER API ====================
 
-  app.get("/api/admin/data-fetcher/logs", requireAuth, requirePolicy("admin.panel"), async (req, res) => {
+  app.get("/api/admin/data-fetcher/logs", requireAuth, requirePolicy("integrations.fetched-data.view"), async (req, res) => {
     try {
       const logs = await prisma.dataImportLog.findMany({
         orderBy: { startedAt: "desc" },
@@ -3778,7 +3487,7 @@ export async function registerLegacyRoutes(
     }
   });
 
-  app.delete("/api/admin/data-fetcher/logs", requireAuth, requirePolicy("admin.panel"), async (req, res) => {
+  app.delete("/api/admin/data-fetcher/logs", requireAuth, requirePolicy("integrations.fetched-data.view"), async (req, res) => {
     try {
       await prisma.dataImportLog.deleteMany({});
       res.json({ success: true, message: "Sync history cleared" });
@@ -3788,7 +3497,7 @@ export async function registerLegacyRoutes(
     }
   });
 
-  app.post("/api/admin/data-fetcher/sync-employees", requireAuth, requirePolicy("admin.panel"), async (req, res) => {
+  app.post("/api/admin/data-fetcher/sync-employees", requireAuth, requirePolicy("integrations.fetched-data.view"), async (req, res) => {
     try {
       const masterUrlSetting = await prisma.systemSettings.findUnique({
         where: { key: "EMPLOYEE_MASTER_URL" },
@@ -3848,12 +3557,17 @@ export async function registerLegacyRoutes(
             let departmentId = null;
             if (emp["DEPARTMENT.DEPT_CODE"]) {
               const deptCode = emp["DEPARTMENT.DEPT_CODE"];
+              const deptNameRaw = emp["DEPARTMENT.DEPARTMENT"];
+              const deptName =
+                (typeof deptNameRaw === "string" && deptNameRaw.trim())
+                  ? deptNameRaw.trim()
+                  : getDepartmentName(deptCode);
               const dept = await prisma.department.upsert({
                 where: { code: deptCode },
-                update: { name: getDepartmentName(deptCode) },
+                update: { name: deptName },
                 create: { 
                   code: deptCode, 
-                  name: getDepartmentName(deptCode)
+                  name: deptName
                 },
               });
               departmentId = dept.id;
@@ -3862,12 +3576,17 @@ export async function registerLegacyRoutes(
             let designationId = null;
             if (emp["DESIGNATION.DESIGN_CODE"]) {
               const desigCode = emp["DESIGNATION.DESIGN_CODE"];
+              const desigNameRaw = emp["DESIGNATION.DESIGN_NAME"];
+              const desigName =
+                (typeof desigNameRaw === "string" && desigNameRaw.trim())
+                  ? desigNameRaw.trim()
+                  : getDesignationName(desigCode);
               const desig = await prisma.designation.upsert({
                 where: { code: desigCode },
-                update: { name: getDesignationName(desigCode) },
+                update: { name: desigName },
                 create: { 
                   code: desigCode, 
-                  name: getDesignationName(desigCode)
+                  name: desigName
                 },
               });
               designationId = desig.id;
@@ -3891,12 +3610,17 @@ export async function registerLegacyRoutes(
 
             let orgUnitId = null;
             if (emp["UNIT.BRANCH_CODE"]) {
+              const branchCode = String(emp["UNIT.BRANCH_CODE"]).trim();
               const orgUnit = await prisma.orgUnit.upsert({
-                where: { code: emp["UNIT.BRANCH_CODE"] },
-                update: {},
+                where: { code: branchCode },
+                update: {
+                  name: branchCode,
+                  type: "branch",
+                },
                 create: { 
-                  code: emp["UNIT.BRANCH_CODE"],
-                  name: emp["UNIT.BRANCH_CODE"],
+                  code: branchCode,
+                  name: branchCode,
+                  type: "branch",
                   level: 2,
                 },
               });
@@ -4124,7 +3848,7 @@ export async function registerLegacyRoutes(
     }
   });
 
-  app.post("/api/admin/data-fetcher/test-url", requireAuth, requirePolicy("admin.panel"), async (req, res) => {
+  app.post("/api/admin/data-fetcher/test-url", requireAuth, requirePolicy("integrations.fetched-data.view"), async (req, res) => {
     try {
       const { url } = req.body;
 
@@ -4158,7 +3882,7 @@ export async function registerLegacyRoutes(
     }
   });
 
-  app.post("/api/admin/test-api-preview", requireAuth, requirePolicy("admin.panel"), async (req, res) => {
+  app.post("/api/admin/test-api-preview", requireAuth, requirePolicy("integrations.fetched-data.view"), async (req, res) => {
     try {
       const { url } = req.body;
 

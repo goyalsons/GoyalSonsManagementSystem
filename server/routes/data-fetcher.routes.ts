@@ -4,7 +4,7 @@ import { requireAuth, requirePolicy } from "../lib/auth-middleware";
 import { getDepartmentName, getDesignationName } from "../auto-sync";
 
 export function registerDataFetcherRoutes(app: Express): void {
-  app.get("/api/admin/data-fetcher/logs", requireAuth, requirePolicy("admin.panel"), async (req, res) => {
+  app.get("/api/admin/data-fetcher/logs", requireAuth, requirePolicy("integrations.fetched-data.view"), async (req, res) => {
     try {
       const logs = await prisma.dataImportLog.findMany({
         orderBy: { startedAt: "desc" },
@@ -17,7 +17,7 @@ export function registerDataFetcherRoutes(app: Express): void {
     }
   });
 
-  app.delete("/api/admin/data-fetcher/logs", requireAuth, requirePolicy("admin.panel"), async (req, res) => {
+  app.delete("/api/admin/data-fetcher/logs", requireAuth, requirePolicy("integrations.fetched-data.view"), async (req, res) => {
     try {
       await prisma.dataImportLog.deleteMany({});
       res.json({ success: true, message: "Sync history cleared" });
@@ -27,7 +27,7 @@ export function registerDataFetcherRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/admin/data-fetcher/sync-employees", requireAuth, requirePolicy("admin.panel"), async (req, res) => {
+  app.post("/api/admin/data-fetcher/sync-employees", requireAuth, requirePolicy("integrations.fetched-data.view"), async (req, res) => {
     try {
       const masterUrlSetting = await prisma.systemSettings.findUnique({
         where: { key: "EMPLOYEE_MASTER_URL" },
@@ -131,10 +131,14 @@ export function registerDataFetcherRoutes(app: Express): void {
             if (emp["UNIT.BRANCH_CODE"]) {
               const orgUnit = await prisma.orgUnit.upsert({
                 where: { code: emp["UNIT.BRANCH_CODE"] },
-                update: {},
+                update: {
+                  // Ensure units coming from BRANCH_CODE are treated as physical branches
+                  type: "branch",
+                },
                 create: { 
                   code: emp["UNIT.BRANCH_CODE"],
                   name: emp["UNIT.BRANCH_CODE"],
+                  type: "branch",
                   level: 2,
                 },
               });
@@ -366,7 +370,7 @@ export function registerDataFetcherRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/admin/data-fetcher/test-url", requireAuth, requirePolicy("admin.panel"), async (req, res) => {
+  app.post("/api/admin/data-fetcher/test-url", requireAuth, requirePolicy("integrations.fetched-data.view"), async (req, res) => {
     try {
       const { url } = req.body;
 
@@ -400,7 +404,7 @@ export function registerDataFetcherRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/admin/test-api-preview", requireAuth, requirePolicy("admin.panel"), async (req, res) => {
+  app.post("/api/admin/test-api-preview", requireAuth, requirePolicy("integrations.fetched-data.view"), async (req, res) => {
     try {
       const { url } = req.body;
 

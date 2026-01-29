@@ -106,7 +106,7 @@ export default function FetchedDataPage() {
       if (!res.ok) return [];
       return res.json();
     },
-    enabled: !!token && hasPolicy("admin.panel"),
+    enabled: !!token && hasPolicy("integrations.fetched-data.view"),
     refetchInterval: (query) => {
       const routes = query.state.data as ApiRoute[] | undefined;
       const hasInProgress = routes?.some(r => r.lastSyncStatus === "in_progress");
@@ -286,7 +286,7 @@ export default function FetchedDataPage() {
     });
   };
 
-  if (!hasPolicy("admin.panel")) {
+  if (!hasPolicy("integrations.fetched-data.view")) {
     return (
       <div className="flex items-center justify-center h-64">
         <p className="text-muted-foreground">You don't have permission to access this page.</p>

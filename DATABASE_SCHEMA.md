@@ -172,20 +172,23 @@ Permission policies that can be assigned to roles.
 | Column | Type | Nullable | Default | Description |
 |--------|------|----------|---------|-------------|
 | `id` | text | NO | - | Primary key |
-| `key` | text | NO | - | Policy key (e.g., users.view, tasks.create) |
+| `key` | text | NO | - | Policy key (e.g., dashboard.view, employees.view) |
 | `description` | text | YES | - | Policy description |
 | `category` | text | YES | - | Category for grouping (users, tasks, etc.) |
 | `createdAt` | timestamp | NO | CURRENT_TIMESTAMP | Record creation time |
 
-**Common Policy Keys:**
-- `users.view`, `users.create`, `users.edit`
-- `employees.view`, `employees.create`, `employees.edit`
-- `tasks.view`, `tasks.create`
-- `claims.view`, `claims.approve`
-- `attendance.view`, `attendance.manage`
-- `announcements.view`, `announcements.create`
-- `roles.view`, `roles.manage`
-- `admin.settings`, `admin.sync`
+**Common Policy Keys (locked allowlist):**
+- `dashboard.view`
+- `roles-assigned.view`, `employees.view`
+- `attendance.history.view`
+- `sales.view`, `sales-staff.view`
+- `admin.panel`, `admin.routing.view`, `admin.master-settings.view`
+- `integrations.fetched-data.view`
+- `trainings.view`
+- `requests.view`, `salary.view`, `settings.view`
+- `assigned-manager.view`
+- `help_tickets.view`, `help_tickets.create`, `help_tickets.update`, `help_tickets.assign`, `help_tickets.close`
+- `no_policy.view`
 
 ---
 

@@ -13,7 +13,7 @@ import { startAutoSync } from "./auto-sync";
 import { createSalesDataTable } from "./create-sales-data-table";
 import { initializePolicySync } from "./services/policy-sync.service";
 
-// ✅ ab yahan env check karo
+
 console.log(
   "ENV CHECK =>",
   process.env.BIGQUERY_CREDENTIALS || process.env.GOOGLE_APPLICATION_CREDENTIALS

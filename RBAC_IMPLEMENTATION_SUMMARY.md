@@ -29,7 +29,6 @@ Implemented a UI-first, policy-driven RBAC system where NAV_CONFIG is the single
 - New component for route protection
 - Checks user policies before rendering page content
 - Shows "Access Denied" UI if policy missing
-- SuperAdmin bypasses all checks
 
 #### Role Management (`client/src/pages/roles/[id].tsx`)
 - Fetches all policies from database (not hardcoded)
@@ -52,10 +51,10 @@ Implemented a UI-first, policy-driven RBAC system where NAV_CONFIG is the single
 
 - **Sales** (`server/routes/sales.routes.ts`):
   - GET /api/sales: `requirePolicy("sales.view")`
-  - GET /api/sales/staff: `requirePolicy("sales.staff.view")`
+  - GET /api/sales/staff: `requirePolicy("sales-staff.view")`
 
 - **Sales Staff** (`server/routes/sales-staff.routes.ts`):
-  - GET /api/sales/staff/summary: `requirePolicy("sales.staff.view")`
+  - GET /api/sales/staff/summary: `requirePolicy("sales-staff.view")`
 
 - **Admin** (`server/routes/admin.routes.ts`):
   - Already using `requirePolicy("admin.panel")`
@@ -102,4 +101,4 @@ Implemented a UI-first, policy-driven RBAC system where NAV_CONFIG is the single
 - [ ] Page guards block unauthorized access
 - [ ] Role management UI shows all policies from DB
 - [ ] API routes return 403 for missing policies
-- [ ] SuperAdmin bypasses all policy checks
+- [ ] Routes return 403 for missing policies

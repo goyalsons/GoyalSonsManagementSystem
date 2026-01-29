@@ -3,6 +3,36 @@ import { prisma } from "../lib/prisma";
 import { getUserAuthInfo } from "../lib/authorization";
 import { sendOtpSms } from "../sms-service";
 
+async function ensureEmployeeRole(userId: string): Promise<void> {
+  const employeeRole = await prisma.role.findUnique({
+    where: { name: "Employee" },
+    select: { id: true },
+  });
+  if (!employeeRole) return;
+
+  const existing = await prisma.userRole.findUnique({
+    where: {
+      userId_roleId: {
+        userId,
+        roleId: employeeRole.id,
+      },
+    },
+    select: { userId: true },
+  });
+
+  if (existing) return;
+
+  await prisma.userRole.create({
+    data: { userId, roleId: employeeRole.id },
+  });
+
+  // Invalidate session auth snapshots (policyVersion is checked by cache)
+  await prisma.user.update({
+    where: { id: userId },
+    data: { policyVersion: { increment: 1 } },
+  });
+}
+
 function generateOtp(): string {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
@@ -131,7 +161,8 @@ export function registerOtpRoutes(app: Express): void {
           
           let email = employee.companyEmail || employee.personalEmail;
           if (!email) {
-            email = `emp-${employee.id.slice(0, 8)}@goyalsons.local`;
+            // Use a reserved non-routable domain to avoid generating real company emails
+            email = `emp-${employee.id.slice(0, 8)}@example.invalid`;
           }
           
           const existingEmailUser = await prisma.user.findUnique({
@@ -139,7 +170,7 @@ export function registerOtpRoutes(app: Express): void {
           });
           
           if (existingEmailUser) {
-            email = `emp-${employee.id}@goyalsons.local`;
+            email = `emp-${employee.id}@example.invalid`;
           }
           
           user = await prisma.user.create({
@@ -163,6 +194,11 @@ export function registerOtpRoutes(app: Express): void {
 
       if (!user) {
         return res.status(404).json({ message: "No employee found with this phone number. Please contact admin." });
+      }
+
+      // Ensure default Employee role is assigned for employee logins
+      if (employee?.cardNumber) {
+        await ensureEmployeeRole(user.id);
       }
 
       const expiresAt = new Date();
@@ -497,7 +533,8 @@ export function registerOtpRoutes(app: Express): void {
           
           let email = employee.companyEmail || employee.personalEmail;
           if (!email) {
-            email = `emp-${employee.cardNumber}@goyalsons.local`;
+            // Use a reserved non-routable domain to avoid generating real company emails
+            email = `emp-${employee.cardNumber}@example.invalid`;
           }
           
           const existingEmailUser = await prisma.user.findUnique({
@@ -505,7 +542,7 @@ export function registerOtpRoutes(app: Express): void {
           });
           
           if (existingEmailUser) {
-            email = `emp-${employee.id}@goyalsons.local`;
+            email = `emp-${employee.id}@example.invalid`;
           }
           
           user = await prisma.user.create({
@@ -526,6 +563,9 @@ export function registerOtpRoutes(app: Express): void {
           return res.status(500).json({ message: "Failed to create account. Please contact admin." });
         }
       }
+
+      // Ensure Employee role for employee OTP logins
+      await ensureEmployeeRole(user.id);
 
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + 7);

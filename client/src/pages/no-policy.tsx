@@ -1,10 +1,10 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ShieldX } from "lucide-react";
-import { useLocation } from "wouter";
+import { useAuth } from "@/lib/auth-context";
 
 export default function NoPolicyPage() {
-  const [, setLocation] = useLocation();
+  const { logout } = useAuth();
 
   return (
     <div className="min-h-[70vh] flex items-center justify-center px-4">
@@ -20,7 +20,7 @@ export default function NoPolicyPage() {
           </p>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
-          <Button variant="outline" onClick={() => setLocation("/login")}>
+          <Button variant="outline" onClick={logout}>
             Go to Login
           </Button>
         </CardContent>

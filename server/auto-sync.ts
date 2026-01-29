@@ -1,7 +1,14 @@
-import { prisma } from "./lib/prisma";
+import { syncPrisma as prisma } from "./lib/sync-prisma";
 import { clearTodayAttendanceCache, clearAttendanceCache } from "./bigquery-service";
 
 const syncTimers: Map<string, NodeJS.Timeout> = new Map();
+const syncInFlight: Set<string> = new Set();
+let activeSyncs = 0;
+
+const parsedMaxConcurrent = Number(process.env.AUTO_SYNC_MAX_CONCURRENT || "1");
+const parsedStaggerMs = Number(process.env.AUTO_SYNC_STAGGER_MS || "20000");
+const MAX_CONCURRENT_SYNCS = Number.isFinite(parsedMaxConcurrent) && parsedMaxConcurrent > 0 ? parsedMaxConcurrent : 1;
+const INITIAL_SYNC_STAGGER_MS = Number.isFinite(parsedStaggerMs) && parsedStaggerMs > 0 ? parsedStaggerMs : 20000;
 
 // Attendance data column detection
 const ATTENDANCE_COLUMNS = ["FirstIn", "LastOUT", "cardno", "dt", "device"];
@@ -70,6 +77,29 @@ function formatInterval(hours: number, minutes: number): string {
 function getIntervalMs(hours: number, minutes: number): number {
   const totalMinutes = (hours || 0) * 60 + (minutes || 10);
   return Math.max(totalMinutes, 1) * 60 * 1000;
+}
+
+const EMPLOYEE_SYNC_CONCURRENCY = Number(process.env.AUTO_SYNC_EMPLOYEE_CONCURRENCY || "10");
+const ATTENDANCE_SYNC_CONCURRENCY = Number(process.env.AUTO_SYNC_ATTENDANCE_CONCURRENCY || "10");
+const PROGRESS_UPDATE_EVERY = Number(process.env.AUTO_SYNC_PROGRESS_EVERY || "200");
+
+async function processInBatches<T, R>(
+  items: T[],
+  batchSize: number,
+  handler: (item: T) => Promise<R>,
+  onBatchComplete?: (results: PromiseSettledResult<R>[], processedCount: number) => void | Promise<void>,
+): Promise<void> {
+  const safeBatchSize = Math.max(1, Math.min(batchSize, 50));
+  let processed = 0;
+
+  for (let i = 0; i < items.length; i += safeBatchSize) {
+    const batch = items.slice(i, i + safeBatchSize);
+    const results = await Promise.allSettled(batch.map(handler));
+    processed += batch.length;
+    if (onBatchComplete) {
+      await onBatchComplete(results, processed);
+    }
+  }
 }
 
 async function syncApiSource(routeId: string): Promise<void> {
@@ -185,23 +215,36 @@ async function syncApiSource(routeId: string): Promise<void> {
         return;
       }
 
-      // Employee data import (original logic)
-      for (const emp of data) {
+      const updateProgress = (processed: number) => {
+        if (processed % PROGRESS_UPDATE_EVERY === 0 || processed === data.length) {
+          console.log(`[Auto-Sync] [${route.name}] Progress: ${processed}/${data.length}`);
+          void prisma.apiRouting.update({
+            where: { id: routeId },
+            data: { syncProgressCurrent: processed },
+          }).catch(() => {});
+        }
+      };
+
+      const processEmployeeRecord = async (emp: any): Promise<"imported" | "failed" | "skipped"> => {
         try {
           if (!emp["CARD_NO"]) {
-            failed++;
-            continue;
+            return "skipped";
           }
 
           let departmentId = null;
           if (emp["DEPARTMENT.DEPT_CODE"]) {
             const deptCode = emp["DEPARTMENT.DEPT_CODE"];
+            const deptNameRaw = emp["DEPARTMENT.DEPARTMENT"];
+            const deptName =
+              (typeof deptNameRaw === "string" && deptNameRaw.trim())
+                ? deptNameRaw.trim()
+                : getDepartmentName(deptCode);
             const dept = await prisma.department.upsert({
               where: { code: deptCode },
-              update: { name: getDepartmentName(deptCode) },
+              update: { name: deptName },
               create: { 
                 code: deptCode, 
-                name: getDepartmentName(deptCode)
+                name: deptName
               },
             });
             departmentId = dept.id;
@@ -210,12 +253,17 @@ async function syncApiSource(routeId: string): Promise<void> {
           let designationId = null;
           if (emp["DESIGNATION.DESIGN_CODE"]) {
             const desigCode = emp["DESIGNATION.DESIGN_CODE"];
+            const desigNameRaw = emp["DESIGNATION.DESIGN_NAME"];
+            const desigName =
+              (typeof desigNameRaw === "string" && desigNameRaw.trim())
+                ? desigNameRaw.trim()
+                : getDesignationName(desigCode);
             const desig = await prisma.designation.upsert({
               where: { code: desigCode },
-              update: { name: getDesignationName(desigCode) },
+              update: { name: desigName },
               create: { 
                 code: desigCode, 
-                name: getDesignationName(desigCode)
+                name: desigName
               },
             });
             designationId = desig.id;
@@ -239,12 +287,13 @@ async function syncApiSource(routeId: string): Promise<void> {
 
           let orgUnitId = null;
           if (emp["UNIT.BRANCH_CODE"]) {
+            const branchCode = String(emp["UNIT.BRANCH_CODE"]).trim();
             const orgUnit = await prisma.orgUnit.upsert({
-              where: { code: emp["UNIT.BRANCH_CODE"] },
-              update: { type: "branch" },
+              where: { code: branchCode },
+              update: { name: branchCode, type: "branch" },
               create: { 
-                code: emp["UNIT.BRANCH_CODE"],
-                name: emp["UNIT.BRANCH_CODE"],
+                code: branchCode,
+                name: branchCode,
                 type: "branch",
                 level: 2,
               },
@@ -296,6 +345,38 @@ async function syncApiSource(routeId: string): Promise<void> {
           // If Last_INTERVIEW_DATE has a date → Employee is INACTIVE
           const employeeStatus = lastInterviewDate ? "INACTIVE" : "ACTIVE";
 
+          // Build metadata once to avoid duplicating heavy JSON objects
+          const metadata = {
+            "CARD_NO": emp["CARD_NO"],
+            "TIMEPOLICY.IS_SINGLE_PUNCH": emp["TIMEPOLICY.IS_SINGLE_PUNCH"],
+            "Phone_NO_1": emp["Phone_NO_1"],
+            "weekly_off_calculation": emp["weekly_off_calculation"],
+            "Name": emp["Name"],
+            "Date_of_Interview": emp["Date_of_Interview"],
+            "STATUS": emp["STATUS"],
+            "DESIGNATION.DESIGN_NAME": emp["DESIGNATION.DESIGN_NAME"],
+            "zohobooksid": emp["zohobooksid"],
+            "GENDER": emp["GENDER"],
+            "ID": emp["ID"],
+            "ADHAR_CARD": emp["ADHAR_CARD"],
+            "WEEKLY_OFF": emp["WEEKLY_OFF"],
+            "UNIT.BRANCH_CODE": emp["UNIT.BRANCH_CODE"],
+            "person_img_cdn_url": emp["person_img_cdn_url"],
+            "OUTTIME": emp["OUTTIME"],
+            "Mobile_Otp": emp["Mobile_Otp"],
+            "Last_INTERVIEW_DATE": emp["Last_INTERVIEW_DATE"],
+            "Auto_Number": emp["Auto_Number"],
+            "TIMEPOLICY.POLICY_NAME": emp["TIMEPOLICY.POLICY_NAME"],
+            "PERSONAL_Email": emp["PERSONAL_Email"],
+            "DEPARTMENT.DEPT_CODE": emp["DEPARTMENT.DEPT_CODE"],
+            "DEPARTMENT.DEPARTMENT": emp["DEPARTMENT.DEPARTMENT"],
+            "PHONE_NO_2": emp["PHONE_NO_2"],
+            "DESIGNATION.DESIGN_CODE": emp["DESIGNATION.DESIGN_CODE"],
+            "INTIME": emp["INTIME"],
+            "COMPANY_EMAIL": emp["COMPANY_EMAIL"],
+            "personel_image": emp["personel_image"],
+          };
+
           await prisma.employee.upsert({
             where: { cardNumber: emp["CARD_NO"] },
             update: {
@@ -309,7 +390,7 @@ async function syncApiSource(routeId: string): Promise<void> {
               aadhaar: emp["ADHAR_CARD"] || null,
               profileImageUrl: emp["person_img_cdn_url"] || null,
               personelImage: emp["personel_image"] || null,
-              status: employeeStatus, // Set based on Last_INTERVIEW_DATE logic
+              status: employeeStatus,
               weeklyOff: emp["WEEKLY_OFF"] || null,
               weeklyOffCalculation: emp["weekly_off_calculation"] || null,
               shiftStart: emp["INTIME"] || null,
@@ -324,37 +405,7 @@ async function syncApiSource(routeId: string): Promise<void> {
               designationId,
               timePolicyId,
               orgUnitId,
-              metadata: {
-                // Store all original fields with exact field names as they come from API
-                "CARD_NO": emp["CARD_NO"],
-                "TIMEPOLICY.IS_SINGLE_PUNCH": emp["TIMEPOLICY.IS_SINGLE_PUNCH"],
-                "Phone_NO_1": emp["Phone_NO_1"],
-                "weekly_off_calculation": emp["weekly_off_calculation"],
-                "Name": emp["Name"],
-                "Date_of_Interview": emp["Date_of_Interview"],
-                "STATUS": emp["STATUS"],
-                "DESIGNATION.DESIGN_NAME": emp["DESIGNATION.DESIGN_NAME"],
-                "zohobooksid": emp["zohobooksid"],
-                "GENDER": emp["GENDER"],
-                "ID": emp["ID"],
-                "ADHAR_CARD": emp["ADHAR_CARD"],
-                "WEEKLY_OFF": emp["WEEKLY_OFF"],
-                "UNIT.BRANCH_CODE": emp["UNIT.BRANCH_CODE"],
-                "person_img_cdn_url": emp["person_img_cdn_url"],
-                "OUTTIME": emp["OUTTIME"],
-                "Mobile_Otp": emp["Mobile_Otp"],
-                "Last_INTERVIEW_DATE": emp["Last_INTERVIEW_DATE"],
-                "Auto_Number": emp["Auto_Number"],
-                "TIMEPOLICY.POLICY_NAME": emp["TIMEPOLICY.POLICY_NAME"],
-                "PERSONAL_Email": emp["PERSONAL_Email"],
-                "DEPARTMENT.DEPT_CODE": emp["DEPARTMENT.DEPT_CODE"],
-                "DEPARTMENT.DEPARTMENT": emp["DEPARTMENT.DEPARTMENT"],
-                "PHONE_NO_2": emp["PHONE_NO_2"],
-                "DESIGNATION.DESIGN_CODE": emp["DESIGNATION.DESIGN_CODE"],
-                "INTIME": emp["INTIME"],
-                "COMPANY_EMAIL": emp["COMPANY_EMAIL"],
-                "personel_image": emp["personel_image"],
-              },
+              metadata,
             },
             create: {
               cardNumber: emp["CARD_NO"],
@@ -368,7 +419,7 @@ async function syncApiSource(routeId: string): Promise<void> {
               aadhaar: emp["ADHAR_CARD"] || null,
               profileImageUrl: emp["person_img_cdn_url"] || null,
               personelImage: emp["personel_image"] || null,
-              status: employeeStatus, // Set based on Last_INTERVIEW_DATE logic
+              status: employeeStatus,
               weeklyOff: emp["WEEKLY_OFF"] || null,
               weeklyOffCalculation: emp["weekly_off_calculation"] || null,
               shiftStart: emp["INTIME"] || null,
@@ -383,60 +434,32 @@ async function syncApiSource(routeId: string): Promise<void> {
               designationId,
               timePolicyId,
               orgUnitId,
-              metadata: {
-                // Store all original fields with exact field names as they come from API
-                "CARD_NO": emp["CARD_NO"],
-                "TIMEPOLICY.IS_SINGLE_PUNCH": emp["TIMEPOLICY.IS_SINGLE_PUNCH"],
-                "Phone_NO_1": emp["Phone_NO_1"],
-                "weekly_off_calculation": emp["weekly_off_calculation"],
-                "Name": emp["Name"],
-                "Date_of_Interview": emp["Date_of_Interview"],
-                "STATUS": emp["STATUS"],
-                "DESIGNATION.DESIGN_NAME": emp["DESIGNATION.DESIGN_NAME"],
-                "zohobooksid": emp["zohobooksid"],
-                "GENDER": emp["GENDER"],
-                "ID": emp["ID"],
-                "ADHAR_CARD": emp["ADHAR_CARD"],
-                "WEEKLY_OFF": emp["WEEKLY_OFF"],
-                "UNIT.BRANCH_CODE": emp["UNIT.BRANCH_CODE"],
-                "person_img_cdn_url": emp["person_img_cdn_url"],
-                "OUTTIME": emp["OUTTIME"],
-                "Mobile_Otp": emp["Mobile_Otp"],
-                "Last_INTERVIEW_DATE": emp["Last_INTERVIEW_DATE"],
-                "Auto_Number": emp["Auto_Number"],
-                "TIMEPOLICY.POLICY_NAME": emp["TIMEPOLICY.POLICY_NAME"],
-                "PERSONAL_Email": emp["PERSONAL_Email"],
-                "DEPARTMENT.DEPT_CODE": emp["DEPARTMENT.DEPT_CODE"],
-                "DEPARTMENT.DEPARTMENT": emp["DEPARTMENT.DEPARTMENT"],
-                "PHONE_NO_2": emp["PHONE_NO_2"],
-                "DESIGNATION.DESIGN_CODE": emp["DESIGNATION.DESIGN_CODE"],
-                "INTIME": emp["INTIME"],
-                "COMPANY_EMAIL": emp["COMPANY_EMAIL"],
-                "personel_image": emp["personel_image"],
-              },
+              metadata,
             },
           });
 
-          imported++;
-          const processed = imported + failed;
-          if (processed % 50 === 0 || processed === data.length) {
-            console.log(`[Auto-Sync] [${route.name}] Progress: ${processed}/${data.length}`);
-            await prisma.apiRouting.update({
-              where: { id: routeId },
-              data: { syncProgressCurrent: processed },
-            });
-          }
+          return "imported";
         } catch (empError: any) {
-          failed++;
-          const processed = imported + failed;
-          if (processed % 50 === 0) {
-            await prisma.apiRouting.update({
-              where: { id: routeId },
-              data: { syncProgressCurrent: processed },
-            });
-          }
+          return "failed";
         }
-      }
+      };
+
+      await processInBatches(
+        data,
+        EMPLOYEE_SYNC_CONCURRENCY,
+        processEmployeeRecord,
+        (results, processed) => {
+          for (const result of results) {
+            if (result.status === "fulfilled") {
+              if (result.value === "imported") imported++;
+              else failed++;
+            } else {
+              failed++;
+            }
+          }
+          updateProgress(processed);
+        },
+      );
 
       const duration = Math.round((Date.now() - startTime.getTime()) / 1000);
       console.log(`[Auto-Sync] [${route.name}] Complete: ${imported} imported, ${failed} failed in ${duration}s`);
@@ -503,6 +526,27 @@ async function syncApiSource(routeId: string): Promise<void> {
     }
   } catch (error) {
     console.error(`[Auto-Sync] Fatal error for route ${routeId}:`, error);
+  }
+}
+
+async function runSync(routeId: string, reason: "scheduled" | "manual" | "initial"): Promise<void> {
+  if (syncInFlight.has(routeId)) {
+    console.log(`[Auto-Sync] Skipping ${reason} sync for ${routeId} (already running)`);
+    return;
+  }
+
+  if (activeSyncs >= MAX_CONCURRENT_SYNCS) {
+    console.log(`[Auto-Sync] Skipping ${reason} sync for ${routeId} (max concurrency reached: ${MAX_CONCURRENT_SYNCS})`);
+    return;
+  }
+
+  syncInFlight.add(routeId);
+  activeSyncs += 1;
+  try {
+    await syncApiSource(routeId);
+  } finally {
+    syncInFlight.delete(routeId);
+    activeSyncs = Math.max(activeSyncs - 1, 0);
   }
 }
 
@@ -659,12 +703,21 @@ async function syncAttendanceData(
   let failed = 0;
   let skipped = 0;
 
-  for (const record of data) {
+  const updateProgress = (processed: number) => {
+    if (processed % PROGRESS_UPDATE_EVERY === 0 || processed === data.length) {
+      console.log(`[Auto-Sync] [${routeName}] Attendance progress: ${processed}/${data.length}`);
+      void prisma.apiRouting.update({
+        where: { id: routeId },
+        data: { syncProgressCurrent: processed },
+      }).catch(() => {});
+    }
+  };
+
+  const processAttendanceRecord = async (record: any): Promise<"imported" | "failed" | "skipped"> => {
     try {
       const cardno = record["cardno"] || record["ID"];
       if (!cardno) {
-        skipped++;
-        continue;
+        return "skipped";
       }
 
       // Find employee by card number
@@ -673,16 +726,13 @@ async function syncAttendanceData(
       });
 
       if (!employee) {
-        // Employee not found in master data
-        skipped++;
-        continue;
+        return "skipped";
       }
 
       // Parse date
       const attendanceDate = parseAttendanceDate(record["dt"]);
       if (!attendanceDate) {
-        failed++;
-        continue;
+        return "failed";
       }
 
       // Parse check-in and check-out times
@@ -718,13 +768,11 @@ async function syncAttendanceData(
       };
 
       if (existing) {
-        // Update existing record
         await prisma.attendance.update({
           where: { id: existing.id },
           data: attendanceData,
         });
       } else {
-        // Create new record
         await prisma.attendance.create({
           data: {
             employeeId: employee.id,
@@ -734,19 +782,29 @@ async function syncAttendanceData(
         });
       }
 
-      imported++;
-      const processed = imported + failed + skipped;
-      if (processed % 50 === 0 || processed === data.length) {
-        console.log(`[Auto-Sync] [${routeName}] Attendance progress: ${processed}/${data.length}`);
-        await prisma.apiRouting.update({
-          where: { id: routeId },
-          data: { syncProgressCurrent: processed },
-        });
-      }
+      return "imported";
     } catch (error: any) {
-      failed++;
+      return "failed";
     }
-  }
+  };
+
+  await processInBatches(
+    data,
+    ATTENDANCE_SYNC_CONCURRENCY,
+    processAttendanceRecord,
+    (results, processed) => {
+      for (const result of results) {
+        if (result.status === "fulfilled") {
+          if (result.value === "imported") imported++;
+          else if (result.value === "skipped") skipped++;
+          else failed++;
+        } else {
+          failed++;
+        }
+      }
+      updateProgress(processed);
+    },
+  );
 
   return { imported, failed, skipped };
 }
@@ -759,7 +817,7 @@ function scheduleRouteSync(route: { id: string; name: string; syncIntervalHours:
   console.log(`[Auto-Sync] Scheduling "${route.name}" to sync every ${formatInterval(route.syncIntervalHours, route.syncIntervalMinutes)}`);
   
   const timer = setInterval(async () => {
-    await syncApiSource(route.id);
+    await runSync(route.id, "scheduled");
   }, intervalMs);
   
   syncTimers.set(route.id, timer);
@@ -804,7 +862,7 @@ export async function refreshSyncSchedules(): Promise<void> {
 }
 
 export async function triggerManualSync(routeId: string): Promise<void> {
-  await syncApiSource(routeId);
+  await runSync(routeId, "manual");
 }
 
 export async function startAutoSync(): Promise<void> {
@@ -822,8 +880,11 @@ export async function startAutoSync(): Promise<void> {
     
     console.log(`[Auto-Sync] Running initial sync for ${routes.length} sources...`);
     
-    for (const route of routes) {
-      setTimeout(() => syncApiSource(route.id), 5000 + Math.random() * 10000);
-    }
+    routes.forEach((route, index) => {
+      const delay = 5000 + index * INITIAL_SYNC_STAGGER_MS;
+      setTimeout(() => {
+        runSync(route.id, "initial");
+      }, delay);
+    });
   }, 3000);
 }

@@ -8,17 +8,12 @@ import {
   Clock, 
   CheckCircle2, 
   CheckSquare, 
-  ArrowUpRight, 
   Calendar,
   Building2,
-  Shield,
   TrendingUp,
   ArrowRight,
   Activity,
-  BarChart3,
-  Bell,
-  FileText,
-  Target
+  BarChart3
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { dashboardApi } from "@/lib/api";
@@ -95,8 +90,7 @@ function StatCard({
 }
 
 export default function Dashboard() {
-  const { user, isLoading: authLoading, isEmployeeLogin, hasRole } = useAuth();
-  const isEmployee = isEmployeeLogin();
+  const { user, isLoading: authLoading, hasPolicy } = useAuth();
   const [, setLocation] = useLocation();
   const [currentTime, setCurrentTime] = useState(new Date());
 
@@ -177,85 +171,55 @@ export default function Dashboard() {
     return colors[index % colors.length];
   };
 
-  const statCards = isEmployee ? [
-    {
-      title: "My Attendance",
-      value: stats?.todayAttendance || "Pending",
-      subtitle: "Today's status",
-      icon: CheckCircle2,
-      iconBg: "bg-emerald-100 dark:bg-emerald-500/10",
-      iconColor: "text-emerald-600 dark:text-emerald-400",
-    },
-    {
-      title: "My Pending Tasks",
-      value: stats?.myPendingTasks || 0,
-      subtitle: "Requires your attention",
-      icon: CheckSquare,
-      iconBg: "bg-amber-100 dark:bg-amber-500/10",
-      iconColor: "text-amber-600 dark:text-amber-400",
-    },
-    {
-      title: "My Targets",
-      value: stats?.myTargets || 0,
-      subtitle: "Active targets",
-      icon: Target,
-      iconBg: "bg-purple-100 dark:bg-purple-500/10",
-      iconColor: "text-purple-600 dark:text-purple-400",
-    },
-    {
-      title: "My Claims",
-      value: stats?.myClaims || 0,
-      subtitle: "Pending claims",
-      icon: FileText,
-      iconBg: "bg-blue-100 dark:bg-blue-500/10",
-      iconColor: "text-blue-600 dark:text-blue-400",
-    },
-  ] : [
-    {
-      title: "Total Members",
-      value: stats?.employees?.toLocaleString() || 0,
-      subtitle: "In your org scope",
-      icon: Users,
-      iconBg: "bg-blue-100 dark:bg-blue-500/10",
-      iconColor: "text-blue-600 dark:text-blue-400",
-    },
-    {
-      title: "Attendance Today",
-      value: stats?.todayAttendance?.toLocaleString() || 0,
-      subtitle: `${stats?.attendanceRate || 0}% attendance rate`,
-      icon: CheckCircle2,
-      iconBg: "bg-emerald-100 dark:bg-emerald-500/10",
-      iconColor: "text-emerald-600 dark:text-emerald-400",
-      trend: stats?.attendanceRate ? `${stats.attendanceRate}%` : null,
-    },
-    {
-      title: "My Pending Tasks",
-      value: stats?.myPendingTasks || 0,
-      subtitle: "Requires your attention",
-      icon: CheckSquare,
-      iconBg: "bg-amber-100 dark:bg-amber-500/10",
-      iconColor: "text-amber-600 dark:text-amber-400",
-    },
-    {
-      title: "Departments",
-      value: user.accessibleOrgUnitIds.length,
-      subtitle: "Accessible to you",
-      icon: Building2,
-      iconBg: "bg-purple-100 dark:bg-purple-500/10",
-      iconColor: "text-purple-600 dark:text-purple-400",
-    },
+  const statCards = [
+    ...(hasPolicy("employees.view")
+      ? [
+          {
+            title: "Total Members",
+            value: stats?.employees?.toLocaleString() || 0,
+            subtitle: "In your org scope",
+            icon: Users,
+            iconBg: "bg-blue-100 dark:bg-blue-500/10",
+            iconColor: "text-blue-600 dark:text-blue-400",
+          },
+          {
+            title: "Departments",
+            value: user.accessibleOrgUnitIds.length,
+            subtitle: "Accessible to you",
+            icon: Building2,
+            iconBg: "bg-purple-100 dark:bg-purple-500/10",
+            iconColor: "text-purple-600 dark:text-purple-400",
+          },
+        ]
+      : []),
+    ...(hasPolicy("attendance.history.view")
+      ? [
+          {
+            title: "Attendance Today",
+            value: stats?.todayAttendance?.toLocaleString() || 0,
+            subtitle: `${stats?.attendanceRate || 0}% attendance rate`,
+            icon: CheckCircle2,
+            iconBg: "bg-emerald-100 dark:bg-emerald-500/10",
+            iconColor: "text-emerald-600 dark:text-emerald-400",
+            trend: stats?.attendanceRate ? `${stats.attendanceRate}%` : null,
+          },
+        ]
+      : []),
   ];
 
-  const isSMDesignation = user?.employee?.designationCode?.toUpperCase() === "SM";
-  
-  const quickActions = isEmployee ? [
-    ...(isSMDesignation ? [{ icon: TrendingUp, label: "Sales Staff", href: "/sales-staff", color: "text-indigo-600" }] : []),
-  ] : [
-    // MDO users see all actions
-    { icon: Users, label: "Members", href: "/employees", color: "text-blue-600" },
-    { icon: CheckSquare, label: "My Tasks", href: "/tasks/my", color: "text-amber-600" },
-    { icon: Target, label: "Targets", href: "/targets/my", color: "text-emerald-600" },
-    { icon: FileText, label: "Claims", href: "/claims/my", color: "text-purple-600" },
+  const quickActions = [
+    ...(hasPolicy("employees.view")
+      ? [{ icon: Users, label: "Members", href: "/employees", color: "text-blue-600" }]
+      : []),
+    ...(hasPolicy("attendance.history.view")
+      ? [{ icon: CheckSquare, label: "Attendance", href: "/attendance/history", color: "text-emerald-600" }]
+      : []),
+    ...(hasPolicy("staff-sales.view")
+      ? [{ icon: TrendingUp, label: "Sales", href: "/sales", color: "text-indigo-600" }]
+      : []),
+    ...(hasPolicy("sales-staff.view")
+      ? [{ icon: BarChart3, label: "Sales Staff", href: "/sales-staff", color: "text-purple-600" }]
+      : []),
   ];
 
   return (
@@ -301,20 +265,6 @@ export default function Dashboard() {
         </div>
       </AnimatedCard>
 
-      {user.isSuperAdmin && (
-        <AnimatedCard delay={100}>
-          <div className="p-4 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 rounded-xl flex items-center gap-3">
-            <div className="h-10 w-10 rounded-lg bg-amber-100 dark:bg-amber-500/20 flex items-center justify-center">
-              <Shield className="h-5 w-5 text-amber-600 dark:text-amber-400" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-amber-900 dark:text-amber-100">Super Admin Access</p>
-              <p className="text-xs text-amber-700 dark:text-amber-300">You have full access to all organization data</p>
-            </div>
-          </div>
-        </AnimatedCard>
-      )}
-
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {statCards.map((stat, i) => (
           <AnimatedCard key={i} delay={150 + i * 50}>
@@ -329,7 +279,7 @@ export default function Dashboard() {
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-lg font-semibold text-foreground">Recent Check-ins</CardTitle>
-                {!isEmployee && (
+                {hasPolicy("attendance.history.view") && (
                   <Link href="/attendance/today">
                     <Button variant="ghost" size="sm" className="text-primary hover:text-primary/80 hover:bg-primary/10">
                       View All

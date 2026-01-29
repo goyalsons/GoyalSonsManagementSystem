@@ -14,7 +14,7 @@ export const auth = {
     return {
       user: {
         name: "Admin User",
-        email: "admin@goyalsons.com",
+        email: "admin@example.com",
         image: "https://github.com/shadcn.png",
       },
     };

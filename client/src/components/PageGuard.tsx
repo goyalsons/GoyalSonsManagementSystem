@@ -49,17 +49,35 @@ export function PageGuard({ children, policy, fallback }: PageGuardProps) {
     return <>{children}</>;
   }
 
-  // SuperAdmin bypasses all checks
-  if (user.isSuperAdmin) {
-    return <>{children}</>;
-  }
-
   // Determine policy to check
   const requiredPolicy = policy || getPolicyForPath(location);
 
-  // If no policy required (null), allow access
+  // If no policy is mapped for this route, deny access
   if (requiredPolicy === null) {
-    return <>{children}</>;
+    return (
+      <div className="flex items-center justify-center min-h-[400px] p-4">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <div className="flex items-center gap-3 mb-2">
+              <ShieldX className="h-8 w-8 text-destructive" />
+              <CardTitle>Access Denied</CardTitle>
+            </div>
+            <CardDescription>
+              This route does not have a policy mapping.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button 
+              onClick={() => window.history.back()} 
+              variant="outline" 
+              className="w-full"
+            >
+              Go Back
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   // Check if user has the required policy
@@ -119,7 +137,7 @@ export function usePagePolicy() {
   
   return {
     policy,
-    hasAccess: policy === null || hasPolicy(policy),
+    hasAccess: policy !== null && hasPolicy(policy),
     hasPolicy: (p: string) => hasPolicy(p),
   };
 }

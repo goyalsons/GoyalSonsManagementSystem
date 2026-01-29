@@ -2,15 +2,15 @@ import type { Express } from "express";
 import { prisma } from "../lib/prisma";
 import { requireAuth, requirePolicy } from "../lib/auth-middleware";
 import { POLICIES } from "../constants/policies";
-import { validateRoleName, validateRoleLevel, validatePolicyIds } from "../lib/validation";
+import { validateRoleName, validatePolicyIds } from "../lib/validation";
 import { logRoleCreation, logRoleUpdate, logRoleDeletion, logRolePolicyChange } from "../lib/audit-log";
 
 export function registerRolesRoutes(app: Express): void {
   // GET /api/roles - Get all roles with user count
-  app.get("/api/roles", requireAuth, async (req, res) => {
+  app.get("/api/roles", requireAuth, requirePolicy(POLICIES.ROLES_ASSIGNED_VIEW), async (req, res) => {
     try {
       const roles = await prisma.role.findMany({
-        orderBy: { level: "desc" },
+        orderBy: { name: "asc" },
         include: {
           _count: {
             select: { users: true }
@@ -22,7 +22,6 @@ export function registerRolesRoutes(app: Express): void {
         id: role.id,
         name: role.name,
         description: role.description,
-        level: role.level,
         userCount: role._count.users,
         createdAt: role.createdAt
       }));
@@ -35,7 +34,7 @@ export function registerRolesRoutes(app: Express): void {
   });
 
   // GET /api/roles/:id - Get single role with policies
-  app.get("/api/roles/:id", requireAuth, async (req, res) => {
+  app.get("/api/roles/:id", requireAuth, requirePolicy(POLICIES.ROLES_ASSIGNED_VIEW), async (req, res) => {
     try {
       const { id } = req.params;
       
@@ -61,7 +60,6 @@ export function registerRolesRoutes(app: Express): void {
         id: role.id,
         name: role.name,
         description: role.description,
-        level: role.level,
         userCount: role._count.users,
         policies: role.policies.map((rp) => rp.policy),
         createdAt: role.createdAt
@@ -73,20 +71,14 @@ export function registerRolesRoutes(app: Express): void {
   });
 
   // POST /api/roles - Create new role
-  app.post("/api/roles", requireAuth, requirePolicy(POLICIES.ADMIN_ROLES), async (req, res) => {
+  app.post("/api/roles", requireAuth, requirePolicy(POLICIES.ADMIN_PANEL), async (req, res) => {
     try {
-      const { name, description, level, policyIds } = req.body;
+      const { name, description, policyIds } = req.body;
 
       // Validate role name
       const nameValidation = validateRoleName(name);
       if (!nameValidation.valid) {
         return res.status(400).json({ message: nameValidation.error });
-      }
-
-      // Validate role level
-      const levelValidation = validateRoleLevel(level);
-      if (!levelValidation.valid) {
-        return res.status(400).json({ message: levelValidation.error });
       }
 
       // Validate policy IDs if provided
@@ -103,8 +95,7 @@ export function registerRolesRoutes(app: Express): void {
         const newRole = await tx.role.create({
           data: {
             name: name.trim(),
-            description: description?.trim() || null,
-            level: level ?? 0
+            description: description?.trim() || null
           }
         });
 
@@ -134,10 +125,10 @@ export function registerRolesRoutes(app: Express): void {
   });
 
   // PUT /api/roles/:id - Update role and policies
-  app.put("/api/roles/:id", requireAuth, requirePolicy(POLICIES.ADMIN_ROLES), async (req, res) => {
+  app.put("/api/roles/:id", requireAuth, requirePolicy(POLICIES.ADMIN_PANEL), async (req, res) => {
     try {
       const { id } = req.params;
-      const { name, description, level, policyIds } = req.body;
+      const { name, description, policyIds } = req.body;
 
       const existingRole = await prisma.role.findUnique({
         where: { id },
@@ -169,17 +160,6 @@ export function registerRolesRoutes(app: Express): void {
         }
       }
 
-      // Validate level if provided
-      if (level !== undefined) {
-        const levelValidation = validateRoleLevel(level);
-        if (!levelValidation.valid) {
-          return res.status(400).json({ message: levelValidation.error });
-        }
-        if (level !== existingRole.level) {
-          changes.level = { from: existingRole.level, to: level };
-        }
-      }
-
       // Validate policy IDs if provided
       let validatedPolicyIds: string[] = [];
       if (policyIds !== undefined) {
@@ -202,8 +182,7 @@ export function registerRolesRoutes(app: Express): void {
             where: { id },
             data: {
               ...(name !== undefined && { name: name.trim() }),
-              ...(description !== undefined && { description: description?.trim() || null }),
-              ...(level !== undefined && { level })
+              ...(description !== undefined && { description: description?.trim() || null })
             }
           });
         }
@@ -257,7 +236,7 @@ export function registerRolesRoutes(app: Express): void {
   });
 
   // DELETE /api/roles/:id - Delete role
-  app.delete("/api/roles/:id", requireAuth, requirePolicy(POLICIES.ADMIN_ROLES), async (req, res) => {
+  app.delete("/api/roles/:id", requireAuth, requirePolicy(POLICIES.ADMIN_PANEL), async (req, res) => {
     try {
       const { id } = req.params;
 

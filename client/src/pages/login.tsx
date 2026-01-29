@@ -28,17 +28,21 @@ export default function LoginPage() {
   const [resendTimer, setResendTimer] = useState<number>(0); // Timer for resend button (2 minutes)
   const [canResend, setCanResend] = useState(false);
   
-  const { login, user, isManager } = useAuth();
+  const { login, user } = useAuth();
+
+  const getDefaultLandingPath = (policies?: string[]) => {
+    const p = new Set(policies || []);
+    if (p.has("attendance.history.view")) return "/attendance/history";
+    if (p.has("staff-sales.view")) return "/sales";
+    if (p.has("requests.view")) return "/requests";
+    return "/";
+  };
 
   useEffect(() => {
     if (user) {
-      if (isManager()) {
-        setLocation("/manager/dashboard");
-      } else {
-      setLocation("/");
-      }
+      setLocation(getDefaultLandingPath(user.policies));
     }
-  }, [user, setLocation, isManager]);
+  }, [user, setLocation]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -166,29 +170,10 @@ export default function LoginPage() {
       if (res.ok) {
         localStorage.setItem("gms_token", data.token);
         
-        // Check user role and redirect accordingly
-        if (data.user) {
-          // Check if user is a manager first
-          if (data.user.isManager) {
-            window.location.href = "/manager/dashboard";
-            return;
-          }
-          
-          const userRoles = data.user.roles || [];
-          const roleNames = userRoles.map((r: any) => r.name?.toLowerCase() || "");
-          const isSalesStaff = roleNames.includes("sales_staff") || 
-                              roleNames.includes("sales staff") ||
-                              roleNames.includes("salesman");
-          
-          if (isSalesStaff) {
-            window.location.href = "/sales-staff";
-          } else if (data.user.loginType === "employee") {
-            window.location.href = "/work-log";
-          } else {
-            window.location.href = "/";
-          }
+        if (data.user?.policies?.length === 0) {
+          window.location.href = "/no-policy";
         } else {
-          window.location.href = "/";
+          window.location.href = getDefaultLandingPath(data.user?.policies);
         }
       } else {
         setError(data.message || "Invalid or expired OTP");
@@ -208,26 +193,7 @@ export default function LoginPage() {
     const result = await login(email, password);
     
     if (result.success) {
-      // Fetch user data to check if manager
-      try {
-        const meRes = await fetch("/api/auth/me", {
-          headers: {
-            "X-Session-Id": `${localStorage.getItem("gms_token") || ""}`,
-          },
-        });
-        if (meRes.ok) {
-          const userData = await meRes.json();
-          if (userData.isManager) {
-            setLocation("/manager/dashboard");
-          } else {
-            setLocation("/");
-          }
-        } else {
-          setLocation("/");
-        }
-      } catch (err) {
       setLocation("/");
-      }
     } else {
       setError(result.error || "Login failed");
     }
@@ -520,7 +486,7 @@ export default function LoginPage() {
                   <Input 
                     id="email" 
                     type="email" 
-                    placeholder="you@goyalsons.com" 
+                    placeholder="you@example.com" 
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className="h-12 bg-white/10 border-white/20 text-white placeholder:text-white/40 rounded-xl focus:border-cyan-400 focus:ring-cyan-400/20"

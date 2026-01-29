@@ -7,6 +7,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { ThemeProvider } from "@/lib/theme-context";
 import MainLayout from "@/components/MainLayout";
+import { PageGuard } from "@/components/PageGuard";
 
 // Eagerly load critical above-the-fold routes (Login, Dashboard)
 import Dashboard from "@/pages/dashboard";
@@ -66,68 +67,9 @@ function FullPageLoader() {
   );
 }
 
-// Route guard component to redirect users away from restricted routes
-function ProtectedRoute({ 
-  component: Component, 
-  isMDOOnly = false,
-  isSalesmanOnly = false,
-  isSMDesignationOnly = false,
-  allowManagers = false
-}: { 
-  component: React.ComponentType<any>; 
-  isMDOOnly?: boolean;
-  isSalesmanOnly?: boolean;
-  isSMDesignationOnly?: boolean;
-  allowManagers?: boolean; // Allow managers (who are employees) to access
-}) {
-  const { user, hasRole, isManager } = useAuth();
-  const [, setLocation] = useLocation();
-  const isMember = user?.loginType === "employee";
-  const isMDO = user?.loginType === "mdo";
-  const isSalesman = hasRole("Salesman");
-  const isSMDesignation = user?.employee?.designationCode?.toUpperCase() === "SM";
-  const managerStatus = isManager();
-
-  useEffect(() => {
-    // If allowManagers is true, managers (who are employees) can access
-    if (isMDOOnly && isMember && !(allowManagers && managerStatus)) {
-      // Redirect members trying to access MDO-only routes to dashboard (unless they're managers)
-      setLocation("/");
-    }
-    // For Sales Staff: MDO users can always access, members need Salesman role
-    if (isSalesmanOnly && isMember && !isSalesman) {
-      // Redirect non-salesman members trying to access Sales Staff to dashboard
-      setLocation("/");
-    }
-    // For Sales Staff with SM designation: MDO users can always access, members need SM designation
-    if (isSMDesignationOnly && isMember && !isSMDesignation) {
-      // Redirect members without SM designation trying to access Sales Staff to dashboard
-      setLocation("/");
-    }
-  }, [isMDOOnly, isSalesmanOnly, isSMDesignationOnly, isMember, isMDO, isSalesman, isSMDesignation, allowManagers, managerStatus, setLocation]);
-
-  // Don't render component for unauthorized access
-  // If allowManagers is true, managers (who are employees) can access
-  if (isMDOOnly && isMember && !(allowManagers && managerStatus)) {
-    return null;
-  }
-  // MDO users can always access Sales Staff, but members need Salesman role
-  if (isSalesmanOnly && isMember && !isSalesman) {
-    return null;
-  }
-  // MDO users can always access Sales Staff, but members need SM designation
-  if (isSMDesignationOnly && isMember && !isSMDesignation) {
-    return null;
-  }
-
-  return <Component />;
-}
-
 function AuthenticatedRoutes() {
   const { user } = useAuth();
   const [location] = useLocation();
-  const isMDO = user?.loginType === "mdo";
-  const isEmployee = user?.loginType === "employee";
   const hasNoPolicies = !user?.policies || user.policies.length === 0;
 
   // If user has no policies, force them to the No Policy page
@@ -141,44 +83,96 @@ function AuthenticatedRoutes() {
         <Switch>
           <Route path="/no-policy" component={NoPolicyPage} />
 
-          {!isEmployee && (
-            <>
-              <Route path="/" component={Dashboard} />
-              <Route path="/dashboard" component={Dashboard} />
-              <Route path="/mdo/dashboard" component={Dashboard} />
-            </>
-          )}
+          <Route path="/" component={() => (
+            <PageGuard policy="dashboard.view"><Dashboard /></PageGuard>
+          )} />
+          <Route path="/dashboard" component={() => (
+            <PageGuard policy="dashboard.view"><Dashboard /></PageGuard>
+          )} />
+          <Route path="/mdo/dashboard" component={() => (
+            <PageGuard policy="dashboard.view"><Dashboard /></PageGuard>
+          )} />
 
-          <Route path="/roles-assigned" component={RolesAssignedPage} />
-          <Route path="/roles" component={RolesPage} />
-          <Route path="/roles/:id" component={EditRolePage} />
-          <Route path="/roles/manager/assign" component={AssignManagerPage} />
+          <Route path="/roles-assigned" component={() => (
+            <PageGuard policy="roles-assigned.view"><RolesAssignedPage /></PageGuard>
+          )} />
+          <Route path="/roles" component={() => (
+            <PageGuard policy="roles-assigned.view"><RolesPage /></PageGuard>
+          )} />
+          <Route path="/roles/:id" component={() => (
+            <PageGuard policy="roles-assigned.view"><EditRolePage /></PageGuard>
+          )} />
+          <Route path="/roles/manager/assign" component={() => (
+            <PageGuard policy="roles-assigned.view"><AssignManagerPage /></PageGuard>
+          )} />
 
-          <Route path="/employees" component={EmployeesPage} />
-          <Route path="/employees/create" component={CreateEmployeePage} />
+          <Route path="/employees" component={() => (
+            <PageGuard policy="employees.view"><EmployeesPage /></PageGuard>
+          )} />
+          <Route path="/employees/create" component={() => (
+            <PageGuard policy="employees.view"><CreateEmployeePage /></PageGuard>
+          )} />
 
-          <Route path="/attendance" component={AttendancePage} />
-          <Route path="/attendance/today" component={TodayAttendancePage} />
-          <Route path="/attendance/fill" component={FillAttendancePage} />
-          <Route path="/attendance/history" component={AttendanceHistoryPage} />
-          <Route path="/work-log" component={AttendanceHistoryPage} />
+          <Route path="/attendance" component={() => (
+            <PageGuard policy="attendance.worklog.view"><AttendancePage /></PageGuard>
+          )} />
+          <Route path="/attendance/today" component={() => (
+            <PageGuard policy="attendance.worklog.view"><TodayAttendancePage /></PageGuard>
+          )} />
+          <Route path="/attendance/fill" component={() => (
+            <PageGuard policy="attendance.worklog.view"><FillAttendancePage /></PageGuard>
+          )} />
+          <Route path="/attendance/history" component={() => (
+            <PageGuard policy="attendance.history.view"><AttendanceHistoryPage /></PageGuard>
+          )} />
+          <Route path="/work-log" component={() => (
+            <PageGuard policy="attendance.history.view"><AttendanceHistoryPage /></PageGuard>
+          )} />
 
-          <Route path="/integrations/fetched-data" component={FetchedDataPage} />
+          <Route path="/integrations/fetched-data" component={() => (
+            <PageGuard policy="integrations.fetched-data.view"><FetchedDataPage /></PageGuard>
+          )} />
 
-          <Route path="/sales" component={SalesPage} />
-          <Route path="/sales/unit/:unitName" component={SalesUnitPage} />
-          <Route path="/sales-staff" component={SalesStaffPage} />
-          <Route path="/assigned-manager" component={AssignedManagerPage} />
-          <Route path="/manager/dashboard" component={ManagerDashboardPage} />
-          <Route path="/manager/team-task-history" component={TeamTaskHistoryPage} />
-          <Route path="/manager/team-sales-staff" component={TeamSalesStaffPage} />
-          <Route path="/requests" component={RequestsPage} />
-          <Route path="/salary" component={SalaryPage} />
+          <Route path="/sales" component={() => (
+            <PageGuard policy="staff-sales.view"><SalesPage /></PageGuard>
+          )} />
+          <Route path="/sales/unit/:unitName" component={() => (
+            <PageGuard policy="staff-sales.view"><SalesUnitPage /></PageGuard>
+          )} />
+          <Route path="/sales-staff" component={() => (
+            <PageGuard policy="sales-staff.view"><SalesStaffPage /></PageGuard>
+          )} />
+          <Route path="/assigned-manager" component={() => (
+            <PageGuard policy="assigned-manager.view"><AssignedManagerPage /></PageGuard>
+          )} />
+          <Route path="/manager/dashboard" component={() => (
+            <PageGuard policy="assigned-manager.view"><ManagerDashboardPage /></PageGuard>
+          )} />
+          <Route path="/manager/team-task-history" component={() => (
+            <PageGuard policy="assigned-manager.view"><TeamTaskHistoryPage /></PageGuard>
+          )} />
+          <Route path="/manager/team-sales-staff" component={() => (
+            <PageGuard policy="assigned-manager.view"><TeamSalesStaffPage /></PageGuard>
+          )} />
+          <Route path="/requests" component={() => (
+            <PageGuard policy="requests.view"><RequestsPage /></PageGuard>
+          )} />
+          <Route path="/salary" component={() => (
+            <PageGuard policy="salary.view"><SalaryPage /></PageGuard>
+          )} />
 
-          {isMDO && <Route path="/settings" component={SettingsPage} />}
-          <Route path="/admin/routing" component={ApiRoutingPage} />
-          <Route path="/admin/master-settings" component={MasterSettingsPage} />
-          <Route path="/training" component={TrainingPage} />
+          <Route path="/settings" component={() => (
+            <PageGuard policy="settings.view"><SettingsPage /></PageGuard>
+          )} />
+          <Route path="/admin/routing" component={() => (
+            <PageGuard policy="admin.routing.view"><ApiRoutingPage /></PageGuard>
+          )} />
+          <Route path="/admin/master-settings" component={() => (
+            <PageGuard policy="admin.master-settings.view"><MasterSettingsPage /></PageGuard>
+          )} />
+          <Route path="/training" component={() => (
+            <PageGuard policy="trainings.view"><TrainingPage /></PageGuard>
+          )} />
           <Route component={NotFound} />
         </Switch>
       </Suspense>

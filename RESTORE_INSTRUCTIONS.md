@@ -12,7 +12,7 @@
    - This opens a SQL query editor
 
 3. **Restore Data**
-   - Open `goyalsons_db.sql` file in a text editor
+   - Open your SQL backup file (for example `backup.sql`) in a text editor
    - Copy the SQL content (you may need to copy in smaller chunks if file is large)
    - Paste into Railway query editor
    - Click "Run" or press Ctrl+Enter
@@ -28,16 +28,16 @@
    - Right-click "Servers" → "Create" → "Server"
    - General tab: Name = "Railway"
    - Connection tab:
-     - Host: `trolley.proxy.rlwy.net`
-     - Port: `49135`
-     - Database: `railway`
-     - Username: `postgres`
-     - Password: `DGSncgmKBqTyPWnTpYosaaQKpObkSyUW`
+     - Host: `<your-railway-host>`
+     - Port: `<your-railway-port>`
+     - Database: `<your-railway-database>`
+     - Username: `<your-railway-username>`
+     - Password: `<your-railway-password>`
 
 2. **Restore**
    - Right-click on "railway" database
    - Select "Restore..."
-   - Choose your `goyalsons_db.sql` file
+   - Choose your SQL backup file (for example `backup.sql`)
    - Click "Restore"
 
 ---
@@ -53,8 +53,8 @@
 ### Then Run:
 
 ```powershell
-$env:PGPASSWORD="DGSncgmKBqTyPWnTpYosaaQKpObkSyUW"
-psql -h trolley.proxy.rlwy.net -p 49135 -U postgres -d railway -f goyalsons_db.sql
+$env:PGPASSWORD="<your-railway-password>"
+psql -h <your-railway-host> -p <your-railway-port> -U <your-railway-username> -d <your-railway-database> -f backup.sql
 ```
 
 ---
@@ -64,7 +64,7 @@ psql -h trolley.proxy.rlwy.net -p 49135 -U postgres -d railway -f goyalsons_db.s
 If you only need initial/sample data (not full backup):
 
 ```bash
-npm run db:seed
+npm run seed
 ```
 
 This will create:

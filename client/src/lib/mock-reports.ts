@@ -14,20 +14,20 @@ export const reportTemplates: ReportConfig[] = [
     name: "Monthly Attendance Summary",
     type: "pdf",
     frequency: "monthly",
-    recipients: ["hr@goyalsons.com", "admin@goyalsons.com"]
+    recipients: ["hr@example.com", "admin@example.com"]
   },
   {
     id: "rpt-002",
     name: "Expense Claim Analysis",
     type: "excel",
     frequency: "monthly",
-    recipients: ["finance@goyalsons.com"]
+    recipients: ["finance@example.com"]
   },
   {
     id: "rpt-003",
     name: "Employee Performance Review",
     type: "pdf",
     frequency: "monthly",
-    recipients: ["managers@goyalsons.com"]
+    recipients: ["managers@example.com"]
   }
 ];

@@ -115,9 +115,19 @@ export function initializeGoogleOAuth(): boolean {
               name: profile.displayName || profile.name?.givenName || email.split("@")[0],
               passwordHash,
               status: "active",
-              isSuperAdmin: false,
             },
           });
+          const defaultRole = await prisma.role.findUnique({
+            where: { name: "MDO" },
+            select: { id: true },
+          });
+          if (defaultRole) {
+            await prisma.userRole.upsert({
+              where: { userId_roleId: { userId: user.id, roleId: defaultRole.id } },
+              update: {},
+              create: { userId: user.id, roleId: defaultRole.id },
+            });
+          }
           console.log(`[Google OAuth] ✅ Created new MDO user via Google OAuth: ${email}`);
         } else {
           console.log(`[Google OAuth] ✅ Found existing user: ${email}`);

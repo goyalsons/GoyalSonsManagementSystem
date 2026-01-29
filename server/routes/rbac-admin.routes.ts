@@ -25,7 +25,6 @@ import { POLICIES } from "../constants/policies";
 import {
   validatePolicyKey,
   validateRoleName,
-  validateRoleLevel,
   validatePolicyIds,
   validateUUID,
 } from "../lib/validation";
@@ -80,7 +79,7 @@ export function registerRBACAdminRoutes(app: Express): void {
    * GET /api/admin/policies
    * List all policies (for admin UI)
    */
-  app.get("/api/admin/policies", requireAuth, requirePolicy(POLICIES.POLICIES_VIEW), async (req, res) => {
+  app.get("/api/admin/policies", requireAuth, requirePolicy(POLICIES.ADMIN_PANEL), async (req, res) => {
     try {
       const policies = await prisma.policy.findMany({
         orderBy: { key: "asc" },
@@ -96,7 +95,7 @@ export function registerRBACAdminRoutes(app: Express): void {
    * POST /api/admin/policies
    * Create new policy
    */
-  app.post("/api/admin/policies", requireAuth, requirePolicy(POLICIES.POLICIES_CREATE), async (req, res) => {
+  app.post("/api/admin/policies", requireAuth, requirePolicy(POLICIES.ADMIN_PANEL), async (req, res) => {
     try {
       const { key, description, category } = req.body;
 
@@ -139,7 +138,7 @@ export function registerRBACAdminRoutes(app: Express): void {
    * PUT /api/admin/policies/:id
    * Update policy (enable/disable, description, category)
    */
-  app.put("/api/admin/policies/:id", requireAuth, requirePolicy(POLICIES.POLICIES_CREATE), async (req, res) => {
+  app.put("/api/admin/policies/:id", requireAuth, requirePolicy(POLICIES.ADMIN_PANEL), async (req, res) => {
     try {
       const { id } = req.params;
       const { description, category, isActive } = req.body;
@@ -191,7 +190,7 @@ export function registerRBACAdminRoutes(app: Express): void {
    * GET /api/admin/roles
    * List all roles with their policies
    */
-  app.get("/api/admin/roles", requireAuth, requirePolicy(POLICIES.ROLES_VIEW), async (req, res) => {
+  app.get("/api/admin/roles", requireAuth, requirePolicy(POLICIES.ADMIN_PANEL), async (req, res) => {
     try {
       const roles = await prisma.role.findMany({
         include: {
@@ -214,7 +213,6 @@ export function registerRBACAdminRoutes(app: Express): void {
           id: role.id,
           name: role.name,
           description: role.description,
-          level: role.level,
           policies: role.policies.map((rp) => ({
             id: rp.policy.id,
             key: rp.policy.key,
@@ -237,7 +235,7 @@ export function registerRBACAdminRoutes(app: Express): void {
    * GET /api/admin/roles/:id
    * Get single role with details
    */
-  app.get("/api/admin/roles/:id", requireAuth, requirePolicy(POLICIES.ROLES_VIEW), async (req, res) => {
+  app.get("/api/admin/roles/:id", requireAuth, requirePolicy(POLICIES.ADMIN_PANEL), async (req, res) => {
     try {
       const { id } = req.params;
 
@@ -276,7 +274,6 @@ export function registerRBACAdminRoutes(app: Express): void {
         id: role.id,
         name: role.name,
         description: role.description,
-        level: role.level,
         policies: role.policies.map((rp) => ({
           id: rp.policy.id,
           key: rp.policy.key,
@@ -302,20 +299,14 @@ export function registerRBACAdminRoutes(app: Express): void {
    * POST /api/admin/roles
    * Create new role
    */
-  app.post("/api/admin/roles", requireAuth, requirePolicy(POLICIES.ROLES_CREATE), async (req, res) => {
+  app.post("/api/admin/roles", requireAuth, requirePolicy(POLICIES.ADMIN_PANEL), async (req, res) => {
     try {
-      const { name, description, level, policyIds } = req.body;
+      const { name, description, policyIds } = req.body;
 
       // Validate role name
       const nameValidation = validateRoleName(name);
       if (!nameValidation.valid) {
         return res.status(400).json({ message: nameValidation.error });
-      }
-
-      // Validate level
-      const levelValidation = validateRoleLevel(level);
-      if (!levelValidation.valid) {
-        return res.status(400).json({ message: levelValidation.error });
       }
 
       // Validate policy IDs
@@ -352,7 +343,6 @@ export function registerRBACAdminRoutes(app: Express): void {
         data: {
           name,
           description: description || null,
-          level: level || 0,
           policies: {
             create: (policyValidation.ids || []).map((policyId) => ({
               policyId,
@@ -375,7 +365,6 @@ export function registerRBACAdminRoutes(app: Express): void {
         id: role.id,
         name: role.name,
         description: role.description,
-        level: role.level,
         policies: role.policies.map((rp) => ({
           id: rp.policy.id,
           key: rp.policy.key,
@@ -390,12 +379,12 @@ export function registerRBACAdminRoutes(app: Express): void {
 
   /**
    * PUT /api/admin/roles/:id
-   * Update role (name, description, level, policies)
+   * Update role (name, description, policies)
    */
-  app.put("/api/admin/roles/:id", requireAuth, requirePolicy(POLICIES.ROLES_EDIT), async (req, res) => {
+  app.put("/api/admin/roles/:id", requireAuth, requirePolicy(POLICIES.ADMIN_PANEL), async (req, res) => {
     try {
       const { id } = req.params;
-      const { name, description, level, policyIds } = req.body;
+      const { name, description, policyIds } = req.body;
 
       const validation = validateUUID(id);
       if (!validation.valid) {
@@ -440,17 +429,6 @@ export function registerRBACAdminRoutes(app: Express): void {
         updateData.description = description;
         if (description !== role.description) {
           changes.description = { from: role.description, to: description };
-        }
-      }
-
-      if (level !== undefined) {
-        const levelValidation = validateRoleLevel(level);
-        if (!levelValidation.valid) {
-          return res.status(400).json({ message: levelValidation.error });
-        }
-        updateData.level = level;
-        if (level !== role.level) {
-          changes.level = { from: role.level, to: level };
         }
       }
 
@@ -538,7 +516,6 @@ export function registerRBACAdminRoutes(app: Express): void {
         id: updatedRole!.id,
         name: updatedRole!.name,
         description: updatedRole!.description,
-        level: updatedRole!.level,
         policies: updatedRole!.policies.map((rp) => ({
           id: rp.policy.id,
           key: rp.policy.key,
@@ -555,7 +532,7 @@ export function registerRBACAdminRoutes(app: Express): void {
    * DELETE /api/admin/roles/:id
    * Delete role (cascades to user-role and role-policy relationships)
    */
-  app.delete("/api/admin/roles/:id", requireAuth, requirePolicy(POLICIES.ROLES_DELETE), async (req, res) => {
+  app.delete("/api/admin/roles/:id", requireAuth, requirePolicy(POLICIES.ADMIN_PANEL), async (req, res) => {
     try {
       const { id } = req.params;
 
@@ -614,7 +591,7 @@ export function registerRBACAdminRoutes(app: Express): void {
   app.post(
     "/api/admin/users/:userId/roles/:roleId",
     requireAuth,
-    requirePolicy(POLICIES.USERS_ASSIGN_ROLE),
+    requirePolicy(POLICIES.ADMIN_PANEL),
     async (req, res) => {
       try {
         const { userId, roleId } = req.params;
@@ -693,7 +670,7 @@ export function registerRBACAdminRoutes(app: Express): void {
   app.delete(
     "/api/admin/users/:userId/roles/:roleId",
     requireAuth,
-    requirePolicy(POLICIES.USERS_ASSIGN_ROLE),
+    requirePolicy(POLICIES.ADMIN_PANEL),
     async (req, res) => {
       try {
         const { userId, roleId } = req.params;
@@ -760,7 +737,7 @@ export function registerRBACAdminRoutes(app: Express): void {
    * GET /api/admin/users/:userId/roles
    * Get all roles assigned to a user
    */
-  app.get("/api/admin/users/:userId/roles", requireAuth, requirePolicy(POLICIES.USERS_VIEW), async (req, res) => {
+  app.get("/api/admin/users/:userId/roles", requireAuth, requirePolicy(POLICIES.ADMIN_PANEL), async (req, res) => {
     try {
       const { userId } = req.params;
 
@@ -789,7 +766,6 @@ export function registerRBACAdminRoutes(app: Express): void {
           id: ur.role.id,
           name: ur.role.name,
           description: ur.role.description,
-          level: ur.role.level,
           policies: ur.role.policies.map((rp) => ({
             id: rp.policy.id,
             key: rp.policy.key,

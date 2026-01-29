@@ -190,10 +190,16 @@ export default function SettingsPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
+                  <Label htmlFor="email">
+                    {user?.loginType === "employee" ? "Card Number" : "Email"}
+                  </Label>
                   <Input
                     id="email"
-                    value={user?.email || ""}
+                    value={
+                      user?.loginType === "employee"
+                        ? (user?.employeeCardNo || "")
+                        : (user?.email || "")
+                    }
                     disabled
                     className="bg-muted"
                   />

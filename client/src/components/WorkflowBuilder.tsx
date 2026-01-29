@@ -190,7 +190,6 @@ interface WorkflowBuilderProps {
     id: string;
     name: string;
     description?: string;
-    level?: number;
     userCount?: number;
   }>;
   initialWorkflow?: WorkflowData;
@@ -241,7 +240,7 @@ export default function WorkflowBuilder({
       data: {
         name: role.name,
         description: role.description,
-        type: role.level ? `Level ${role.level}` : undefined,
+        type: role.type,
         showAddButton: false,
       },
     }));

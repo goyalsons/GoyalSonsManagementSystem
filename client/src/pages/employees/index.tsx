@@ -47,12 +47,13 @@ import {
   Building2,
   Briefcase,
   UserCheck,
+  RefreshCw,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { ImagePreview } from "@/components/ui/image-preview";
 import { encodeFullName } from "@/lib/utils";
+import { ToastAction } from "@/components/ui/toast";
 
 interface Employee {
   id: string;
@@ -76,7 +77,6 @@ interface Employee {
 interface Role {
   id: string;
   name: string;
-  level: number;
 }
 
 export default function EmployeesPage() {
@@ -90,6 +90,7 @@ export default function EmployeesPage() {
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
   const [selectedRoleId, setSelectedRoleId] = useState<string>("");
   const [tempPassword, setTempPassword] = useState("");
+  const [lastSyncSummary, setLastSyncSummary] = useState<{ imported: number; failed: number; total: number } | null>(null);
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -100,7 +101,8 @@ export default function EmployeesPage() {
       unitId: unitFilter !== "ALL" ? unitFilter : undefined,
       departmentId: departmentFilter !== "ALL" ? departmentFilter : undefined,
       designationId: designationFilter !== "ALL" ? designationFilter : undefined,
-      statusFilter: statusFilter !== "all" ? statusFilter : undefined,
+      // Important: pass "all" through so backend can return active + inactive
+      statusFilter: statusFilter,
       search: debouncedSearch || undefined,
     }),
   });
@@ -154,6 +156,47 @@ export default function EmployeesPage() {
         description: error.message,
         variant: "destructive",
       });
+    },
+  });
+
+  const syncEmployeesMutation = useMutation({
+    mutationFn: () =>
+      apiPost<{ success: boolean; message: string; total: number; imported: number; failed: number }>(
+        "/admin/data-fetcher/sync-employees",
+      ),
+    onSuccess: (result) => {
+      setLastSyncSummary({ imported: result.imported, failed: result.failed, total: result.total });
+      toast({
+        title: "Refresh complete",
+        description: result.message || `Imported ${result.imported}/${result.total} (failed ${result.failed})`,
+      });
+      // Refresh list + filters that depend on employee data.
+      queryClient.invalidateQueries({ queryKey: ["employees"] });
+      queryClient.invalidateQueries({ queryKey: ["branches"] });
+      queryClient.invalidateQueries({ queryKey: ["departments"] });
+      queryClient.invalidateQueries({ queryKey: ["designations"] });
+    },
+    onError: (error: any) => {
+      const message = error?.message || "Failed to sync members";
+      toast({
+        title: "Refresh failed",
+        description: message,
+        variant: "destructive",
+        action: message.includes("Employee Master URL not configured")
+          ? (
+            <ToastAction
+              altText="Open Master Settings"
+              onClick={() => {
+                window.location.href = "/admin/master-settings";
+              }}
+            >
+              Set URL
+            </ToastAction>
+          )
+          : undefined,
+      });
+      // Even if sync fails, at least refetch the current list from DB.
+      queryClient.invalidateQueries({ queryKey: ["employees"] });
     },
   });
 
@@ -240,12 +283,27 @@ export default function EmployeesPage() {
             Manage member profiles and view shift schedules.
           </p>
         </div>
-        <Link href="/employees/create">
-          <Button className="gap-2 shadow-sm">
-            <Plus className="h-4 w-4" />
-            Add Member
+        <div className="flex items-center gap-3">
+          {lastSyncSummary && (
+            <div className="text-xs text-muted-foreground hidden sm:block">
+              Last refresh: {lastSyncSummary.imported}/{lastSyncSummary.total} imported
+              {lastSyncSummary.failed > 0 ? ` (${lastSyncSummary.failed} failed)` : ""}
+            </div>
+          )}
+          <Button
+            className="gap-2 shadow-sm"
+            onClick={() => syncEmployeesMutation.mutate()}
+            disabled={syncEmployeesMutation.isPending}
+            title="Fetch latest members and refresh list"
+          >
+            {syncEmployeesMutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
+            {syncEmployeesMutation.isPending ? "Refreshing..." : "Refresh"}
           </Button>
-        </Link>
+        </div>
       </div>
 
       <div className="bg-card rounded-xl border border-border shadow-sm overflow-hidden">
@@ -276,6 +334,12 @@ export default function EmployeesPage() {
               {`${employees.length} of ${totalCount} members`}
             </div>
           </div>
+          {syncEmployeesMutation.isPending && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Syncing members… the list will update automatically when it finishes.
+            </div>
+          )}
           <div className="flex flex-wrap gap-3">
             <div className="flex items-center gap-2">
               <Building2 className="h-4 w-4 text-muted-foreground" />
@@ -301,11 +365,9 @@ export default function EmployeesPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="ALL">All Departments</SelectItem>
-                  {departments
-                    .filter((dept) => dept.employeeCount > 0)
-                    .map((dept) => (
+                  {departments.map((dept) => (
                       <SelectItem key={dept.id} value={dept.id}>
-                        {dept.name} ({dept.employeeCount})
+                        {dept.name} ({dept.employeeCount ?? 0})
                       </SelectItem>
                     ))}
                 </SelectContent>
@@ -319,11 +381,9 @@ export default function EmployeesPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="ALL">All Designations</SelectItem>
-                  {designations
-                    .filter((desig) => desig.employeeCount > 0)
-                    .map((desig) => (
+                  {designations.map((desig) => (
                       <SelectItem key={desig.id} value={desig.id}>
-                        {desig.name} ({desig.employeeCount})
+                        {desig.name} ({desig.employeeCount ?? 0})
                       </SelectItem>
                     ))}
                 </SelectContent>

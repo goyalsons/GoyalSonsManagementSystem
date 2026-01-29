@@ -56,7 +56,7 @@ npm install
 ```bash
 npx prisma generate
 npx prisma migrate dev
-npm run db:seed
+npm run seed
 ```
 
 ### 3. Run Development Server
@@ -66,13 +66,7 @@ npm run dev
 
 ## Test Users
 
-| Role | Email | Password |
-|------|-------|----------|
-| CEO (Full Access) | ceo@goyalsons.com | ceo123 |
-| Manager | manager@goyalsons.com | manager123 |
-| HR | hr@goyalsons.com | hr123 |
-| Finance | finance@goyalsons.com | finance123 |
-| Employee | vikram@goyalsons.com | employee123 |
+This repo does not ship with hardcoded company emails. In development, users are typically seeded from environment configuration (for example `ALLOWED_GOOGLE_EMAILS`) and/or created via OTP/employee flows.
 
 ## API Endpoints
 
@@ -92,7 +86,7 @@ All protected endpoints require Bearer token authentication and enforce org-scop
 The system uses a three-tier authorization model:
 
 1. **Authentication**: Session-based with Bearer tokens
-2. **Policy Check**: Users must have the required policy (e.g., `attendance.view`)
+2. **Policy Check**: Users must have the required policy (e.g., `attendance.history.view`)
 3. **Org Scope**: Data is filtered to user's accessible org units (subtree)
 
 ```

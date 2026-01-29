@@ -7,7 +7,7 @@ import { logPolicyCreation } from "../lib/audit-log";
 
 export function registerPoliciesRoutes(app: Express): void {
   // GET /api/policies - Get all policies grouped by category
-  app.get("/api/policies", requireAuth, async (req, res) => {
+  app.get("/api/policies", requireAuth, requirePolicy(POLICIES.ADMIN_PANEL), async (req, res) => {
     try {
       const policies = await prisma.policy.findMany({
         orderBy: [
@@ -24,7 +24,7 @@ export function registerPoliciesRoutes(app: Express): void {
   });
 
   // POST /api/policies - Create new policy (admin only)
-  app.post("/api/policies", requireAuth, requirePolicy(POLICIES.ADMIN_ROLES), async (req, res) => {
+  app.post("/api/policies", requireAuth, requirePolicy(POLICIES.ADMIN_PANEL), async (req, res) => {
     try {
       const { key, description, category } = req.body;
 
@@ -36,6 +36,11 @@ export function registerPoliciesRoutes(app: Express): void {
       const validation = validatePolicyKey(key);
       if (!validation.valid) {
         return res.status(400).json({ message: validation.error });
+      }
+
+      const allowedPolicies = new Set(Object.values(POLICIES));
+      if (!allowedPolicies.has(key)) {
+        return res.status(400).json({ message: "Policy key is not in the allowed list" });
       }
 
       const policy = await prisma.policy.create({

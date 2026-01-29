@@ -443,7 +443,7 @@ export async function getEmployeeDesignations(smnos: string[]): Promise<Map<stri
 
 export function registerSalesStaffRoutes(app: Express) {
   // Sales Staff Summary (cards + month/brand breakdown)
-  app.get("/api/sales/staff/summary", requireAuth, requirePolicy("sales.staff.view"), async (req, res) => {
+  app.get("/api/sales/staff/summary", requireAuth, requirePolicy("sales-staff.view"), async (req, res) => {
     try {
       const isEmployeeLogin = req.user!.loginType === "employee";
       const employeeCardNo = req.user!.employeeCardNo;
@@ -945,7 +945,7 @@ export function registerSalesStaffRoutes(app: Express) {
     });
   }
 
-  app.post("/api/sales/pivot/refresh", requireAuth, requirePolicy("sales.staff.view"), async (req, res) => {
+  app.post("/api/sales/pivot/refresh", requireAuth, requirePolicy("sales-staff.view"), async (req, res) => {
     try {
       console.log("[Sales Pivot Refresh] Starting refresh...");
       const records = await fetchMonthlySalesForPivot();
@@ -981,7 +981,12 @@ export function registerSalesStaffRoutes(app: Express) {
         userMessage = `External sales API is unavailable (returned error). ${cachedCount > 0 ? `Showing ${cachedCount} cached records instead.` : 'No cached data available.'}`;
       } else if (error.message.includes("timed out")) {
         userMessage = `Request timed out. ${cachedCount > 0 ? `Showing ${cachedCount} cached records instead.` : 'No cached data available.'}`;
-      } else if (error.message.includes("ECONNREFUSED") || error.message.includes("ENOTFOUND")) {
+      } else if (
+        error.message.includes("ECONNREFUSED") ||
+        error.message.includes("ENOTFOUND") ||
+        error.message.includes("ECONNRESET") ||
+        error.message.toLowerCase().includes("socket hang up")
+      ) {
         userMessage = `Cannot connect to external sales API. ${cachedCount > 0 ? `Showing ${cachedCount} cached records instead.` : 'No cached data available.'}`;
       }
       
@@ -1000,7 +1005,7 @@ export function registerSalesStaffRoutes(app: Express) {
     }
   });
 
-  app.get("/api/sales/pivot", requireAuth, requirePolicy("sales.staff.view"), async (req, res) => {
+  app.get("/api/sales/pivot", requireAuth, requirePolicy("sales-staff.view"), async (req, res) => {
     try {
       const isEmployeeLogin = req.user!.loginType === "employee";
       const employeeCardNo = req.user!.employeeCardNo;

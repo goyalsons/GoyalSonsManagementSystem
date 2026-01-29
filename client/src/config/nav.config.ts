@@ -42,55 +42,103 @@ export const NAV_CONFIG: NavConfigItem[] = [
     key: "roles-assigned", 
     label: "Roles Assigned", 
     path: "/roles-assigned", 
-    policy: "roles.assigned.view" 
+    policy: "roles-assigned.view" 
+  },
+  { 
+    key: "roles", 
+    label: "Roles", 
+    path: "/roles", 
+    policy: "roles-assigned.view" 
+  },
+  { 
+    key: "roles-edit", 
+    label: "Edit Role", 
+    path: "/roles/:id", 
+    policy: "roles-assigned.view" 
+  },
+  { 
+    key: "roles-assign-manager", 
+    label: "Assign Manager", 
+    path: "/roles/manager/assign", 
+    policy: "roles-assigned.view" 
   },
   { 
     key: "members", 
     label: "Members", 
     path: "/employees", 
-    policy: "members.view" 
+    policy: "employees.view" 
+  },
+  { 
+    key: "members-create", 
+    label: "Create Member", 
+    path: "/employees/create", 
+    policy: "employees.view" 
   },
   { 
     key: "tasks-history", 
     label: "Task History", 
     path: "/attendance/history", 
-    policy: "tasks.history.view" 
+    policy: "attendance.history.view" 
+  },
+  { 
+    key: "attendance", 
+    label: "Work Log", 
+    path: "/attendance", 
+    policy: "attendance.worklog.view" 
+  },
+  { 
+    key: "attendance-today", 
+    label: "Today Work Log", 
+    path: "/attendance/today", 
+    policy: "attendance.worklog.view" 
+  },
+  { 
+    key: "attendance-fill", 
+    label: "Fill Work Log", 
+    path: "/attendance/fill", 
+    policy: "attendance.worklog.view" 
+  },
+  { 
+    key: "work-log", 
+    label: "Work Log", 
+    path: "/work-log", 
+    policy: "attendance.history.view" 
   },
   { 
     key: "sales", 
     label: "Sales", 
     path: "/sales", 
-    policy: "sales.view" 
+    policy: "staff-sales.view" 
   },
   { 
     key: "sales-staff", 
     label: "Sales Staff", 
     path: "/sales-staff", 
-    policy: "sales.staff.view" 
+    policy: "sales-staff.view" 
   },
   { 
     key: "integrations", 
     label: "Integrations", 
     path: "/integrations", 
-    policy: "integrations.view" 
+    policy: "admin.panel" 
   },
   { 
     key: "api-settings", 
     label: "API Setting", 
     path: "/admin/routing", 
-    policy: "api.settings.view" 
+    policy: "admin.routing.view" 
   },
   { 
     key: "masters-settings", 
     label: "Masters Settings", 
     path: "/admin/master-settings", 
-    policy: "masters.settings.view" 
+    policy: "admin.master-settings.view" 
   },
   { 
     key: "fetched-data", 
     label: "Fetched Data", 
     path: "/integrations/fetched-data", 
-    policy: "fetched.data.view" 
+    policy: "integrations.fetched-data.view" 
   },
   { 
     key: "trainings", 
@@ -120,7 +168,7 @@ export const NAV_CONFIG: NavConfigItem[] = [
     key: "manager-assigned", 
     label: "Assigned Manager", 
     path: "/assigned-manager", 
-    policy: "manager.assigned.view" 
+    policy: "assigned-manager.view" 
   },
   {
     key: "help-tickets",

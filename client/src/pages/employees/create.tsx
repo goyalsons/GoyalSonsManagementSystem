@@ -64,7 +64,7 @@ export default function CreateEmployeePage() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="email">Work Email</Label>
-                <Input id="email" type="email" placeholder="name@goyalsons.com" required />
+                <Input id="email" type="email" placeholder="name@example.com" required />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="phone">Phone Number</Label>

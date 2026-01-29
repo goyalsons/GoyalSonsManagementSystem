@@ -26,11 +26,23 @@ console.log(`Database: ${database}`);
 console.log(`Host: ${host}:${port}`);
 console.log(`User: ${username}\n`);
 
-const sqlFile = join(process.cwd(), "goyalsons_db.sql");
+// Do not ship a production DB dump in the repo. Provide a path at runtime.
+// Usage:
+//   npx tsx scripts/restore-database.ts path/to/backup.sql
+// or
+//   RESTORE_SQL_FILE=path/to/backup.sql npx tsx scripts/restore-database.ts
+const sqlFile = process.argv[2] || process.env.RESTORE_SQL_FILE;
+
+if (!sqlFile) {
+  console.error("❌ No SQL backup file specified.");
+  console.log("\nProvide the file path as an argument or set RESTORE_SQL_FILE.");
+  console.log('Example: npx tsx scripts/restore-database.ts "backup.sql"');
+  process.exit(1);
+}
 
 if (!existsSync(sqlFile)) {
   console.error(`❌ Backup file not found: ${sqlFile}`);
-  console.log("\nPlease ensure goyalsons_db.sql exists in the project root.");
+  console.log("\nPlease ensure the SQL backup file exists at the provided path.");
   process.exit(1);
 }
 

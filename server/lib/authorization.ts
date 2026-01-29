@@ -9,21 +9,8 @@ export interface UserWithRoles {
   id: string;
   name: string;
   email: string;
-  isSuperAdmin: boolean;
   orgUnitId: string | null;
   roles: { id: string; name: string }[];
-}
-
-export async function isCEO(userId: string): Promise<boolean> {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: {
-      isSuperAdmin: true,
-    },
-  });
-
-  if (!user) return false;
-  return user.isSuperAdmin;
 }
 
 export async function getOrgSubtreeIds(orgUnitId: string): Promise<string[]> {
@@ -40,6 +27,18 @@ export async function getOrgSubtreeIds(orgUnitId: string): Promise<string[]> {
   return result.map((row) => row.id);
 }
 
+// In-memory org subtree cache keyed by orgUnitId.
+// Invalidate explicitly when org structure changes.
+const orgSubtreeCache = new Map<string, string[]>();
+
+export function invalidateOrgSubtreeCache(orgUnitId?: string): void {
+  if (!orgUnitId) {
+    orgSubtreeCache.clear();
+    return;
+  }
+  orgSubtreeCache.delete(orgUnitId);
+}
+
 export async function getUserWithRoles(userId: string): Promise<UserWithRoles | null> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
@@ -47,7 +46,6 @@ export async function getUserWithRoles(userId: string): Promise<UserWithRoles | 
       id: true,
       name: true,
       email: true,
-      isSuperAdmin: true,
       orgUnitId: true,
       roles: {
         include: {
@@ -68,7 +66,6 @@ export async function getUserWithRoles(userId: string): Promise<UserWithRoles | 
     id: user.id,
     name: user.name,
     email: user.email,
-    isSuperAdmin: user.isSuperAdmin,
     orgUnitId: user.orgUnitId,
     roles: user.roles.map((ur) => ({
       id: ur.role.id,
@@ -78,45 +75,58 @@ export async function getUserWithRoles(userId: string): Promise<UserWithRoles | 
 }
 
 export async function getUserPolicies(userId: string): Promise<string[]> {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
+  /**
+   * Performance goals:
+   * - Normal users (few roles/policies): keep JS work tiny (map/filter only).
+   * - Large role/policy graphs: offload dedupe to Postgres with DISTINCT.
+   *
+   * Note on worker threads:
+   * - Building a Set for ~1k strings is already sub-millisecond.
+   * - A worker hop typically costs more than it saves for this workload.
+   * - We therefore prefer DB-side DISTINCT for large sets instead of CPU offload.
+   */
+
+  // Fetch roleIds first (small, indexed join via UserRole)
+  const userRoles = await prisma.userRole.findMany({
+    where: { userId },
+    select: { roleId: true },
+  });
+
+  if (userRoles.length === 0) return [];
+
+  const roleIds = userRoles.map((ur) => ur.roleId);
+
+  // If the user has many roles, avoid building a huge IN() list and let Postgres do DISTINCT.
+  const rawSqlRoleThreshold = Math.max(
+    1,
+    Number(process.env.USER_POLICIES_RAW_SQL_ROLE_THRESHOLD || "200"),
+  );
+
+  if (roleIds.length >= rawSqlRoleThreshold) {
+    const rows = await prisma.$queryRaw<{ key: string }[]>`
+      SELECT DISTINCT p.key
+      FROM "UserRole" ur
+      INNER JOIN "RolePolicy" rp ON rp."roleId" = ur."roleId"
+      INNER JOIN "Policy" p ON p.id = rp."policyId"
+      WHERE ur."userId" = ${userId}
+    `;
+    return rows.map((r) => r.key);
+  }
+
+  // Small/normal case: Prisma query with DB-side distinct to minimize duplicates and JS work.
+  const rolePolicies = await prisma.rolePolicy.findMany({
+    where: { roleId: { in: roleIds } },
+    distinct: ["policyId"],
     select: {
-      isSuperAdmin: true,
-      roles: {
-        include: {
-          role: {
-            include: {
-              policies: {
-                include: {
-                  policy: true,
-                },
-              },
-            },
-          },
-        },
+      policy: {
+        select: { key: true },
       },
     },
   });
 
-  if (!user) return [];
-
-  // SuperAdmin gets all policies
-  if (user.isSuperAdmin) {
-    const allPolicies = await prisma.policy.findMany({
-      select: { key: true },
-    });
-    return allPolicies.map((p) => p.key);
-  }
-
-  // Get all policies from user's roles
-  const policyKeys = new Set<string>();
-  for (const userRole of user.roles) {
-    for (const rolePolicy of userRole.role.policies) {
-      policyKeys.add(rolePolicy.policy.key);
-    }
-  }
-
-  return Array.from(policyKeys);
+  return rolePolicies
+    .map((rp) => rp.policy?.key)
+    .filter((k): k is string => Boolean(k));
 }
 
 export async function hasPolicy(userId: string, policyKey: string): Promise<boolean> {
@@ -136,11 +146,6 @@ export async function authorize(params: {
   const user = await getUserWithRoles(userId);
   if (!user) {
     return { allowed: false, reason: "user_not_found" };
-  }
-
-  // SuperAdmin bypasses all checks
-  if (user.isSuperAdmin) {
-    return { allowed: true };
   }
 
   // Check if user has the required policy
@@ -183,21 +188,20 @@ export async function getAccessibleOrgUnitIds(userId: string): Promise<string[]>
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: {
-      isSuperAdmin: true,
       orgUnitId: true,
     },
   });
 
   if (!user) return [];
 
-  if (user.isSuperAdmin) {
-    const allOrgs = await prisma.orgUnit.findMany({ select: { id: true } });
-    return allOrgs.map((o) => o.id);
-  }
-
   if (!user.orgUnitId) return [];
 
-  return getOrgSubtreeIds(user.orgUnitId);
+  const cached = orgSubtreeCache.get(user.orgUnitId);
+  if (cached) return cached;
+
+  const subtreeIds = await getOrgSubtreeIds(user.orgUnitId);
+  orgSubtreeCache.set(user.orgUnitId, subtreeIds);
+  return subtreeIds;
 }
 
 export async function getUserAuthInfo(userId: string) {
@@ -229,51 +233,10 @@ export async function getUserAuthInfo(userId: string) {
     },
   });
 
-  // Check if user is a manager
-  let isManager = false;
-  let managerScopes = null;
-  // Get card number from the employee record (it's selected in the query above)
-  const employeeCardNo = fullUser?.employee?.cardNumber || null;
-  
-  console.log(`[getUserAuthInfo] Checking manager status for userId=${userId}, employeeCardNo=${employeeCardNo}`);
-  
-  if (employeeCardNo) {
-    const managerAssignments = await prisma.$queryRaw<Array<{
-      mid: string;
-      mcardno: string;
-      mdepartmentId: string | null;
-      mdesignationId: string | null;
-      morgUnitId: string | null;
-      mis_extinct: boolean;
-    }>>`
-      SELECT "mid", "mcardno", "mdepartmentId", "mdesignationId", "morgUnitId", "mis_extinct"
-      FROM "emp_manager"
-      WHERE "mcardno" = ${employeeCardNo} AND "mis_extinct" = false
-    `;
-    
-    if (managerAssignments.length > 0) {
-      isManager = true;
-      const departmentIds = Array.from(new Set(managerAssignments.map(m => m.mdepartmentId).filter((id): id is string => id !== null)));
-      const designationIds = Array.from(new Set(managerAssignments.map(m => m.mdesignationId).filter((id): id is string => id !== null)));
-      const orgUnitIds = Array.from(new Set(managerAssignments.map(m => m.morgUnitId).filter((id): id is string => id !== null)));
-      managerScopes = {
-        departmentIds: departmentIds.length > 0 ? departmentIds : null,
-        designationIds: designationIds.length > 0 ? designationIds : null,
-        orgUnitIds: orgUnitIds.length > 0 ? orgUnitIds : null,
-      };
-      console.log(`[getUserAuthInfo] ✅ User is a manager with ${managerAssignments.length} assignment(s)`);
-    } else {
-      console.log(`[getUserAuthInfo] ❌ User is NOT a manager (no assignments found for card ${employeeCardNo})`);
-    }
-  } else {
-    console.log(`[getUserAuthInfo] ❌ User is NOT a manager (no employee card number)`);
-  }
-
   return {
     id: user.id,
     name: user.name,
     email: user.email,
-    isSuperAdmin: user.isSuperAdmin,
     orgUnitId: user.orgUnitId,
     employeeId: fullUser?.employeeId || null,
     roles: user.roles.map((ur) => ({
@@ -289,7 +252,5 @@ export async function getUserAuthInfo(userId: string) {
       designationCode: fullUser.employee.designation?.code || null,
       designationName: fullUser.employee.designation?.name || null,
     } : null,
-    isManager,
-    managerScopes,
   };
 }
