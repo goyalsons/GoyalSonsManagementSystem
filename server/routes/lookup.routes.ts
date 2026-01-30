@@ -82,7 +82,8 @@ export function registerLookupRoutes(app: Express) {
         }),
       );
 
-      res.json(designationsWithCounts);
+      // Hide designations that do not exist in real employee data for selected filters
+      res.json(designationsWithCounts.filter((d) => (d.employeeCount || 0) > 0));
     } catch (error) {
       console.error("Designations error:", error);
       res.status(500).json({ message: "Failed to fetch designations" });
