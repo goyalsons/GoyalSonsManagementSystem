@@ -96,6 +96,16 @@ const navItems: NavItem[] = [
   },
   // Standalone Sales for staff (employees don't have employees.view so "Members" submenu is hidden)
   { href: "/sales-staff", icon: TrendingUp, label: "Sales", policy: getPolicyForPath("/sales-staff") },
+  // Team management for managers
+  { 
+    icon: UsersRound, 
+    label: "My Team", 
+    policy: getPolicyForPath("/attendance/team"),
+    subItems: [
+      { href: "/attendance/team", icon: CalendarCheck, label: "Team Attendance" },
+      { href: "/requests/team", icon: HelpCircle, label: "Team Requests" },
+    ]
+  },
   { 
     icon: Settings2, 
     label: "Integrations", 

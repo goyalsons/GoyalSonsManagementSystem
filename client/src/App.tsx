@@ -40,6 +40,8 @@ const TeamTaskHistoryPage = lazy(() => import("@/pages/manager/team-task-history
 const TeamSalesStaffPage = lazy(() => import("@/pages/manager/team-sales-staff"));
 const ManagerDashboardPage = lazy(() => import("@/pages/manager/dashboard"));
 const RequestsPage = lazy(() => import("@/pages/requests/index"));
+const TeamRequestsPage = lazy(() => import("@/pages/requests/team"));
+const TeamAttendancePage = lazy(() => import("@/pages/attendance/team"));
 const SalaryPage = lazy(() => import("@/pages/salary"));
 const NoPolicyPage = lazy(() => import("@/pages/no-policy"));
 
@@ -128,6 +130,9 @@ function AuthenticatedRoutes() {
           <Route path="/work-log" component={() => (
             <PageGuard policy="attendance.history.view"><AttendanceHistoryPage /></PageGuard>
           )} />
+          <Route path="/attendance/team" component={() => (
+            <PageGuard policy="attendance.team.view"><TeamAttendancePage /></PageGuard>
+          )} />
 
           <Route path="/integrations/fetched-data" component={() => (
             <PageGuard policy="integrations.fetched-data.view"><FetchedDataPage /></PageGuard>
@@ -156,6 +161,9 @@ function AuthenticatedRoutes() {
           )} />
           <Route path="/requests" component={() => (
             <PageGuard policy="requests.view"><RequestsPage /></PageGuard>
+          )} />
+          <Route path="/requests/team" component={() => (
+            <PageGuard policy="requests.team.view"><TeamRequestsPage /></PageGuard>
           )} />
           <Route path="/salary" component={() => (
             <PageGuard policy="salary.view"><SalaryPage /></PageGuard>

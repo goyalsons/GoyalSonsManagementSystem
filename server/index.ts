@@ -16,6 +16,7 @@ import { createServer } from "http";
 import { startAutoSync } from "./auto-sync";
 import { createSalesDataTable } from "./create-sales-data-table";
 import { initializePolicySync } from "./services/policy-sync.service";
+import { runSalesPivotRefresh } from "./routes/sales-staff.routes";
 
 
 console.log(
@@ -114,6 +115,15 @@ app.use((req, res, next) => {
   httpServer.listen(port, "0.0.0.0", () => {
     log(`serving on port ${port}`);
     startAutoSync();
+
+    // Sales pivot data: auto-refresh every 2 hours
+    const SALES_PIVOT_INTERVAL_MS = 2 * 60 * 60 * 1000;
+    const runPivot = runSalesPivotRefresh;
+    if (runPivot) {
+      setInterval(runPivot, SALES_PIVOT_INTERVAL_MS);
+      setTimeout(() => runPivot(), 30 * 1000);
+      log("Sales pivot auto-refresh scheduled every 2 hours");
+    }
 
     // Run DB-backed startup tasks WITHOUT blocking listen/healthcheck.
     void (async () => {

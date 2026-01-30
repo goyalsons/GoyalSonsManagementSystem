@@ -16,11 +16,14 @@ interface PivotApiResponse {
 }
 
 export default function SalesStaffPage() {
-  const { user } = useAuth();
+  const { user, hasPolicy } = useAuth();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const isEmployee = user?.loginType === "employee" || Boolean(user?.employeeCardNo);
   const employeeCardNo = user?.employeeCardNo;
+  const hasStaffView = hasPolicy("sales.staff.view");
+  const showSalesmanFilter = !isEmployee || hasStaffView;
+  const defaultSmno = isEmployee && !hasStaffView && employeeCardNo ? parseInt(employeeCardNo, 10) : null;
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastApiHit, setLastApiHit] = useState<string | null>(null);
 
@@ -36,8 +39,8 @@ export default function SalesStaffPage() {
       }
       return result;
     },
-    staleTime: 5 * 60 * 1000,
-    refetchInterval: 2 * 60 * 60 * 1000,
+    staleTime: 2 * 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
     retry: 1,
   });
 
@@ -151,8 +154,8 @@ export default function SalesStaffPage() {
           <CardContent>
             <SalesExcelPivotTable
               data={pivotData}
-              showSalesmanFilter={!isEmployee}
-              defaultSmno={isEmployee && employeeCardNo ? parseInt(employeeCardNo, 10) : null}
+              showSalesmanFilter={showSalesmanFilter}
+              defaultSmno={defaultSmno}
               employeeName={user?.name || ""}
             />
           </CardContent>

@@ -246,6 +246,144 @@ export function registerHelpTicketsRoutes(app: Express) {
     }
   });
   
+  // GET /api/help-tickets/team - Get team tickets (for managers)
+  app.get("/api/help-tickets/team", requireAuth, requirePolicy("requests.team.view"), async (req, res) => {
+    try {
+      const user = req.user!;
+      const { status } = req.query;
+      
+      const managerEmployee = await prisma.employee.findUnique({
+        where: { id: user.employeeId || "" },
+        select: { cardNumber: true },
+      });
+      
+      if (!managerEmployee?.cardNumber) {
+        return res.json({ success: true, tickets: [] });
+      }
+      
+      // emp_manager has mdepartmentIds, mdesignationIds, morgUnitIds (arrays)
+      const managerAssignments = await prisma.$queryRaw<Array<{
+        mdepartmentIds: string[];
+        mdesignationIds: string[];
+        morgUnitIds: string[];
+      }>>`
+        SELECT "mdepartmentIds", "mdesignationIds", "morgUnitIds"
+        FROM "emp_manager"
+        WHERE "mcardno" = ${managerEmployee.cardNumber}
+        AND "mis_extinct" = false
+      `;
+      
+      if (managerAssignments.length === 0) {
+        return res.json({ success: true, tickets: [] });
+      }
+      
+      const a = managerAssignments[0];
+      const conditions: any[] = [];
+      
+      if (a.mdepartmentIds?.length > 0) {
+        conditions.push({ employee: { departmentId: { in: a.mdepartmentIds } } });
+      }
+      if (a.mdesignationIds?.length > 0) {
+        conditions.push({ employee: { designationId: { in: a.mdesignationIds } } });
+      }
+      if (a.morgUnitIds?.length > 0) {
+        conditions.push({ employee: { orgUnitId: { in: a.morgUnitIds } } });
+      }
+      
+      if (conditions.length === 0) {
+        return res.json({ success: true, tickets: [] });
+      }
+      
+      const where: any = { OR: conditions };
+      if (status && typeof status === 'string' && status !== 'all') {
+        where.status = status;
+      }
+      
+      const tickets = await prisma.helpTicket.findMany({
+        where,
+        include: {
+          employee: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              cardNumber: true,
+              employeeCode: true,
+            },
+          },
+          resolvedBy: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      
+      res.json({ success: true, tickets });
+    } catch (error: any) {
+      console.error("Get team help tickets error:", error);
+      res.status(500).json({ 
+        success: false, 
+        message: error.message || "Failed to fetch team help tickets",
+      });
+    }
+  });
+
+  // POST /api/help-tickets/:id/respond - Manager respond to a ticket
+  app.post("/api/help-tickets/:id/respond", requireAuth, requirePolicy("requests.approve"), async (req, res) => {
+    try {
+      const user = req.user!;
+      const { id } = req.params;
+      const { status, response } = req.body;
+      
+      const ticket = await prisma.helpTicket.findUnique({
+        where: { id },
+      });
+      
+      if (!ticket) {
+        return res.status(404).json({ success: false, message: "Ticket not found" });
+      }
+      
+      const updateData: any = {
+        status: status || "resolved",
+        response: response || "Request processed by manager",
+        resolvedById: user.id,
+        resolvedAt: new Date(),
+      };
+      
+      const updatedTicket = await prisma.helpTicket.update({
+        where: { id },
+        data: updateData,
+        include: {
+          employee: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              cardNumber: true,
+              employeeCode: true,
+            },
+          },
+          resolvedBy: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
+        },
+      });
+      
+      res.json({ success: true, ticket: updatedTicket });
+    } catch (error: any) {
+      console.error("Respond to help ticket error:", error);
+      res.status(500).json({ success: false, message: error.message || "Failed to respond to help ticket" });
+    }
+  });
+
   // PUT /api/help-tickets/:id - Update help ticket (for status/response)
   app.put("/api/help-tickets/:id", requireAuth, requirePolicy("help_tickets.update"), async (req, res) => {
     try {

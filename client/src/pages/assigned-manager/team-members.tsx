@@ -1,6 +1,8 @@
+import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import {
   Table,
   TableBody,
@@ -9,9 +11,18 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Loader2, ArrowLeft, Users, RefreshCw, AlertCircle } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Loader2, ArrowLeft, Users, RefreshCw, AlertCircle, TrendingUp } from "lucide-react";
 import { employeesApi } from "@/lib/api";
 import { encodeFullName } from "@/lib/utils";
+import SalesExcelPivotTable, { type SalesDataRow } from "@/components/SalesExcelPivotTable";
+import { format } from "date-fns";
 
 interface TeamMembersPageProps {
   manager: {
@@ -36,6 +47,12 @@ export default function TeamMembersPage({
   onBack
 }: TeamMembersPageProps) {
   const queryClient = useQueryClient();
+  const [selectedMemberCardNo, setSelectedMemberCardNo] = useState<string>("");
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+
+  const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  const YEARS = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i);
 
   // Fetch team members based on manager's scope (using arrays)
   // We need to fetch members that match ANY of the selected departments/designations/units
@@ -55,6 +72,33 @@ export default function TeamMembersPage({
   const totalCount = response?.pagination?.total || teamMembers.length;
   const apiDisconnected = (response as any)?.apiDisconnected === true;
   const apiMessage = (response as any)?.message || "Please attach the employees data";
+
+  const teamCardNos = useMemo(() => new Set(teamMembers.map((m: any) => m.cardNumber).filter(Boolean)), [teamMembers]);
+
+  const { data: pivotResponse } = useQuery<{ success: boolean; data: SalesDataRow[]; lastApiHit?: string | null }>({
+    queryKey: ["/api/sales/pivot"],
+    queryFn: async () => {
+      const res = await fetch("/api/sales/pivot", {
+        headers: { "X-Session-Id": `${localStorage.getItem("gms_token") || ""}` },
+      });
+      const result = await res.json();
+      if (!res.ok || result.success === false) throw new Error(result.message || "Failed to load pivot");
+      return result;
+    },
+    refetchInterval: 5 * 60 * 1000,
+  });
+
+  const pivotData = pivotResponse?.data || [];
+  const lastPivotRefresh = pivotResponse?.lastApiHit
+    ? (() => {
+        const d = new Date(pivotResponse.lastApiHit);
+        return isNaN(d.getTime()) ? null : format(d, "dd MMM yyyy, hh:mm a");
+      })()
+    : null;
+  const filteredPivotData = useMemo(
+    () => pivotData.filter((row) => teamCardNos.has(String(row.smno))),
+    [pivotData, teamCardNos]
+  );
 
   const handleRefresh = () => {
     refetch();
@@ -223,6 +267,82 @@ export default function TeamMembersPage({
               </Table>
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Team Sales - same layout as Team Attendance: Select Team Member, Month, Year */}
+      <Card>
+        <CardHeader>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div>
+              <CardTitle className="text-base font-medium flex items-center gap-2 text-slate-800">
+                <TrendingUp className="h-4 w-4 text-indigo-500" />
+                Team Sales
+              </CardTitle>
+              <CardDescription>View division-wise sales for a team member</CardDescription>
+            </div>
+            {lastPivotRefresh && (
+              <span className="text-xs text-slate-500">Last Refresh: {lastPivotRefresh}</span>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap gap-4">
+            <div className="flex-1 min-w-[200px]">
+              <Label className="text-sm text-muted-foreground">Team Member</Label>
+              <Select value={selectedMemberCardNo || "all"} onValueChange={(v) => setSelectedMemberCardNo(v === "all" ? "" : v)}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue placeholder="-- Select a member --" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">-- Select a member --</SelectItem>
+                  {teamMembers.map((member: any) => (
+                    <SelectItem key={member.id} value={member.cardNumber || member.id}>
+                      {encodeFullName(member.firstName, member.lastName)} ({member.cardNumber || "—"})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-sm text-muted-foreground">Month</Label>
+              <Select value={String(selectedMonth)} onValueChange={(v) => setSelectedMonth(Number(v))}>
+                <SelectTrigger className="w-32 mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {MONTHS.map((month, index) => (
+                    <SelectItem key={month} value={String(index)}>{month}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-sm text-muted-foreground">Year</Label>
+              <Select value={String(selectedYear)} onValueChange={(v) => setSelectedYear(Number(v))}>
+                <SelectTrigger className="w-24 mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {YEARS.map((year) => (
+                    <SelectItem key={year} value={String(year)}>{year}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="mt-4">
+            <SalesExcelPivotTable
+              data={filteredPivotData}
+              showSalesmanFilter={!selectedMemberCardNo}
+              defaultSmno={selectedMemberCardNo ? parseInt(selectedMemberCardNo, 10) : null}
+              employeeName={(() => {
+                const m = teamMembers.find((x: any) => (x.cardNumber || x.id) === selectedMemberCardNo);
+                return m ? encodeFullName(m.firstName, m.lastName) : "";
+              })()}
+            />
+          </div>
         </CardContent>
       </Card>
     </div>

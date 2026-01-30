@@ -11,6 +11,8 @@ const SALES_API_PORT = parseInt(process.env.SALES_API_PORT || "99", 10);
 const SALES_API_PATH = process.env.SALES_API_PATH || '/gsweb_v3/webform2.aspx';
 const SALES_API_KEY = process.env.SALES_API_KEY || 'ank2024';
 
+export let runSalesPivotRefresh: (() => Promise<void>) | null = null;
+
 // Helper function to ensure database connection is alive
 async function ensureDatabaseConnection(): Promise<void> {
   try {
@@ -763,6 +765,10 @@ export function registerSalesStaffRoutes(app: Express) {
       if (parsed && (!latest || parsed > latest)) {
         latest = parsed;
       }
+      const updatedAt = record.updatedAt instanceof Date ? record.updatedAt : null;
+      if (updatedAt && (!latest || updatedAt > latest)) {
+        latest = updatedAt;
+      }
     }
     return latest ? latest.toISOString() : null;
   }
@@ -1033,7 +1039,55 @@ export function registerSalesStaffRoutes(app: Express) {
       }
 
       if (isEmployeeLogin && employeeCardNo) {
-        data = data.filter((r) => (r.smno || "").toString() === employeeCardNo.toString());
+        const managerAssignments = await prisma.$queryRaw<Array<{
+          mdepartmentIds: string[];
+          mdesignationIds: string[];
+          morgUnitIds: string[];
+        }>>`
+          SELECT "mdepartmentIds", "mdesignationIds", "morgUnitIds"
+          FROM "emp_manager"
+          WHERE "mcardno" = ${employeeCardNo} AND "mis_extinct" = false
+        `;
+        if (managerAssignments.length > 0) {
+          const a = managerAssignments[0];
+          const conditions: any[] = [];
+          if (a.mdepartmentIds?.length > 0) conditions.push({ departmentId: { in: a.mdepartmentIds } });
+          if (a.mdesignationIds?.length > 0) conditions.push({ designationId: { in: a.mdesignationIds } });
+          if (a.morgUnitIds?.length > 0) {
+            const assigned = await prisma.orgUnit.findMany({
+              where: { id: { in: a.morgUnitIds } },
+              select: { id: true, name: true, code: true }
+            });
+            const namesAndCodes = assigned.flatMap((o) => [o.name?.trim(), o.code?.trim()]).filter(Boolean);
+            const allIds = namesAndCodes.length > 0
+              ? (await prisma.orgUnit.findMany({
+                  where: {
+                    OR: [
+                      { id: { in: a.morgUnitIds } },
+                      { name: { in: namesAndCodes } },
+                      { code: { in: namesAndCodes } }
+                    ]
+                  },
+                  select: { id: true }
+                })).map((r) => r.id)
+              : a.morgUnitIds;
+            const uniqueIds = [...new Set([...a.morgUnitIds, ...allIds])];
+            conditions.push({ orgUnitId: { in: uniqueIds } });
+          }
+          if (conditions.length > 0) {
+            const teamEmployees = await prisma.employee.findMany({
+              where: { OR: conditions, status: "ACTIVE", lastInterviewDate: null, cardNumber: { not: null } },
+              select: { cardNumber: true }
+            });
+            const teamCardNos = new Set(teamEmployees.map((e) => e.cardNumber).filter(Boolean));
+            teamCardNos.add(employeeCardNo);
+            data = data.filter((r) => teamCardNos.has((r.smno || "").toString()));
+          } else {
+            data = data.filter((r) => (r.smno || "").toString() === employeeCardNo.toString());
+          }
+        } else {
+          data = data.filter((r) => (r.smno || "").toString() === employeeCardNo.toString());
+        }
       }
 
       const pivotData = data.map((r) => {
@@ -1071,5 +1125,16 @@ export function registerSalesStaffRoutes(app: Express) {
     }
   });
 
+  runSalesPivotRefresh = async () => {
+    try {
+      const records = await fetchMonthlySalesForPivot();
+      if (records.length > 0) {
+        await storeMonthlySalesDataInDBForPivot(records);
+        console.log("[Sales Pivot Auto-Refresh] Done at", new Date().toISOString());
+      }
+    } catch (e: any) {
+      console.error("[Sales Pivot Auto-Refresh]", e?.message || e);
+    }
+  };
 }
 
