@@ -182,7 +182,7 @@ export default function EmployeesPage() {
         title: "Refresh failed",
         description: message,
         variant: "destructive",
-        action: message.includes("Employee Master URL not configured")
+        action: message.includes("Employee Master not configured") || message.includes("Employee Master URL not configured")
           ? (
             <ToastAction
               altText="Open Master Settings"
@@ -190,7 +190,7 @@ export default function EmployeesPage() {
                 window.location.href = "/admin/master-settings";
               }}
             >
-              Set URL
+              Configure
             </ToastAction>
           )
           : undefined,

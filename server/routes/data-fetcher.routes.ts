@@ -29,31 +29,47 @@ export function registerDataFetcherRoutes(app: Express): void {
 
   app.post("/api/admin/data-fetcher/sync-employees", requireAuth, requirePolicy("integrations.fetched-data.view"), async (req, res) => {
     try {
-      const masterUrlSetting = await prisma.systemSettings.findUnique({
-        where: { key: "EMPLOYEE_MASTER_URL" },
+      // First try to get URL from ApiRouting (new way - Data Sources)
+      const employeeMasterRoute = await prisma.apiRouting.findFirst({
+        where: { name: "Employee Master" },
+        select: { endpoint: true, isActive: true },
       });
 
-      if (!masterUrlSetting || !masterUrlSetting.value) {
+      let masterUrl: string | null = null;
+
+      if (employeeMasterRoute && employeeMasterRoute.endpoint && employeeMasterRoute.isActive) {
+        masterUrl = employeeMasterRoute.endpoint;
+      } else {
+        // Fallback to old SystemSettings (for backward compatibility)
+        const masterUrlSetting = await prisma.systemSettings.findUnique({
+          where: { key: "EMPLOYEE_MASTER_URL" },
+        });
+        if (masterUrlSetting && masterUrlSetting.value) {
+          masterUrl = masterUrlSetting.value;
+        }
+      }
+
+      if (!masterUrl) {
         return res.status(400).json({ 
-          message: "Employee Master URL not configured. Please set it in System Settings." 
+          message: "Employee Master not configured. Please add 'Employee Master' in Data Sources and set it to Active." 
         });
       }
 
       const importLog = await prisma.dataImportLog.create({
         data: {
           sourceName: "Employee Master",
-          sourceUrl: masterUrlSetting.value,
+          sourceUrl: masterUrl,
           status: "in_progress",
         },
       });
 
       try {
-        console.log(`[Data Fetcher] Starting fetch from: ${masterUrlSetting.value}`);
+        console.log(`[Data Fetcher] Starting fetch from: ${masterUrl}`);
         
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 180000);
         
-        const response = await fetch(masterUrlSetting.value, {
+        const response = await fetch(masterUrl, {
           signal: controller.signal,
         });
         clearTimeout(timeoutId);
