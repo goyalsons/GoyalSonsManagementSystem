@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -9,7 +9,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Loader2, ArrowLeft, Users } from "lucide-react";
+import { Loader2, ArrowLeft, Users, RefreshCw, AlertCircle } from "lucide-react";
 import { employeesApi } from "@/lib/api";
 import { encodeFullName } from "@/lib/utils";
 
@@ -35,10 +35,11 @@ export default function TeamMembersPage({
   orgUnitNames,
   onBack
 }: TeamMembersPageProps) {
+  const queryClient = useQueryClient();
 
   // Fetch team members based on manager's scope (using arrays)
   // We need to fetch members that match ANY of the selected departments/designations/units
-  const { data: response, isLoading } = useQuery({
+  const { data: response, isLoading, refetch, isFetching } = useQuery({
     queryKey: ["team-members", manager.mid, manager.mdepartmentIds, manager.mdesignationIds, manager.morgUnitIds],
     queryFn: () => employeesApi.getAll({
       // Pass arrays as comma-separated for backend filtering
@@ -52,6 +53,10 @@ export default function TeamMembersPage({
 
   const teamMembers = response?.data || [];
   const totalCount = response?.pagination?.total || teamMembers.length;
+
+  const handleRefresh = () => {
+    refetch();
+  };
 
   const getFilterDescription = () => {
     const filters: string[] = [];
@@ -118,10 +123,23 @@ export default function TeamMembersPage({
       {/* Team Members Table */}
       <Card>
         <CardHeader>
-          <CardTitle>Team Members List</CardTitle>
-          <CardDescription>
-            Members under this manager's scope
-          </CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Team Members List</CardTitle>
+              <CardDescription>
+                Members under this manager's scope
+              </CardDescription>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleRefresh}
+              disabled={isLoading || isFetching}
+            >
+              <RefreshCw className={`h-4 w-4 mr-2 ${isFetching ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -129,12 +147,21 @@ export default function TeamMembersPage({
               <Loader2 className="h-8 w-8 animate-spin text-indigo-500" />
             </div>
           ) : teamMembers.length === 0 ? (
-            <div className="text-center py-12 text-slate-400">
-              <Users className="h-12 w-12 mx-auto mb-3 opacity-30" />
-              <p className="text-lg font-medium">No team members found</p>
-              <p className="text-sm mt-1">
-                No members match the manager's assigned scope
+            <div className="text-center py-12">
+              <AlertCircle className="h-12 w-12 mx-auto mb-3 text-amber-500" />
+              <p className="text-lg font-medium text-slate-700">0 Employees Found</p>
+              <p className="text-sm mt-2 text-slate-500">
+                Please attach the employees data
               </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRefresh}
+                className="mt-4"
+              >
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Refresh
+              </Button>
             </div>
           ) : (
             <div className="overflow-x-auto">

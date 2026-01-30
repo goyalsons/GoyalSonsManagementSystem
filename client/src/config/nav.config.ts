@@ -99,6 +99,18 @@ export const NAV_CONFIG: NavConfigItem[] = [
     policy: "attendance.worklog.view" 
   },
   { 
+    key: "attendance-self", 
+    label: "My Attendance", 
+    path: "/attendance/self", 
+    policy: "attendance.self.view" 
+  },
+  { 
+    key: "attendance-team", 
+    label: "Team Attendance", 
+    path: "/attendance/team", 
+    policy: "attendance.team.view" 
+  },
+  { 
     key: "work-log", 
     label: "Work Log", 
     path: "/work-log", 
@@ -111,10 +123,34 @@ export const NAV_CONFIG: NavConfigItem[] = [
     policy: "staff-sales.view" 
   },
   { 
+    key: "sales-self", 
+    label: "My Sales", 
+    path: "/sales/self", 
+    policy: "sales.self.view" 
+  },
+  { 
+    key: "sales-dashboard", 
+    label: "Sales Dashboard", 
+    path: "/sales/dashboard", 
+    policy: "sales.dashboard.view" 
+  },
+  { 
+    key: "sales-store", 
+    label: "Store Sales", 
+    path: "/sales/store", 
+    policy: "sales.store.view" 
+  },
+  { 
     key: "sales-staff", 
     label: "Sales Staff", 
     path: "/sales-staff", 
     policy: "sales-staff.view" 
+  },
+  { 
+    key: "sales-staff-view", 
+    label: "Staff Sales View", 
+    path: "/sales/staff", 
+    policy: "sales.staff.view" 
   },
   { 
     key: "integrations", 
