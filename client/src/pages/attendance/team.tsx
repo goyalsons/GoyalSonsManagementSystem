@@ -12,6 +12,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { 
   Calendar, 
   ChevronLeft, 
@@ -64,7 +71,6 @@ const YEARS = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i);
 
 function getStatusColor(status: string): string {
   const s = (status || "").toUpperCase().trim();
-  
   if (s.includes("DOUBLE") && s.includes("ABSENT")) return "#ef4444";
   if (s === "ABSENT") return "#ef4444";
   if (s.includes("PRESENT")) return "#10b981";
@@ -72,21 +78,65 @@ function getStatusColor(status: string): string {
   if (s.includes("MISS")) return "#f97316";
   if (s === "LEAVE") return "#3b82f6";
   if (s === "WEEKLY OFF" || s === "WO") return "#a855f7";
-  
   return "#9ca3af";
 }
 
 function getStatusLabel(status: string): string {
   const s = (status || "").toUpperCase().trim();
-  
   if (s.includes("PRESENT")) return "P";
   if (s === "ABSENT" || s.includes("DOUBLE")) return "A";
   if (s.includes("HALF")) return "HD";
   if (s.includes("MISS")) return "M";
   if (s === "LEAVE") return "L";
   if (s === "WEEKLY OFF" || s === "WO") return "WO";
-  
   return "-";
+}
+
+interface StatusStyle {
+  bgColor: string;
+  dots: { color: string; count: number }[];
+}
+
+function getStatusStyle(status: string): StatusStyle {
+  const s = (status || "").toUpperCase().trim();
+  if (s === "DOUBLE ABSENT" || s === "DOUBLE A" || s.includes("DOUBLE")) {
+    return { bgColor: "#ef4444", dots: [{ color: "#000000", count: 2 }] };
+  }
+  if (s === "ABSENT") return { bgColor: "#ef4444", dots: [] };
+  if (s === "PRESENT") return { bgColor: "#10b981", dots: [] };
+  if (s === "PRESENT LATE") return { bgColor: "#10b981", dots: [{ color: "#ffffff", count: 1 }] };
+  if (s === "PRESENT EARLY_OUT" || s === "PRESENT E") return { bgColor: "#10b981", dots: [{ color: "#3b82f6", count: 1 }] };
+  if (s === "PRESENT LATE EARLY_OUT" || s === "PRESENT L") {
+    return { bgColor: "#10b981", dots: [{ color: "#ffffff", count: 1 }, { color: "#3b82f6", count: 1 }] };
+  }
+  if (s === "HALFDAY" || s === "HALF DAY") return { bgColor: "#eab308", dots: [] };
+  if (s === "MISS OUT" || s === "MISS IN") return { bgColor: "#f97316", dots: [{ color: "#3b82f6", count: 1 }] };
+  if (s === "MISS PENDING" || s === "MISS PEND") return { bgColor: "var(--muted)", dots: [{ color: "#9ca3af", count: 1 }] };
+  if (s === "LEAVE") return { bgColor: "#3b82f6", dots: [] };
+  if (s === "WEEKLY OFF" || s === "WO") return { bgColor: "#a855f7", dots: [] };
+  if (s.includes("PRESENT") && s.includes("LATE") && s.includes("EARLY")) {
+    return { bgColor: "#10b981", dots: [{ color: "#ffffff", count: 1 }, { color: "#3b82f6", count: 1 }] };
+  }
+  if (s.includes("PRESENT") && s.includes("LATE")) return { bgColor: "#10b981", dots: [{ color: "#ffffff", count: 1 }] };
+  if (s.includes("PRESENT") && s.includes("EARLY")) return { bgColor: "#10b981", dots: [{ color: "#3b82f6", count: 1 }] };
+  if (s.includes("PRESENT")) return { bgColor: "#10b981", dots: [] };
+  if (s.includes("ABSENT")) return { bgColor: "#ef4444", dots: [] };
+  if (s.includes("MISS")) return { bgColor: "#f97316", dots: [] };
+  if (s.includes("HALF")) return { bgColor: "#eab308", dots: [] };
+  return { bgColor: "var(--muted)", dots: [] };
+}
+
+function calculateSummary(records: AttendanceRecord[]) {
+  let present = 0, absent = 0, doubleAbsent = 0, halfDay = 0, missInOut = 0;
+  records.forEach((record) => {
+    const s = (record.STATUS || "").toUpperCase().trim();
+    if (s.includes("DOUBLE") && s.includes("ABSENT")) doubleAbsent++;
+    else if (s === "ABSENT") absent++;
+    else if (s.includes("PRESENT")) present++;
+    else if (s === "HALFDAY" || s === "HALF DAY" || s.includes("HALF")) halfDay++;
+    else if (s.includes("MISS")) missInOut++;
+  });
+  return { present, absent, doubleAbsent, halfDay, missInOut, total: records.length };
 }
 
 export default function TeamAttendancePage() {
@@ -95,6 +145,8 @@ export default function TeamAttendancePage() {
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedMember, setSelectedMember] = useState<string>("all");
+  const [selectedRecord, setSelectedRecord] = useState<AttendanceRecord | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   // Check if user has team view permission
   const canViewTeam = hasPolicy("attendance.team.view");
@@ -165,6 +217,41 @@ export default function TeamAttendancePage() {
     }
   };
 
+  const recordsByDate = useMemo(() => {
+    const map = new Map<string, AttendanceRecord>();
+    if (attendanceData?.records) {
+      attendanceData.records.forEach((record) => {
+        const dateStr =
+          typeof record.dt === "object" && record.dt !== null
+            ? (record.dt as { value?: string }).value
+            : record.dt;
+        map.set(String(dateStr ?? ""), record);
+      });
+    }
+    return map;
+  }, [attendanceData?.records]);
+
+  const calendarGrid = useMemo(() => {
+    const firstDay = new Date(selectedYear, selectedMonth, 1);
+    const lastDay = new Date(selectedYear, selectedMonth + 1, 0);
+    const startDayOfWeek = firstDay.getDay();
+    const totalDays = lastDay.getDate();
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const cells: { day: number | null; record: AttendanceRecord | null; isFuture: boolean }[] = [];
+    for (let i = 0; i < startDayOfWeek; i++) {
+      cells.push({ day: null, record: null, isFuture: false });
+    }
+    for (let day = 1; day <= totalDays; day++) {
+      const dateStr = `${selectedYear}-${String(selectedMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      const cellDate = new Date(selectedYear, selectedMonth, day);
+      const isFuture = cellDate > today;
+      const record = recordsByDate.get(dateStr) ?? null;
+      cells.push({ day, record, isFuture });
+    }
+    return cells;
+  }, [selectedMonth, selectedYear, recordsByDate]);
+
   if (!canViewTeam) {
     return (
       <div className="space-y-6">
@@ -225,28 +312,40 @@ export default function TeamAttendancePage() {
             <div className="text-sm text-slate-500">Team Members</div>
           </CardContent>
         </Card>
-        {selectedMember !== "all" && attendanceData?.summary && (
-          <>
-            <Card className="border-emerald-200 bg-emerald-50">
-              <CardContent className="pt-6">
-                <div className="text-2xl font-bold text-emerald-600">{attendanceData.summary.present}</div>
-                <div className="text-sm text-emerald-700">Present Days</div>
-              </CardContent>
-            </Card>
-            <Card className="border-rose-200 bg-rose-50">
-              <CardContent className="pt-6">
-                <div className="text-2xl font-bold text-rose-600">{attendanceData.summary.absent}</div>
-                <div className="text-sm text-rose-700">Absent Days</div>
-              </CardContent>
-            </Card>
-            <Card className="border-amber-200 bg-amber-50">
-              <CardContent className="pt-6">
-                <div className="text-2xl font-bold text-amber-600">{attendanceData.summary.halfDay}</div>
-                <div className="text-sm text-amber-700">Half Days</div>
-              </CardContent>
-            </Card>
-          </>
-        )}
+        {selectedMember !== "all" &&
+          attendanceData?.records &&
+          (() => {
+            const summary = calculateSummary(attendanceData.records);
+            const totalAbsent = summary.absent + summary.doubleAbsent;
+            return (
+              <>
+                <Card className="border-border bg-muted/50">
+                  <CardContent className="p-3 text-center pt-6">
+                    <div className="text-2xl font-bold text-foreground">{summary.total}</div>
+                    <div className="text-xs text-muted-foreground">Total Task</div>
+                  </CardContent>
+                </Card>
+                <Card className="border-emerald-500/20 bg-emerald-500/10">
+                  <CardContent className="p-3 text-center pt-6">
+                    <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{summary.present}</div>
+                    <div className="text-xs text-emerald-600/80 dark:text-emerald-400/80">Completed</div>
+                  </CardContent>
+                </Card>
+                <Card className="border-rose-500/20 bg-rose-500/10">
+                  <CardContent className="p-3 text-center pt-6">
+                    <div className="text-2xl font-bold text-rose-600 dark:text-rose-400">{totalAbsent}</div>
+                    <div className="text-xs text-rose-600/80 dark:text-rose-400/80">Not Completed</div>
+                  </CardContent>
+                </Card>
+                <Card className="border-amber-500/20 bg-amber-500/10">
+                  <CardContent className="p-3 text-center pt-6">
+                    <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">{summary.halfDay}</div>
+                    <div className="text-xs text-amber-600/80 dark:text-amber-400/80">Half Completed</div>
+                  </CardContent>
+                </Card>
+              </>
+            );
+          })()}
       </div>
 
       {/* Filters */}
@@ -308,14 +407,32 @@ export default function TeamAttendancePage() {
         </CardContent>
       </Card>
 
-      {/* Attendance Data */}
+      {/* Member info bar when a member is selected */}
+      {selectedMember !== "all" && attendanceData?.records?.[0] && (
+        <Card className="border-border bg-card shadow-sm">
+          <CardContent className="p-4">
+            <div className="flex flex-wrap items-center gap-x-8 gap-y-2 text-sm">
+              <div>
+                <span className="text-muted-foreground">Member:</span>
+                <span className="ml-2 font-medium text-foreground">{encodeName(attendanceData.records[0].Name)}</span>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Card No:</span>
+                <span className="ml-2 font-medium text-foreground">{attendanceData.records[0].card_no}</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Attendance Data - Calendar View */}
       {selectedMember === "all" ? (
         <Card>
           <CardContent className="py-12 text-center">
             <Users className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
             <p className="text-lg font-medium text-muted-foreground">Select a Team Member</p>
             <p className="text-sm text-muted-foreground mt-1">
-              Choose a team member from the dropdown above to view their attendance
+              Choose a team member from the dropdown above to view their attendance calendar
             </p>
           </CardContent>
         </Card>
@@ -327,58 +444,139 @@ export default function TeamAttendancePage() {
           </CardContent>
         </Card>
       ) : attendanceData?.records && attendanceData.records.length > 0 ? (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="text-base font-medium flex items-center gap-2">
-                  <Calendar className="h-4 w-4" />
-                  {encodeName(attendanceData.records[0]?.Name || "Member")} - {MONTHS[selectedMonth]} {selectedYear}
-                </CardTitle>
-              </div>
-              <div className="flex items-center gap-2">
+        <Card className="border-border bg-card shadow-sm">
+          <CardHeader className="pb-4 px-4 sm:px-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <CardTitle className="text-base font-medium flex items-center gap-2 text-foreground">
+                <Calendar className="h-4 w-4" /> Calendar View
+              </CardTitle>
+              <div className="flex items-center justify-between sm:justify-end gap-2">
                 <Button variant="outline" size="icon" onClick={handlePrevMonth} disabled={isMinDate} className="h-8 w-8">
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
+                <span className="font-medium text-foreground min-w-[120px] text-center text-sm">
+                  {MONTHS[selectedMonth]} {selectedYear}
+                </span>
                 <Button variant="outline" size="icon" onClick={handleNextMonth} className="h-8 w-8">
                   <ChevronRight className="h-4 w-4" />
                 </Button>
               </div>
             </div>
           </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b">
-                    <th className="text-left py-2 px-3 font-medium">Date</th>
-                    <th className="text-left py-2 px-3 font-medium">Status</th>
-                    <th className="text-left py-2 px-3 font-medium">In Time</th>
-                    <th className="text-left py-2 px-3 font-medium">Out Time</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {attendanceData.records.map((record, index) => (
-                    <tr key={index} className="border-b hover:bg-muted/50">
-                      <td className="py-2 px-3 font-mono">{record.dt}</td>
-                      <td className="py-2 px-3">
-                        <Badge
-                          style={{ backgroundColor: getStatusColor(record.STATUS) }}
-                          className="text-white border-none"
-                        >
-                          {getStatusLabel(record.STATUS)}
-                        </Badge>
-                      </td>
-                      <td className="py-2 px-3 font-mono">
-                        {record.t_in || record.result_t_in || "--:--"}
-                      </td>
-                      <td className="py-2 px-3 font-mono">
-                        {record.t_out || record.result_t_out || "--:--"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          <CardContent className="px-2 sm:px-6">
+            <div className="grid grid-cols-7 gap-1">
+              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+                <div key={day} className="text-center text-xs font-semibold text-muted-foreground py-2 uppercase tracking-tighter">
+                  {day}
+                </div>
+              ))}
+              {calendarGrid.map((cell, index) => {
+                if (cell.day === null) {
+                  return <div key={index} className="aspect-square sm:h-14" />;
+                }
+                if (cell.isFuture) {
+                  return (
+                    <div key={index} className="aspect-square sm:h-14 border border-border/50 rounded-lg flex items-center justify-center bg-muted opacity-30">
+                      <span className="text-sm sm:text-base font-semibold text-muted-foreground">{cell.day}</span>
+                    </div>
+                  );
+                }
+                if (!cell.record) {
+                  return (
+                    <div key={index} className="aspect-square sm:h-14 border border-border/50 rounded-lg flex items-center justify-center bg-muted/20">
+                      <span className="text-sm sm:text-base font-semibold text-muted-foreground">{cell.day}</span>
+                    </div>
+                  );
+                }
+                const style = getStatusStyle(cell.record.STATUS);
+                const isMuted = style.bgColor.includes("var(--muted)");
+                return (
+                  <div
+                    key={index}
+                    className="aspect-square sm:h-14 border border-border/50 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all relative overflow-hidden"
+                    style={{ backgroundColor: style.bgColor }}
+                    onClick={() => {
+                      setSelectedRecord(cell.record);
+                      setDetailsOpen(true);
+                    }}
+                  >
+                    <span className={`text-sm sm:text-base font-bold ${isMuted ? "text-foreground" : "text-white shadow-sm"}`}>
+                      {cell.day}
+                    </span>
+                    {style.dots.length > 0 && (
+                      <div className="absolute bottom-1 left-0 right-0 flex justify-center gap-0.5 px-0.5">
+                        {style.dots.flatMap((dot, dotIndex) =>
+                          Array.from({ length: dot.count }, (_, i) => (
+                            <div
+                              key={`${dotIndex}-${i}`}
+                              className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full ring-1 ring-black/5"
+                              style={{ backgroundColor: dot.color }}
+                            />
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <div className="mt-8 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 text-[10px] sm:text-xs border-t border-border pt-6">
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded shadow-sm flex items-center justify-center" style={{ backgroundColor: "#10b981" }}>
+                  <span className="text-white text-[8px] font-bold">1</span>
+                </div>
+                <span className="text-muted-foreground">Completed</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded shadow-sm relative flex items-center justify-center" style={{ backgroundColor: "#10b981" }}>
+                  <span className="text-white text-[8px] font-bold">1</span>
+                  <div className="absolute bottom-0 w-1 h-1 rounded-full bg-white" />
+                </div>
+                <span className="text-muted-foreground">Late</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded shadow-sm relative flex items-center justify-center" style={{ backgroundColor: "#10b981" }}>
+                  <span className="text-white text-[8px] font-bold">1</span>
+                  <div className="absolute bottom-0 w-1 h-1 rounded-full bg-blue-500" />
+                </div>
+                <span className="text-muted-foreground">Early</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded shadow-sm flex items-center justify-center" style={{ backgroundColor: "#ef4444" }}>
+                  <span className="text-white text-[8px] font-bold">1</span>
+                </div>
+                <span className="text-muted-foreground">Not Comp.</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded shadow-sm relative flex items-center justify-center" style={{ backgroundColor: "#ef4444" }}>
+                  <span className="text-white text-[8px] font-bold">1</span>
+                  <div className="absolute bottom-0 flex gap-0.5">
+                    <div className="w-1 h-1 rounded-full bg-black" />
+                    <div className="w-1 h-1 rounded-full bg-black" />
+                  </div>
+                </div>
+                <span className="text-muted-foreground">Dbl Not Comp.</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded shadow-sm flex items-center justify-center" style={{ backgroundColor: "#eab308" }}>
+                  <span className="text-white text-[8px] font-bold">1</span>
+                </div>
+                <span className="text-muted-foreground">Half Comp.</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded shadow-sm relative flex items-center justify-center" style={{ backgroundColor: "#f97316" }}>
+                  <span className="text-white text-[8px] font-bold">1</span>
+                  <div className="absolute bottom-0 w-1 h-1 rounded-full bg-blue-500" />
+                </div>
+                <span className="text-muted-foreground">Miss</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded shadow-sm relative flex items-center justify-center bg-white border border-border">
+                  <span className="text-slate-900 text-[8px] font-bold">1</span>
+                  <div className="absolute bottom-0 w-1 h-1 rounded-full bg-slate-400" />
+                </div>
+                <span className="text-muted-foreground">Miss Pend.</span>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -394,37 +592,42 @@ export default function TeamAttendancePage() {
         </Card>
       )}
 
-      {/* Legend */}
-      <Card>
-        <CardContent className="py-4">
-          <div className="flex flex-wrap gap-4 text-sm">
-            <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded" style={{ backgroundColor: "#10b981" }} />
-              <span>Present</span>
+      <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
+        <DialogContent className="max-w-md bg-card border-border">
+          <DialogHeader>
+            <DialogTitle className="text-foreground">Attendance Details</DialogTitle>
+            <DialogDescription>View details for this day.</DialogDescription>
+          </DialogHeader>
+          {selectedRecord && (
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <span className="text-muted-foreground">Date:</span>
+                <div className="font-medium text-foreground">{selectedRecord.dt}</div>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Status:</span>
+                <div>
+                  <Badge style={{ backgroundColor: getStatusColor(selectedRecord.STATUS) }} className="text-white border-none">
+                    {getStatusLabel(selectedRecord.STATUS)}
+                  </Badge>
+                </div>
+              </div>
+              <div>
+                <span className="text-muted-foreground">In Time:</span>
+                <div className="font-medium font-mono text-foreground">
+                  {selectedRecord.t_in || selectedRecord.result_t_in || "--:--"}
+                </div>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Out Time:</span>
+                <div className="font-medium font-mono text-foreground">
+                  {selectedRecord.t_out || selectedRecord.result_t_out || "--:--"}
+                </div>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded" style={{ backgroundColor: "#ef4444" }} />
-              <span>Absent</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded" style={{ backgroundColor: "#eab308" }} />
-              <span>Half Day</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded" style={{ backgroundColor: "#f97316" }} />
-              <span>Miss</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded" style={{ backgroundColor: "#3b82f6" }} />
-              <span>Leave</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded" style={{ backgroundColor: "#a855f7" }} />
-              <span>Weekly Off</span>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
