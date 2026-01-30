@@ -52,9 +52,9 @@ import {
 interface EmpManager {
   mid: string;
   mcardno: string;
-  mdepartmentId: string | null;
-  mdesignationId: string | null;
-  morgUnitId: string | null;
+  mdepartmentIds: string[];
+  mdesignationIds: string[];
+  morgUnitIds: string[];
   mis_extinct: boolean;
 }
 
@@ -206,60 +206,41 @@ export default function AssignedManagerPage() {
 
   const managers = managersResponse?.data || [];
 
-  // Mutation for assigning manager (supports multiple employees, departments, designations, org units)
+  // Mutation for assigning manager (one row per employee with arrays of departments/designations/units)
   const assignManagerMutation = useMutation({
     mutationFn: async (employees: Employee[]) => {
       const results = [];
       const errors = [];
       
-      // Generate all combinations of departments, designations, and org units
-      // If arrays are empty, use [null] to create one row with null values
-      const deptIds = selectedDepartmentIds.length > 0 ? selectedDepartmentIds : [null];
-      const desigIds = selectedDesignationIds.length > 0 ? selectedDesignationIds : [null];
-      const unitIds = selectedOrgUnitIds.length > 0 ? selectedOrgUnitIds : [null];
-      
-      // Create all combinations (Cartesian product)
-      const combinations: Array<{ deptId: string | null; desigId: string | null; unitId: string | null }> = [];
-      for (const deptId of deptIds) {
-        for (const desigId of desigIds) {
-          for (const unitId of unitIds) {
-            combinations.push({ deptId, desigId, unitId });
-          }
-        }
-      }
-      
-      // For each employee, create assignments for all combinations
+      // For each employee, create/update ONE row with arrays of IDs
       for (const employee of employees) {
-        for (const combo of combinations) {
-          try {
-            const res = await fetch("/api/emp-manager", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "X-Session-Id": `${localStorage.getItem("gms_token") || ""}`,
-              },
-              body: JSON.stringify({
-                mcardno: employee.cardNumber || "",
-                mdepartmentId: combo.deptId || undefined,
-                mdesignationId: combo.desigId || undefined,
-                morgUnitId: combo.unitId || undefined,
-              }),
-            });
-            
-            const contentType = res.headers.get("content-type");
-            if (!contentType || !contentType.includes("application/json")) {
-              const text = await res.text();
-              throw new Error(`Server returned non-JSON response. Status: ${res.status}`);
-            }
-            
-            const result = await res.json();
-            if (!res.ok || !result.success) {
-              throw new Error(result.message || "Failed to assign manager");
-            }
-            results.push({ employee, combo, success: true });
-          } catch (error: any) {
-            errors.push({ employee, combo, error: error.message || "Failed to assign manager" });
+        try {
+          const res = await fetch("/api/emp-manager", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Session-Id": `${localStorage.getItem("gms_token") || ""}`,
+            },
+            body: JSON.stringify({
+              mcardno: employee.cardNumber || "",
+              mdepartmentIds: selectedDepartmentIds,
+              mdesignationIds: selectedDesignationIds,
+              morgUnitIds: selectedOrgUnitIds,
+            }),
+          });
+          
+          const contentType = res.headers.get("content-type");
+          if (!contentType || !contentType.includes("application/json")) {
+            throw new Error(`Server returned non-JSON response. Status: ${res.status}`);
           }
+          
+          const result = await res.json();
+          if (!res.ok || !result.success) {
+            throw new Error(result.message || "Failed to assign manager");
+          }
+          results.push({ employee, success: true, updated: result.data?.updated });
+        } catch (error: any) {
+          errors.push({ employee, error: error.message || "Failed to assign manager" });
         }
       }
       
@@ -269,11 +250,20 @@ export default function AssignedManagerPage() {
       
       return results;
     },
-    onSuccess: (results, employees) => {
-      const totalAssignments = results.length;
+    onSuccess: (results) => {
+      const updatedCount = results.filter(r => r.updated).length;
+      const newCount = results.filter(r => !r.updated).length;
+      let message = "";
+      if (newCount > 0 && updatedCount > 0) {
+        message = `${newCount} new manager(s) assigned, ${updatedCount} updated`;
+      } else if (updatedCount > 0) {
+        message = `${updatedCount} manager(s) updated successfully`;
+      } else {
+        message = `${newCount} manager(s) assigned successfully`;
+      }
       toast({
         title: "Success",
-        description: `${totalAssignments} manager assignment${totalAssignments > 1 ? 's' : ''} created successfully`,
+        description: message,
       });
       queryClient.invalidateQueries({ queryKey: ["/api/emp-manager"] });
       // Reset form
@@ -407,22 +397,35 @@ export default function AssignedManagerPage() {
   };
 
   // Get display names for IDs in the table (without shortforms)
-  const getDepartmentName = (id: string | null) => {
-    if (!id) return "—";
+  const getDepartmentName = (id: string) => {
     const dept = departments.find(d => d.id === id);
     return dept ? dept.name : id;
   };
 
-  const getDesignationName = (id: string | null) => {
-    if (!id) return "—";
+  const getDesignationName = (id: string) => {
     const desig = designations.find(d => d.id === id);
     return desig ? desig.name : id;
   };
 
-  const getOrgUnitName = (id: string | null) => {
-    if (!id) return "—";
+  const getOrgUnitName = (id: string) => {
     const unit = orgUnits.find(u => u.id === id);
     return unit ? unit.name : id;
+  };
+
+  // Get display names for arrays of IDs
+  const getDepartmentNames = (ids: string[]) => {
+    if (!ids || ids.length === 0) return "—";
+    return ids.map(id => getDepartmentName(id)).join(", ");
+  };
+
+  const getDesignationNames = (ids: string[]) => {
+    if (!ids || ids.length === 0) return "—";
+    return ids.map(id => getDesignationName(id)).join(", ");
+  };
+
+  const getOrgUnitNames = (ids: string[]) => {
+    if (!ids || ids.length === 0) return "—";
+    return ids.map(id => getOrgUnitName(id)).join(", ");
   };
 
   const handleShowTeam = (manager: EmpManager) => {
@@ -435,9 +438,9 @@ export default function AssignedManagerPage() {
     return (
       <TeamMembersPage
         manager={selectedManagerForTeam}
-        departmentName={selectedManagerForTeam.mdepartmentId ? getDepartmentName(selectedManagerForTeam.mdepartmentId) : undefined}
-        designationName={selectedManagerForTeam.mdesignationId ? getDesignationName(selectedManagerForTeam.mdesignationId) : undefined}
-        orgUnitName={selectedManagerForTeam.morgUnitId ? getOrgUnitName(selectedManagerForTeam.morgUnitId) : undefined}
+        departmentNames={selectedManagerForTeam.mdepartmentIds?.length > 0 ? getDepartmentNames(selectedManagerForTeam.mdepartmentIds) : undefined}
+        designationNames={selectedManagerForTeam.mdesignationIds?.length > 0 ? getDesignationNames(selectedManagerForTeam.mdesignationIds) : undefined}
+        orgUnitNames={selectedManagerForTeam.morgUnitIds?.length > 0 ? getOrgUnitNames(selectedManagerForTeam.morgUnitIds) : undefined}
         onBack={() => {
           setShowTeamMembers(false);
           setSelectedManagerForTeam(null);
@@ -629,22 +632,22 @@ export default function AssignedManagerPage() {
             </div>
 
             <div className="space-y-2">
-              {/* Show how many assignments will be created */}
-              {selectedEmployees.length > 0 && (() => {
-                const deptCount = selectedDepartmentIds.length > 0 ? selectedDepartmentIds.length : 1;
-                const desigCount = selectedDesignationIds.length > 0 ? selectedDesignationIds.length : 1;
-                const unitCount = selectedOrgUnitIds.length > 0 ? selectedOrgUnitIds.length : 1;
-                const totalCombinations = deptCount * desigCount * unitCount;
-                const totalAssignments = selectedEmployees.length * totalCombinations;
-                return (
-                  <div className="text-sm text-muted-foreground bg-slate-50 p-3 rounded-lg border border-slate-200">
-                    <p className="font-medium text-slate-700">
-                      Will create {totalAssignments} assignment{totalAssignments > 1 ? 's' : ''}{" "}
-                      ({selectedEmployees.length} employee{selectedEmployees.length > 1 ? 's' : ''} × {totalCombinations} combination{totalCombinations > 1 ? 's' : ''})
-                    </p>
-                  </div>
-                );
-              })()}
+              {/* Show summary of what will be created */}
+              {selectedEmployees.length > 0 && (
+                <div className="text-sm text-muted-foreground bg-slate-50 p-3 rounded-lg border border-slate-200">
+                  <p className="font-medium text-slate-700">
+                    Will assign {selectedEmployees.length} manager{selectedEmployees.length > 1 ? 's' : ''} with:
+                  </p>
+                  <ul className="mt-1 list-disc list-inside text-slate-600">
+                    <li>{selectedDepartmentIds.length} department{selectedDepartmentIds.length !== 1 ? 's' : ''}</li>
+                    <li>{selectedDesignationIds.length} designation{selectedDesignationIds.length !== 1 ? 's' : ''}</li>
+                    <li>{selectedOrgUnitIds.length} org unit{selectedOrgUnitIds.length !== 1 ? 's' : ''}</li>
+                  </ul>
+                  <p className="mt-2 text-xs text-slate-500">
+                    Each manager will have ONE row with all selected values
+                  </p>
+                </div>
+              )}
               <div className="flex gap-2">
                 <Button
                   type="submit"
@@ -896,22 +899,22 @@ export default function AssignedManagerPage() {
                         {manager.mcardno}
                       </TableCell>
                       <TableCell>
-                        {manager.mdepartmentId ? (
-                          <span className="text-slate-700">{getDepartmentName(manager.mdepartmentId)}</span>
+                        {manager.mdepartmentIds && manager.mdepartmentIds.length > 0 ? (
+                          <span className="text-slate-700">{getDepartmentNames(manager.mdepartmentIds)}</span>
                         ) : (
                           <span className="text-slate-400">—</span>
                         )}
                       </TableCell>
                       <TableCell>
-                        {manager.mdesignationId ? (
-                          <span className="text-slate-700">{getDesignationName(manager.mdesignationId)}</span>
+                        {manager.mdesignationIds && manager.mdesignationIds.length > 0 ? (
+                          <span className="text-slate-700">{getDesignationNames(manager.mdesignationIds)}</span>
                         ) : (
                           <span className="text-slate-400">—</span>
                         )}
                       </TableCell>
                       <TableCell>
-                        {manager.morgUnitId ? (
-                          <span className="text-slate-700">{getOrgUnitName(manager.morgUnitId)}</span>
+                        {manager.morgUnitIds && manager.morgUnitIds.length > 0 ? (
+                          <span className="text-slate-700">{getOrgUnitNames(manager.morgUnitIds)}</span>
                         ) : (
                           <span className="text-slate-400">—</span>
                         )}
@@ -959,14 +962,14 @@ export default function AssignedManagerPage() {
               {managerToDelete && (
                 <div className="mt-2 p-2 bg-slate-100 rounded text-sm">
                   <p><strong>Card Number:</strong> {managerToDelete.mcardno}</p>
-                  {managerToDelete.mdepartmentId && (
-                    <p><strong>Department:</strong> {getDepartmentName(managerToDelete.mdepartmentId)}</p>
+                  {managerToDelete.mdepartmentIds && managerToDelete.mdepartmentIds.length > 0 && (
+                    <p><strong>Departments:</strong> {getDepartmentNames(managerToDelete.mdepartmentIds)}</p>
                   )}
-                  {managerToDelete.mdesignationId && (
-                    <p><strong>Designation:</strong> {getDesignationName(managerToDelete.mdesignationId)}</p>
+                  {managerToDelete.mdesignationIds && managerToDelete.mdesignationIds.length > 0 && (
+                    <p><strong>Designations:</strong> {getDesignationNames(managerToDelete.mdesignationIds)}</p>
                   )}
-                  {managerToDelete.morgUnitId && (
-                    <p><strong>Org Unit:</strong> {getOrgUnitName(managerToDelete.morgUnitId)}</p>
+                  {managerToDelete.morgUnitIds && managerToDelete.morgUnitIds.length > 0 && (
+                    <p><strong>Org Units:</strong> {getOrgUnitNames(managerToDelete.morgUnitIds)}</p>
                   )}
                 </div>
               )}

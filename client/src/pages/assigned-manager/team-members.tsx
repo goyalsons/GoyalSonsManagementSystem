@@ -17,32 +17,34 @@ interface TeamMembersPageProps {
   manager: {
     mid: string;
     mcardno: string;
-    mdepartmentId: string | null;
-    mdesignationId: string | null;
-    morgUnitId: string | null;
+    mdepartmentIds: string[];
+    mdesignationIds: string[];
+    morgUnitIds: string[];
     mis_extinct: boolean;
   };
-  departmentName?: string;
-  designationName?: string;
-  orgUnitName?: string;
+  departmentNames?: string;
+  designationNames?: string;
+  orgUnitNames?: string;
   onBack: () => void;
 }
 
 export default function TeamMembersPage({ 
   manager, 
-  departmentName, 
-  designationName, 
-  orgUnitName,
+  departmentNames, 
+  designationNames, 
+  orgUnitNames,
   onBack
 }: TeamMembersPageProps) {
 
-  // Fetch team members based on manager's scope
+  // Fetch team members based on manager's scope (using arrays)
+  // We need to fetch members that match ANY of the selected departments/designations/units
   const { data: response, isLoading } = useQuery({
-    queryKey: ["team-members", manager.mid, manager.mdepartmentId, manager.mdesignationId, manager.morgUnitId],
+    queryKey: ["team-members", manager.mid, manager.mdepartmentIds, manager.mdesignationIds, manager.morgUnitIds],
     queryFn: () => employeesApi.getAll({
-      departmentId: manager.mdepartmentId || undefined,
-      designationId: manager.mdesignationId || undefined,
-      unitId: manager.morgUnitId || undefined,
+      // Pass arrays as comma-separated for backend filtering
+      departmentIds: manager.mdepartmentIds?.length > 0 ? manager.mdepartmentIds.join(",") : undefined,
+      designationIds: manager.mdesignationIds?.length > 0 ? manager.mdesignationIds.join(",") : undefined,
+      unitIds: manager.morgUnitIds?.length > 0 ? manager.morgUnitIds.join(",") : undefined,
       statusFilter: "active",
       limit: 10000, // Get all team members
     }),
@@ -53,14 +55,14 @@ export default function TeamMembersPage({
 
   const getFilterDescription = () => {
     const filters: string[] = [];
-    if (manager.morgUnitId && orgUnitName) {
-      filters.push(`Org Unit: ${orgUnitName}`);
+    if (manager.morgUnitIds?.length > 0 && orgUnitNames) {
+      filters.push(`Org Units: ${orgUnitNames}`);
     }
-    if (manager.mdepartmentId && departmentName) {
-      filters.push(`Department: ${departmentName}`);
+    if (manager.mdepartmentIds?.length > 0 && departmentNames) {
+      filters.push(`Departments: ${departmentNames}`);
     }
-    if (manager.mdesignationId && designationName) {
-      filters.push(`Designation: ${designationName}`);
+    if (manager.mdesignationIds?.length > 0 && designationNames) {
+      filters.push(`Designations: ${designationNames}`);
     }
     if (filters.length === 0) {
       return "All active members";

@@ -3,70 +3,101 @@ import { prisma } from "../lib/prisma";
 import { requireAuth } from "../lib/auth-middleware";
 
 export function registerEmpManagerRoutes(app: Express) {
-  // POST /api/emp-manager - Assign manager
+  // POST /api/emp-manager - Assign or update manager (upsert - one row per card number)
   app.post("/api/emp-manager", requireAuth, async (req, res) => {
     try {
-      const { mcardno, mdepartmentId, mdesignationId, morgUnitId } = req.body;
+      const { mcardno, mdepartmentIds, mdesignationIds, morgUnitIds } = req.body;
 
       if (!mcardno) {
         return res.status(400).json({ success: false, message: "mcardno is required" });
       }
 
-      // Insert directly into emp_manager table (no validation from other tables)
-      // Use a transaction to ensure we can get the inserted row
-      const result = await prisma.$transaction(async (tx) => {
-        // Handle empty strings as null
-        const deptId = mdepartmentId && mdepartmentId.trim() ? String(mdepartmentId) : null;
-        const desigId = mdesignationId && mdesignationId.trim() ? String(mdesignationId) : null;
-        const orgId = morgUnitId && morgUnitId.trim() ? String(morgUnitId) : null;
-        
-        // Generate a unique mid (using timestamp + random for uniqueness)
-        const mid = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-        
-        await tx.$executeRaw`
-          INSERT INTO "emp_manager" ("mid", "mcardno", "mdepartmentId", "mdesignationId", "morgUnitId", "mis_extinct")
-          VALUES (${mid}, ${String(mcardno)}, ${deptId}, ${desigId}, ${orgId}, false)
-        `;
+      // Convert to arrays and filter empty values
+      const deptIds: string[] = (Array.isArray(mdepartmentIds) ? mdepartmentIds : []).filter((id: string) => id && id.trim());
+      const desigIds: string[] = (Array.isArray(mdesignationIds) ? mdesignationIds : []).filter((id: string) => id && id.trim());
+      const orgIds: string[] = (Array.isArray(morgUnitIds) ? morgUnitIds : []).filter((id: string) => id && id.trim());
 
-        // Get the latest inserted record for this card number
-        const inserted = await tx.$queryRaw<Array<{
+      const result = await prisma.$transaction(async (tx) => {
+        // Check if manager already exists for this card number
+        const existing = await tx.$queryRaw<Array<{
           mid: string;
           mcardno: string;
-          mdepartmentId: string | null;
-          mdesignationId: string | null;
-          morgUnitId: string | null;
+          mdepartmentIds: string[];
+          mdesignationIds: string[];
+          morgUnitIds: string[];
           mis_extinct: boolean;
         }>>`
-          SELECT "mid", "mcardno", "mdepartmentId", "mdesignationId", "morgUnitId", "mis_extinct"
+          SELECT "mid", "mcardno", "mdepartmentIds", "mdesignationIds", "morgUnitIds", "mis_extinct"
           FROM "emp_manager"
-          WHERE "mcardno" = ${String(mcardno)} AND "mis_extinct" = false
-          ORDER BY "mid" DESC
+          WHERE "mcardno" = ${String(mcardno)}
           LIMIT 1
         `;
 
-        return inserted[0] || null;
+        if (existing.length > 0) {
+          // Update existing record - merge arrays (add new values, keep existing)
+          const existingRecord = existing[0];
+          const mergedDeptIds = [...new Set([...existingRecord.mdepartmentIds, ...deptIds])];
+          const mergedDesigIds = [...new Set([...existingRecord.mdesignationIds, ...desigIds])];
+          const mergedOrgIds = [...new Set([...existingRecord.morgUnitIds, ...orgIds])];
+
+          await tx.$executeRaw`
+            UPDATE "emp_manager"
+            SET "mdepartmentIds" = ${mergedDeptIds}::text[],
+                "mdesignationIds" = ${mergedDesigIds}::text[],
+                "morgUnitIds" = ${mergedOrgIds}::text[],
+                "mis_extinct" = false
+            WHERE "mid" = ${existingRecord.mid}
+          `;
+
+          return {
+            mid: existingRecord.mid,
+            mcardno: String(mcardno),
+            mdepartmentIds: mergedDeptIds,
+            mdesignationIds: mergedDesigIds,
+            morgUnitIds: mergedOrgIds,
+            mis_extinct: false,
+            updated: true
+          };
+        } else {
+          // Insert new record
+          const mid = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+          
+          await tx.$executeRaw`
+            INSERT INTO "emp_manager" ("mid", "mcardno", "mdepartmentIds", "mdesignationIds", "morgUnitIds", "mis_extinct")
+            VALUES (${mid}, ${String(mcardno)}, ${deptIds}::text[], ${desigIds}::text[], ${orgIds}::text[], false)
+          `;
+
+          return {
+            mid,
+            mcardno: String(mcardno),
+            mdepartmentIds: deptIds,
+            mdesignationIds: desigIds,
+            morgUnitIds: orgIds,
+            mis_extinct: false,
+            updated: false
+          };
+        }
       });
 
       res.json({
         success: true,
-        message: "Manager assigned successfully",
+        message: result.updated ? "Manager updated successfully" : "Manager assigned successfully",
         data: result,
       });
     } catch (error: any) {
       console.error("Assign manager error:", error);
       const errorMessage = error.message || "Failed to assign manager";
-      // Check if it's a table not found error
       if (errorMessage.includes("does not exist") || errorMessage.includes("relation") || errorMessage.includes("table")) {
         return res.status(500).json({ 
           success: false, 
-          message: "emp_manager table not found. Please ensure the table exists in the database." 
+          message: "emp_manager table not found. Please run the migration first." 
         });
       }
       res.status(500).json({ success: false, message: errorMessage });
     }
   });
 
-  // GET /api/emp-manager/by-card/:mcardno - Get managers by card number
+  // GET /api/emp-manager/by-card/:mcardno - Get manager by card number
   app.get("/api/emp-manager/by-card/:mcardno", requireAuth, async (req, res) => {
     try {
       const { mcardno } = req.params;
@@ -74,25 +105,25 @@ export function registerEmpManagerRoutes(app: Express) {
       const managers = await prisma.$queryRaw<Array<{
         mid: string;
         mcardno: string;
-        mdepartmentId: string | null;
-        mdesignationId: string | null;
-        morgUnitId: string | null;
+        mdepartmentIds: string[];
+        mdesignationIds: string[];
+        morgUnitIds: string[];
         mis_extinct: boolean;
       }>>`
-        SELECT "mid", "mcardno", "mdepartmentId", "mdesignationId", "morgUnitId", "mis_extinct"
+        SELECT "mid", "mcardno", "mdepartmentIds", "mdesignationIds", "morgUnitIds", "mis_extinct"
         FROM "emp_manager"
         WHERE "mcardno" = ${mcardno} AND "mis_extinct" = false
-        ORDER BY "mid" DESC
+        LIMIT 1
       `;
 
-      res.json({ success: true, data: managers });
+      res.json({ success: true, data: managers[0] || null });
     } catch (error: any) {
-      console.error("Get managers by card error:", error);
-      res.status(500).json({ success: false, message: error.message || "Failed to fetch managers" });
+      console.error("Get manager by card error:", error);
+      res.status(500).json({ success: false, message: error.message || "Failed to fetch manager" });
     }
   });
 
-  // GET /api/emp-manager/by-department/:departmentId - Get managers by department
+  // GET /api/emp-manager/by-department/:departmentId - Get managers that include this department
   app.get("/api/emp-manager/by-department/:departmentId", requireAuth, async (req, res) => {
     try {
       const { departmentId } = req.params;
@@ -100,15 +131,15 @@ export function registerEmpManagerRoutes(app: Express) {
       const managers = await prisma.$queryRaw<Array<{
         mid: string;
         mcardno: string;
-        mdepartmentId: string | null;
-        mdesignationId: string | null;
-        morgUnitId: string | null;
+        mdepartmentIds: string[];
+        mdesignationIds: string[];
+        morgUnitIds: string[];
         mis_extinct: boolean;
       }>>`
-        SELECT "mid", "mcardno", "mdepartmentId", "mdesignationId", "morgUnitId", "mis_extinct"
+        SELECT "mid", "mcardno", "mdepartmentIds", "mdesignationIds", "morgUnitIds", "mis_extinct"
         FROM "emp_manager"
-        WHERE "mdepartmentId" = ${departmentId} AND "mis_extinct" = false
-        ORDER BY "mid" DESC
+        WHERE ${departmentId} = ANY("mdepartmentIds") AND "mis_extinct" = false
+        ORDER BY "mcardno"
       `;
 
       res.json({ success: true, data: managers });
@@ -118,7 +149,7 @@ export function registerEmpManagerRoutes(app: Express) {
     }
   });
 
-  // GET /api/emp-manager/by-designation/:designationId - Get managers by designation
+  // GET /api/emp-manager/by-designation/:designationId - Get managers that include this designation
   app.get("/api/emp-manager/by-designation/:designationId", requireAuth, async (req, res) => {
     try {
       const { designationId } = req.params;
@@ -126,15 +157,15 @@ export function registerEmpManagerRoutes(app: Express) {
       const managers = await prisma.$queryRaw<Array<{
         mid: string;
         mcardno: string;
-        mdepartmentId: string | null;
-        mdesignationId: string | null;
-        morgUnitId: string | null;
+        mdepartmentIds: string[];
+        mdesignationIds: string[];
+        morgUnitIds: string[];
         mis_extinct: boolean;
       }>>`
-        SELECT "mid", "mcardno", "mdepartmentId", "mdesignationId", "morgUnitId", "mis_extinct"
+        SELECT "mid", "mcardno", "mdepartmentIds", "mdesignationIds", "morgUnitIds", "mis_extinct"
         FROM "emp_manager"
-        WHERE "mdesignationId" = ${designationId} AND "mis_extinct" = false
-        ORDER BY "mid" DESC
+        WHERE ${designationId} = ANY("mdesignationIds") AND "mis_extinct" = false
+        ORDER BY "mcardno"
       `;
 
       res.json({ success: true, data: managers });
@@ -144,7 +175,7 @@ export function registerEmpManagerRoutes(app: Express) {
     }
   });
 
-  // GET /api/emp-manager/by-orgunit/:orgUnitId - Get managers by org unit
+  // GET /api/emp-manager/by-orgunit/:orgUnitId - Get managers that include this org unit
   app.get("/api/emp-manager/by-orgunit/:orgUnitId", requireAuth, async (req, res) => {
     try {
       const { orgUnitId } = req.params;
@@ -152,15 +183,15 @@ export function registerEmpManagerRoutes(app: Express) {
       const managers = await prisma.$queryRaw<Array<{
         mid: string;
         mcardno: string;
-        mdepartmentId: string | null;
-        mdesignationId: string | null;
-        morgUnitId: string | null;
+        mdepartmentIds: string[];
+        mdesignationIds: string[];
+        morgUnitIds: string[];
         mis_extinct: boolean;
       }>>`
-        SELECT "mid", "mcardno", "mdepartmentId", "mdesignationId", "morgUnitId", "mis_extinct"
+        SELECT "mid", "mcardno", "mdepartmentIds", "mdesignationIds", "morgUnitIds", "mis_extinct"
         FROM "emp_manager"
-        WHERE "morgUnitId" = ${orgUnitId} AND "mis_extinct" = false
-        ORDER BY "mid" DESC
+        WHERE ${orgUnitId} = ANY("morgUnitIds") AND "mis_extinct" = false
+        ORDER BY "mcardno"
       `;
 
       res.json({ success: true, data: managers });
@@ -176,26 +207,25 @@ export function registerEmpManagerRoutes(app: Express) {
       const managers = await prisma.$queryRaw<Array<{
         mid: string;
         mcardno: string;
-        mdepartmentId: string | null;
-        mdesignationId: string | null;
-        morgUnitId: string | null;
+        mdepartmentIds: string[];
+        mdesignationIds: string[];
+        morgUnitIds: string[];
         mis_extinct: boolean;
       }>>`
-        SELECT "mid", "mcardno", "mdepartmentId", "mdesignationId", "morgUnitId", "mis_extinct"
+        SELECT "mid", "mcardno", "mdepartmentIds", "mdesignationIds", "morgUnitIds", "mis_extinct"
         FROM "emp_manager"
         WHERE "mis_extinct" = false
-        ORDER BY "mcardno", "mid" DESC
+        ORDER BY "mcardno"
       `;
 
       res.json({ success: true, data: managers });
     } catch (error: any) {
       console.error("Get all managers error:", error);
       const errorMessage = error.message || "Failed to fetch managers";
-      // Check if it's a table not found error
       if (errorMessage.includes("does not exist") || errorMessage.includes("relation") || errorMessage.includes("table")) {
         return res.status(500).json({ 
           success: false, 
-          message: "emp_manager table not found. Please ensure the table exists in the database.",
+          message: "emp_manager table not found. Please run the migration first.",
           data: []
         });
       }
@@ -209,14 +239,14 @@ export function registerEmpManagerRoutes(app: Express) {
       const managers = await prisma.$queryRaw<Array<{
         mid: string;
         mcardno: string;
-        mdepartmentId: string | null;
-        mdesignationId: string | null;
-        morgUnitId: string | null;
+        mdepartmentIds: string[];
+        mdesignationIds: string[];
+        morgUnitIds: string[];
         mis_extinct: boolean;
       }>>`
-        SELECT "mid", "mcardno", "mdepartmentId", "mdesignationId", "morgUnitId", "mis_extinct"
+        SELECT "mid", "mcardno", "mdepartmentIds", "mdesignationIds", "morgUnitIds", "mis_extinct"
         FROM "emp_manager"
-        ORDER BY "mis_extinct" ASC, "mcardno", "mid" DESC
+        ORDER BY "mis_extinct" ASC, "mcardno"
       `;
 
       res.json({ success: true, data: managers });
@@ -226,11 +256,71 @@ export function registerEmpManagerRoutes(app: Express) {
       if (errorMessage.includes("does not exist") || errorMessage.includes("relation") || errorMessage.includes("table")) {
         return res.status(500).json({ 
           success: false, 
-          message: "emp_manager table not found. Please ensure the table exists in the database.",
+          message: "emp_manager table not found. Please run the migration first.",
           data: []
         });
       }
       res.status(500).json({ success: false, message: errorMessage, data: [] });
+    }
+  });
+
+  // PUT /api/emp-manager/:mid - Update a manager's assignments (replace arrays)
+  app.put("/api/emp-manager/:mid", requireAuth, async (req, res) => {
+    try {
+      const { mid } = req.params;
+      const { mdepartmentIds, mdesignationIds, morgUnitIds } = req.body;
+
+      if (!mid) {
+        return res.status(400).json({ 
+          success: false, 
+          message: "Manager ID (mid) is required" 
+        });
+      }
+
+      // Convert to arrays and filter empty values
+      const deptIds: string[] = (Array.isArray(mdepartmentIds) ? mdepartmentIds : []).filter((id: string) => id && id.trim());
+      const desigIds: string[] = (Array.isArray(mdesignationIds) ? mdesignationIds : []).filter((id: string) => id && id.trim());
+      const orgIds: string[] = (Array.isArray(morgUnitIds) ? morgUnitIds : []).filter((id: string) => id && id.trim());
+
+      // Check if manager exists
+      const existing = await prisma.$queryRaw<Array<{ mid: string; mcardno: string }>>`
+        SELECT "mid", "mcardno" FROM "emp_manager" WHERE "mid" = ${mid}
+      `;
+
+      if (existing.length === 0) {
+        return res.status(404).json({ 
+          success: false, 
+          message: "Manager assignment not found" 
+        });
+      }
+
+      // Update the manager
+      await prisma.$executeRaw`
+        UPDATE "emp_manager"
+        SET "mdepartmentIds" = ${deptIds}::text[],
+            "mdesignationIds" = ${desigIds}::text[],
+            "morgUnitIds" = ${orgIds}::text[]
+        WHERE "mid" = ${mid}
+      `;
+
+      res.json({ 
+        success: true, 
+        message: "Manager updated successfully",
+        data: {
+          mid,
+          mcardno: existing[0].mcardno,
+          mdepartmentIds: deptIds,
+          mdesignationIds: desigIds,
+          morgUnitIds: orgIds,
+          mis_extinct: false
+        }
+      });
+    } catch (error: any) {
+      console.error("Update manager error:", error);
+      res.status(500).json({ 
+        success: false, 
+        message: error.message || "Failed to update manager" 
+      });
     }
   });
 

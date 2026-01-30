@@ -632,7 +632,7 @@ export async function registerLegacyRoutes(
   app.get("/api/employees", requireAuth, requirePolicy("employees.view"), async (req, res) => {
     try {
       const accessibleOrgUnitIds = req.user!.accessibleOrgUnitIds;
-      const { unitId, departmentId, designationId, search, page, limit: limitParam, statusFilter } = req.query;
+      const { unitId, departmentId, designationId, unitIds, departmentIds, designationIds, search, page, limit: limitParam, statusFilter } = req.query;
 
       // MDO users (superadmin or ENV_LOGIN_EMAIL) should see all employees
       // Only filter by orgUnit if not superadmin and accessibleOrgUnitIds is not empty
@@ -647,6 +647,7 @@ export async function registerLegacyRoutes(
         where.orgUnitId = { in: accessibleOrgUnitIds };
       }
       
+      // Support for single ID filters
       if (unitId) {
         where.orgUnitId = unitId;
       }
@@ -655,6 +656,34 @@ export async function registerLegacyRoutes(
       }
       if (designationId) {
         where.designationId = designationId;
+      }
+      
+      // Support for multiple IDs filters (comma-separated)
+      // These use OR logic - match ANY of the provided IDs
+      const multiFilters: any[] = [];
+      
+      if (unitIds && typeof unitIds === 'string' && unitIds.trim()) {
+        const ids = unitIds.split(',').map(id => id.trim()).filter(Boolean);
+        if (ids.length > 0) {
+          multiFilters.push({ orgUnitId: { in: ids } });
+        }
+      }
+      if (departmentIds && typeof departmentIds === 'string' && departmentIds.trim()) {
+        const ids = departmentIds.split(',').map(id => id.trim()).filter(Boolean);
+        if (ids.length > 0) {
+          multiFilters.push({ departmentId: { in: ids } });
+        }
+      }
+      if (designationIds && typeof designationIds === 'string' && designationIds.trim()) {
+        const ids = designationIds.split(',').map(id => id.trim()).filter(Boolean);
+        if (ids.length > 0) {
+          multiFilters.push({ designationId: { in: ids } });
+        }
+      }
+      
+      // If we have multiple filters, combine them with AND (match all criteria)
+      if (multiFilters.length > 0) {
+        where.AND = multiFilters;
       }
       
       // Filter by active/inactive status based on lastInterviewDate

@@ -113,6 +113,10 @@ export interface EmployeeFilters {
   unitId?: string;
   departmentId?: string;
   designationId?: string;
+  // Support for multiple IDs (comma-separated)
+  unitIds?: string;
+  departmentIds?: string;
+  designationIds?: string;
   statusFilter?: string;
   search?: string;
   page?: number;
@@ -133,9 +137,15 @@ export interface PaginatedResponse<T> {
 export const employeesApi = {
   getAll: (filters?: EmployeeFilters) => {
     const query = new URLSearchParams();
+    // Single ID filters
     if (filters?.unitId) query.set("unitId", filters.unitId);
     if (filters?.departmentId) query.set("departmentId", filters.departmentId);
     if (filters?.designationId) query.set("designationId", filters.designationId);
+    // Multiple IDs filters (comma-separated)
+    if (filters?.unitIds) query.set("unitIds", filters.unitIds);
+    if (filters?.departmentIds) query.set("departmentIds", filters.departmentIds);
+    if (filters?.designationIds) query.set("designationIds", filters.designationIds);
+    // Other filters
     if (filters?.statusFilter) query.set("statusFilter", filters.statusFilter);
     if (filters?.search) query.set("search", filters.search);
     if (filters?.page) query.set("page", filters.page.toString());

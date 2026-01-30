@@ -468,17 +468,14 @@ model SalesData {
 }
 
 model EmpManager {
-  mid            String   @id
-  mcardno        String
-  mdepartmentId  String?
-  mdesignationId String?
-  morgUnitId     String?
-  mis_extinct    Boolean  @default(false)
+  mid             String   @id
+  mcardno         String   @unique  // One row per card number
+  mdepartmentIds  String[] @default([])  // Array of department IDs
+  mdesignationIds String[] @default([])  // Array of designation IDs
+  morgUnitIds     String[] @default([])  // Array of org unit IDs
+  mis_extinct     Boolean  @default(false)
 
   @@index([mcardno])
-  @@index([mdepartmentId])
-  @@index([mdesignationId])
-  @@index([morgUnitId])
   @@index([mis_extinct])
   @@map("emp_manager")
 }
