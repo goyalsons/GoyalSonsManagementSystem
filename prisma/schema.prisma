@@ -134,7 +134,7 @@ model Employee {
   interviewDate   DateTime?
   lastInterviewDate DateTime?
   joiningDate     DateTime?
-  externalId      String?     @unique
+  externalId      String?     // Removed @unique - API may have duplicates
   autoNumber      String?
   zohoId          String?
   mobileOtp       String?
