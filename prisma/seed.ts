@@ -121,24 +121,9 @@ async function main() {
     });
   }
 
-  // Check if database already has designations - if yes, skip creation
-  const existingDesignations = await prisma.designation.findMany();
-  let staffDesignation;
-  
-  if (existingDesignations.length === 0) {
-    console.log("No designations found - creating default designation...");
-    // Only create if database is empty
-    staffDesignation = await prisma.designation.upsert({
-      where: { code: "STAFF" },
-      update: {},
-      create: { code: "STAFF", name: "Staff" },
-    });
-    console.log("Created default designation");
-  } else {
-    console.log(`Found ${existingDesignations.length} existing designations - using real database data`);
-    // Use first existing designation for sample employee creation
-    staffDesignation = existingDesignations[0];
-  }
+  // Designations are now synced from Zoho API - no need to create default ones
+  // The auto-sync process creates designations based on DESIGNATION.DESIGN_CODE from API
+  console.log("Skipping designation creation - designations are synced from Zoho API");
 
   // ==================== SEED ROLES AND POLICIES ====================
   console.log("🌱 Seeding Roles and Policies...");
