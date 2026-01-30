@@ -74,6 +74,51 @@ export async function getUserWithRoles(userId: string): Promise<UserWithRoles | 
   };
 }
 
+/**
+ * Policies that are automatically granted to users who are assigned as managers
+ * in the emp_manager table. These policies enable team management features.
+ */
+const MANAGER_AUTO_POLICIES = [
+  "attendance.team.view",  // View team attendance
+  "sales.staff.view",      // View team/staff sales
+  "requests.team.view",    // View team requests
+  "requests.approve",      // Approve/reject requests
+];
+
+/**
+ * Check if a user is an assigned manager in emp_manager table
+ * Returns true if user has an active (non-extinct) manager assignment
+ */
+async function isAssignedManager(userId: string): Promise<boolean> {
+  try {
+    // Get user's employee card number
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        employee: {
+          select: { cardNumber: true }
+        }
+      }
+    });
+
+    if (!user?.employee?.cardNumber) return false;
+
+    // Check if this card number exists in emp_manager with active status
+    const managerRecord = await prisma.$queryRaw<Array<{ mid: string }>>`
+      SELECT "mid" FROM "emp_manager"
+      WHERE "mcardno" = ${user.employee.cardNumber}
+      AND "mis_extinct" = false
+      LIMIT 1
+    `;
+
+    return managerRecord.length > 0;
+  } catch (error) {
+    // If emp_manager table doesn't exist or any error, return false
+    console.error("Error checking assigned manager status:", error);
+    return false;
+  }
+}
+
 export async function getUserPolicies(userId: string): Promise<string[]> {
   /**
    * Performance goals:
@@ -92,41 +137,54 @@ export async function getUserPolicies(userId: string): Promise<string[]> {
     select: { roleId: true },
   });
 
-  if (userRoles.length === 0) return [];
+  let rolePolicies: string[] = [];
 
-  const roleIds = userRoles.map((ur) => ur.roleId);
+  if (userRoles.length > 0) {
+    const roleIds = userRoles.map((ur) => ur.roleId);
 
-  // If the user has many roles, avoid building a huge IN() list and let Postgres do DISTINCT.
-  const rawSqlRoleThreshold = Math.max(
-    1,
-    Number(process.env.USER_POLICIES_RAW_SQL_ROLE_THRESHOLD || "200"),
-  );
+    // If the user has many roles, avoid building a huge IN() list and let Postgres do DISTINCT.
+    const rawSqlRoleThreshold = Math.max(
+      1,
+      Number(process.env.USER_POLICIES_RAW_SQL_ROLE_THRESHOLD || "200"),
+    );
 
-  if (roleIds.length >= rawSqlRoleThreshold) {
-    const rows = await prisma.$queryRaw<{ key: string }[]>`
-      SELECT DISTINCT p.key
-      FROM "UserRole" ur
-      INNER JOIN "RolePolicy" rp ON rp."roleId" = ur."roleId"
-      INNER JOIN "Policy" p ON p.id = rp."policyId"
-      WHERE ur."userId" = ${userId}
-    `;
-    return rows.map((r) => r.key);
+    if (roleIds.length >= rawSqlRoleThreshold) {
+      const rows = await prisma.$queryRaw<{ key: string }[]>`
+        SELECT DISTINCT p.key
+        FROM "UserRole" ur
+        INNER JOIN "RolePolicy" rp ON rp."roleId" = ur."roleId"
+        INNER JOIN "Policy" p ON p.id = rp."policyId"
+        WHERE ur."userId" = ${userId}
+      `;
+      rolePolicies = rows.map((r) => r.key);
+    } else {
+      // Small/normal case: Prisma query with DB-side distinct to minimize duplicates and JS work.
+      const policies = await prisma.rolePolicy.findMany({
+        where: { roleId: { in: roleIds } },
+        distinct: ["policyId"],
+        select: {
+          policy: {
+            select: { key: true },
+          },
+        },
+      });
+
+      rolePolicies = policies
+        .map((rp) => rp.policy?.key)
+        .filter((k): k is string => Boolean(k));
+    }
   }
 
-  // Small/normal case: Prisma query with DB-side distinct to minimize duplicates and JS work.
-  const rolePolicies = await prisma.rolePolicy.findMany({
-    where: { roleId: { in: roleIds } },
-    distinct: ["policyId"],
-    select: {
-      policy: {
-        select: { key: true },
-      },
-    },
-  });
+  // Check if user is an assigned manager in emp_manager table
+  // If yes, add manager-specific policies automatically
+  const isManager = await isAssignedManager(userId);
+  if (isManager) {
+    // Merge manager policies with role policies (avoiding duplicates)
+    const allPolicies = new Set([...rolePolicies, ...MANAGER_AUTO_POLICIES]);
+    return Array.from(allPolicies);
+  }
 
-  return rolePolicies
-    .map((rp) => rp.policy?.key)
-    .filter((k): k is string => Boolean(k));
+  return rolePolicies;
 }
 
 export async function hasPolicy(userId: string, policyKey: string): Promise<boolean> {

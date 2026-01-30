@@ -180,13 +180,34 @@ export const NAV_CONFIG: NavConfigItem[] = [
     key: "trainings", 
     label: "Trainings", 
     path: "/training", 
-    policy: "trainings.view" 
+    policy: "trainings.view",
+    actions: {
+      create: "trainings.create",
+      assign: "trainings.assign",
+      complete: "trainings.complete"
+    }
   },
   { 
     key: "requests", 
     label: "Requests", 
     path: "/requests", 
-    policy: "requests.view" 
+    policy: "requests.view",
+    actions: {
+      create: "requests.create",
+      approve: "requests.approve"
+    }
+  },
+  { 
+    key: "requests-self", 
+    label: "My Requests", 
+    path: "/requests/self", 
+    policy: "requests.self.view" 
+  },
+  { 
+    key: "requests-team", 
+    label: "Team Requests", 
+    path: "/requests/team", 
+    policy: "requests.team.view" 
   },
   { 
     key: "salary", 
