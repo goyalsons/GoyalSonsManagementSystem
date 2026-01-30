@@ -364,15 +364,6 @@ async function main() {
       return rolesByName.get(roleName) || defaultRole;
     };
 
-    const getDepartmentIdForRole = (roleName?: string) => {
-      if (!roleName) return departmentsMap.values().next().value;
-      if (roleName === "HR") return departmentsMap.get("HR");
-      if (roleName === "Purchaser") return departmentsMap.get("FIN");
-      if (roleName === "Store Manager" || roleName === "Floor Manager") return departmentsMap.get("OPS");
-      if (roleName === "SalesMan") return departmentsMap.get("MKT");
-      return departmentsMap.values().next().value;
-    };
-
     const makeDisplayName = (email: string) =>
       email
         .split("@")[0]
@@ -416,44 +407,18 @@ async function main() {
       const password = makePassword(email);
 
       const displayName = makeDisplayName(email);
+      
+      // Don't create fake employees - employees come from Zoho API only
+      // Just find if there's already a linked employee by email
       const existingEmployee = await prisma.employee.findFirst({
         where: {
           OR: [
             { companyEmail: email },
             { personalEmail: email },
-            { externalId: email },
           ],
         },
         select: { id: true },
       });
-
-      const departmentId = getDepartmentIdForRole(role?.name) ?? undefined;
-      const employee = existingEmployee
-        ? await prisma.employee.update({
-            where: { id: existingEmployee.id },
-            data: {
-              firstName: displayName.split(" ")[0],
-              lastName: displayName.split(" ").slice(1).join(" ") || null,
-              companyEmail: email,
-              externalId: email,
-              departmentId,
-              designationId: staffDesignation.id,
-              orgUnitId: managementOrgUnitId ?? defaultOrgUnitId ?? undefined,
-            },
-          })
-        : await prisma.employee.create({
-            data: {
-              firstName: displayName.split(" ")[0],
-              lastName: displayName.split(" ").slice(1).join(" ") || null,
-              employeeCode: email.split("@")[0].toUpperCase(),
-              companyEmail: email,
-              externalId: email,
-              departmentId,
-              designationId: staffDesignation.id,
-              orgUnitId: managementOrgUnitId ?? defaultOrgUnitId ?? undefined,
-              status: "ACTIVE",
-            },
-          });
 
       const user = await prisma.user.upsert({
         where: { email },
@@ -461,7 +426,7 @@ async function main() {
           name: displayName,
           passwordHash: hashPassword(password),
           status: "active",
-          employeeId: employee.id,
+          employeeId: existingEmployee?.id || null,
         },
         create: {
           name: displayName,
@@ -469,7 +434,7 @@ async function main() {
           passwordHash: hashPassword(password),
           status: "active",
           orgUnitId: managementOrgUnitId ?? undefined,
-          employeeId: employee.id,
+          employeeId: existingEmployee?.id || null,
         },
       });
 
