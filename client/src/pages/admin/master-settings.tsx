@@ -1,15 +1,13 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth-context";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { 
-  Loader2, Database, CheckCircle2, AlertCircle, Play, FileJson, Globe, FileSpreadsheet, X, Link as LinkIcon
+  Loader2, Database, CheckCircle2, AlertCircle, Play, FileJson, Globe, FileSpreadsheet, X
 } from "lucide-react";
 import { Link } from "wouter";
 
@@ -39,65 +37,6 @@ export default function MasterSettingsPage() {
   
   const [testingId, setTestingId] = useState<string | null>(null);
   const [previewData, setPreviewData] = useState<{ id: string; data: PreviewData } | null>(null);
-  const [employeeMasterUrl, setEmployeeMasterUrl] = useState<string>("");
-
-  const { data: employeeMasterUrlSetting, isLoading: employeeMasterUrlLoading } = useQuery<{
-    key: string;
-    value: string;
-    description?: string | null;
-    category?: string | null;
-  } | null>({
-    queryKey: ["system-setting", "EMPLOYEE_MASTER_URL"],
-    queryFn: async () => {
-      const res = await fetch("/api/admin/system-settings/EMPLOYEE_MASTER_URL", {
-        headers: { "X-Session-Id": token as any },
-      });
-      if (!res.ok) throw new Error("Failed to fetch EMPLOYEE_MASTER_URL");
-      return res.json();
-    },
-    enabled: !!token && hasPolicy("admin.master-settings.view"),
-  });
-
-  useEffect(() => {
-    if (employeeMasterUrlSetting?.value) {
-      setEmployeeMasterUrl(employeeMasterUrlSetting.value);
-    }
-  }, [employeeMasterUrlSetting?.value]);
-
-  const saveEmployeeMasterUrlMutation = useMutation({
-    mutationFn: async () => {
-      const value = employeeMasterUrl.trim();
-      const res = await fetch("/api/admin/system-settings/EMPLOYEE_MASTER_URL", {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Session-Id": token as any,
-        },
-        body: JSON.stringify({
-          value,
-          description: "External API URL for employee data sync",
-          category: "integrations",
-        }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.message || "Failed to save EMPLOYEE_MASTER_URL");
-      return body;
-    },
-    onSuccess: () => {
-      toast({
-        title: "Saved",
-        description: "Employee Master URL updated successfully.",
-      });
-      queryClient.invalidateQueries({ queryKey: ["system-setting", "EMPLOYEE_MASTER_URL"] });
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Save failed",
-        description: error?.message || "Failed to save setting",
-        variant: "destructive",
-      });
-    },
-  });
 
   const { data: routes, isLoading } = useQuery<ApiRoute[]>({
     queryKey: ["api-routes"],
@@ -209,52 +148,6 @@ export default function MasterSettingsPage() {
           </Button>
         </Link>
       </div>
-
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <LinkIcon className="h-5 w-5" />
-            Employee Sync Settings
-          </CardTitle>
-          <CardDescription>
-            This URL is required for the Members page “Refresh” button to sync latest data.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            <div className="space-y-2">
-              <Label htmlFor="employee-master-url">EMPLOYEE_MASTER_URL</Label>
-              <div className="flex flex-col sm:flex-row gap-2">
-                <Input
-                  id="employee-master-url"
-                  placeholder="https://example.com/employee-master.json"
-                  value={employeeMasterUrl}
-                  onChange={(e) => setEmployeeMasterUrl(e.target.value)}
-                />
-                <Button
-                  onClick={() => saveEmployeeMasterUrlMutation.mutate()}
-                  disabled={saveEmployeeMasterUrlMutation.isPending || employeeMasterUrl.trim().length === 0}
-                  className="gap-2"
-                >
-                  {saveEmployeeMasterUrlMutation.isPending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : null}
-                  Save
-                </Button>
-              </div>
-              {employeeMasterUrlLoading && (
-                <div className="text-xs text-muted-foreground flex items-center gap-2">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  Loading current setting…
-                </div>
-              )}
-              <p className="text-xs text-muted-foreground">
-                Tip: Put the same URL you use for “Employee Master” source. After saving, go to Members and click Refresh.
-              </p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
 
       <Card>
         <CardHeader>
