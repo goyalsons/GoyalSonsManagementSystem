@@ -53,6 +53,8 @@ export default function TeamMembersPage({
 
   const teamMembers = response?.data || [];
   const totalCount = response?.pagination?.total || teamMembers.length;
+  const apiDisconnected = (response as any)?.apiDisconnected === true;
+  const apiMessage = (response as any)?.message || "Please attach the employees data";
 
   const handleRefresh = () => {
     refetch();
@@ -146,12 +148,12 @@ export default function TeamMembersPage({
             <div className="flex items-center justify-center py-12">
               <Loader2 className="h-8 w-8 animate-spin text-indigo-500" />
             </div>
-          ) : teamMembers.length === 0 ? (
+          ) : apiDisconnected || teamMembers.length === 0 ? (
             <div className="text-center py-12">
               <AlertCircle className="h-12 w-12 mx-auto mb-3 text-amber-500" />
               <p className="text-lg font-medium text-slate-700">0 Employees Found</p>
               <p className="text-sm mt-2 text-slate-500">
-                Please attach the employees data
+                {apiMessage}
               </p>
               <Button
                 variant="outline"
