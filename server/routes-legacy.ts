@@ -631,7 +631,8 @@ export async function registerLegacyRoutes(
 
   app.get("/api/employees", requireAuth, requirePolicy("employees.view"), async (req, res) => {
     try {
-      // Check if Employee Master API is connected/active
+      // Check if Employee Master API is explicitly disabled
+      // Only block if the route exists AND is set to inactive
       const employeeMasterRoute = await prisma.apiRouting.findFirst({
         where: {
           name: "Employee Master",
@@ -643,8 +644,9 @@ export async function registerLegacyRoutes(
         },
       });
 
-      // If Employee Master API is not configured, inactive, or removed - return empty with message
-      if (!employeeMasterRoute || !employeeMasterRoute.isActive || !employeeMasterRoute.endpoint) {
+      // Only return empty if Employee Master route EXISTS and is explicitly set to inactive
+      // If route doesn't exist, show existing database data (legacy behavior)
+      if (employeeMasterRoute && employeeMasterRoute.isActive === false) {
         return res.json({
           data: [],
           pagination: {
