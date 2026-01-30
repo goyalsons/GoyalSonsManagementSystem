@@ -101,20 +101,38 @@ async function isAssignedManager(userId: string): Promise<boolean> {
       }
     });
 
-    if (!user?.employee?.cardNumber) return false;
+    const cardNumber = user?.employee?.cardNumber;
+    
+    if (!cardNumber) {
+      console.log(`[isAssignedManager] User ${userId} has no cardNumber`);
+      return false;
+    }
+
+    // Normalize card number - trim whitespace and convert to string
+    const normalizedCardNumber = String(cardNumber).trim();
+    
+    console.log(`[isAssignedManager] Checking user ${userId} with cardNumber: "${normalizedCardNumber}"`);
 
     // Check if this card number exists in emp_manager with active status
-    const managerRecord = await prisma.$queryRaw<Array<{ mid: string }>>`
-      SELECT "mid" FROM "emp_manager"
-      WHERE "mcardno" = ${user.employee.cardNumber}
+    const managerRecord = await prisma.$queryRaw<Array<{ mid: string; mcardno: string }>>`
+      SELECT "mid", "mcardno" FROM "emp_manager"
+      WHERE TRIM("mcardno") = ${normalizedCardNumber}
       AND "mis_extinct" = false
       LIMIT 1
     `;
 
-    return managerRecord.length > 0;
+    console.log(`[isAssignedManager] Found manager records:`, managerRecord);
+
+    if (managerRecord.length > 0) {
+      console.log(`[isAssignedManager] User ${userId} IS an assigned manager (cardNo: ${normalizedCardNumber})`);
+      return true;
+    }
+    
+    console.log(`[isAssignedManager] User ${userId} is NOT an assigned manager`);
+    return false;
   } catch (error) {
     // If emp_manager table doesn't exist or any error, return false
-    console.error("Error checking assigned manager status:", error);
+    console.error("[isAssignedManager] Error checking assigned manager status:", error);
     return false;
   }
 }

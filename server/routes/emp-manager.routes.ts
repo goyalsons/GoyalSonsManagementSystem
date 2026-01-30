@@ -79,6 +79,27 @@ export function registerEmpManagerRoutes(app: Express) {
         }
       });
 
+      // Increment policyVersion for the user with this card number
+      // This will invalidate their session cache and force re-fetching policies
+      // which will now include the manager auto-policies
+      try {
+        const employee = await prisma.employee.findFirst({
+          where: { cardNumber: String(mcardno) },
+          select: { id: true }
+        });
+        
+        if (employee) {
+          await prisma.user.updateMany({
+            where: { employeeId: employee.id },
+            data: { policyVersion: { increment: 1 } }
+          });
+          console.log(`[emp-manager] Incremented policyVersion for employee cardNo: ${mcardno}`);
+        }
+      } catch (pvError) {
+        console.error("[emp-manager] Failed to increment policyVersion:", pvError);
+        // Non-fatal - continue with success response
+      }
+
       res.json({
         success: true,
         message: result.updated ? "Manager updated successfully" : "Manager assigned successfully",
@@ -336,9 +357,9 @@ export function registerEmpManagerRoutes(app: Express) {
         });
       }
 
-      // Check if manager exists
-      const existing = await prisma.$queryRaw<Array<{ mid: string }>>`
-        SELECT "mid" FROM "emp_manager" WHERE "mid" = ${mid}
+      // Check if manager exists and get card number for policyVersion update
+      const existing = await prisma.$queryRaw<Array<{ mid: string; mcardno: string }>>`
+        SELECT "mid", "mcardno" FROM "emp_manager" WHERE "mid" = ${mid}
       `;
 
       if (existing.length === 0) {
@@ -348,10 +369,30 @@ export function registerEmpManagerRoutes(app: Express) {
         });
       }
 
+      const mcardno = existing[0].mcardno;
+
       // Delete the manager assignment
       await prisma.$executeRaw`
         DELETE FROM "emp_manager" WHERE "mid" = ${mid}
       `;
+
+      // Increment policyVersion to invalidate cache and remove manager policies
+      try {
+        const employee = await prisma.employee.findFirst({
+          where: { cardNumber: mcardno },
+          select: { id: true }
+        });
+        
+        if (employee) {
+          await prisma.user.updateMany({
+            where: { employeeId: employee.id },
+            data: { policyVersion: { increment: 1 } }
+          });
+          console.log(`[emp-manager] Incremented policyVersion after delete for cardNo: ${mcardno}`);
+        }
+      } catch (pvError) {
+        console.error("[emp-manager] Failed to increment policyVersion after delete:", pvError);
+      }
 
       res.json({ 
         success: true, 
