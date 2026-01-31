@@ -361,7 +361,7 @@ export default function TeamAttendancePage() {
                 <SelectTrigger className="mt-1">
                   <SelectValue placeholder="Select member..." />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="max-h-[min(20rem,70vh)] overflow-y-auto">
                   <SelectItem value="all">-- Select a member --</SelectItem>
                   {teamMembers.map((member) => (
                     <SelectItem key={member.id} value={member.cardNumber || member.id}>
