@@ -31,6 +31,7 @@ export default function LoginPage() {
   const { login, user } = useAuth();
 
   const getDefaultLandingPath = (policies?: string[]) => {
+    if (!policies?.length || (policies.length === 1 && policies[0] === "no_policy.view")) return "/no-policy";
     const p = new Set(policies || []);
     if (p.has("attendance.history.view")) return "/attendance/history";
     if (p.has("staff-sales.view")) return "/sales";
@@ -170,7 +171,7 @@ export default function LoginPage() {
       if (res.ok) {
         localStorage.setItem("gms_token", data.token);
         
-        if (data.user?.policies?.length === 0) {
+        if (!data.user?.policies?.length || (data.user.policies.length === 1 && data.user.policies[0] === "no_policy.view")) {
           window.location.href = "/no-policy";
         } else {
           window.location.href = getDefaultLandingPath(data.user?.policies);

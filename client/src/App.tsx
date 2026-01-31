@@ -69,15 +69,21 @@ function FullPageLoader() {
   );
 }
 
+// User has no access: zero policies OR only no_policy.view (e.g. Employee role restricted)
+function hasNoAccess(user: { policies?: string[] } | null): boolean {
+  if (!user?.policies) return true;
+  if (user.policies.length === 0) return true;
+  if (user.policies.length === 1 && user.policies[0] === "no_policy.view") return true;
+  return false;
+}
+
 function AuthenticatedRoutes() {
   const { user } = useAuth();
   const [location] = useLocation();
-  const hasNoPolicies = !user?.policies || user.policies.length === 0;
+  const noAccess = hasNoAccess(user);
 
-  // If user has no policies, force them to the No Policy page
-  if (hasNoPolicies && location !== "/no-policy") {
-    return <NoPolicyPage />;
-  }
+  // If user has no access (no policies or only no_policy), show only No Policy page
+  if (noAccess) return <NoPolicyPage />;
 
   return (
     <MainLayout>
@@ -191,14 +197,14 @@ function AuthenticatedRoutes() {
 function Router() {
   const [location, setLocation] = useLocation();
   const { user, isLoading } = useAuth();
-  const hasNoPolicies = user && (!user.policies || user.policies.length === 0);
+  const noAccess = user && hasNoAccess(user);
 
-  // Redirect to /no-policy if user has no policies
+  // Redirect to /no-policy if user has no access (no policies or only no_policy.view)
   useEffect(() => {
-    if (user && hasNoPolicies && location !== "/no-policy") {
+    if (user && noAccess && location !== "/no-policy") {
       setLocation("/no-policy");
     }
-  }, [location, user, hasNoPolicies, setLocation]);
+  }, [location, user, noAccess, setLocation]);
 
   // Redirect to /login if not authenticated (after loading is complete)
   useEffect(() => {

@@ -12,6 +12,7 @@ export default function AuthCallbackPage() {
     const error = params.get("error");
 
     const getDefaultLandingPath = (policies?: string[]) => {
+      if (!policies?.length || (policies.length === 1 && policies[0] === "no_policy.view")) return "/no-policy";
       const p = new Set(policies || []);
       if (p.has("attendance.history.view")) return "/attendance/history";
       if (p.has("staff-sales.view")) return "/sales";
@@ -40,11 +41,12 @@ export default function AuthCallbackPage() {
           throw new Error("Failed to fetch user");
         })
         .then((userData) => {
-          if (userData?.policies?.length === 0) {
+          const policies = userData?.policies;
+          if (!policies?.length || (policies.length === 1 && policies[0] === "no_policy.view")) {
             window.location.href = "/no-policy";
             return;
           }
-          window.location.href = getDefaultLandingPath(userData?.policies);
+          window.location.href = getDefaultLandingPath(policies);
         })
         .catch(() => {
           window.location.href = "/";

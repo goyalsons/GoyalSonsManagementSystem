@@ -76,13 +76,21 @@ export async function getUserWithRoles(userId: string): Promise<UserWithRoles | 
 
 /**
  * Policies that are automatically granted to users who are assigned as managers
- * in the emp_manager table. These policies enable team management features.
+ * in the emp_manager table. Enables both their own data and team data.
  */
 const MANAGER_AUTO_POLICIES = [
-  "attendance.team.view",  // View team attendance
-  "sales.staff.view",      // View team/staff sales
-  "requests.team.view",    // View team requests
-  "requests.approve",      // Approve/reject requests
+  // Own data (apna data)
+  "dashboard.view",
+  "attendance.history.view",  // Own task history
+  "attendance.self.view",     // My Attendance
+  "sales.self.view",          // My Sales
+  "requests.self.view",       // My Requests
+  "requests.create",          // Create requests
+  // Team data (team ka data)
+  "attendance.team.view",     // Team Attendance
+  "sales-staff.view",         // Team/Staff Sales (Sales Staff page)
+  "requests.team.view",       // Team Requests
+  "requests.approve",         // Approve/reject team requests
 ];
 
 /**
@@ -194,9 +202,10 @@ export async function getUserPolicies(userId: string): Promise<string[]> {
   }
 
   // Check if user is an assigned manager in emp_manager table
-  // If yes, add manager-specific policies automatically
+  // If yes, add manager-specific policies automatically — unless user has restricted role (only no_policy.view)
+  const onlyNoPolicy = rolePolicies.length === 0 || (rolePolicies.length === 1 && rolePolicies[0] === "no_policy.view");
   const isManager = await isAssignedManager(userId);
-  if (isManager) {
+  if (isManager && !onlyNoPolicy) {
     // Merge manager policies with role policies (avoiding duplicates)
     const allPolicies = new Set([...rolePolicies, ...MANAGER_AUTO_POLICIES]);
     return Array.from(allPolicies);

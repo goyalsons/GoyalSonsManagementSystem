@@ -40,8 +40,9 @@ export function PageGuard({ children, policy, fallback }: PageGuardProps) {
     return null;
   }
 
-  // If user has zero policies, redirect to No Policy page
-  if (!user.policies || user.policies.length === 0) {
+  // If user has no access (zero policies or only no_policy.view), redirect to No Policy page
+  const onlyNoPolicy = user.policies?.length === 1 && user.policies[0] === "no_policy.view";
+  if (!user.policies?.length || onlyNoPolicy) {
     if (location !== "/no-policy") {
       window.location.href = "/no-policy";
       return null;

@@ -202,13 +202,9 @@ async function main() {
   console.log(`✅ Created/Updated ${Object.keys(createdPolicies).length} canonical policies`);
 
   // Create Roles - Policies are the only source of access
-  const defaultPolicies = ["attendance.history.view", "sales.view"];
-  const employeeDefaultPolicies = [
-    "attendance.history.view",
-    "requests.view",
-    "help_tickets.view",
-    "help_tickets.create",
-  ];
+  const defaultPolicies = ["attendance.history.view", "sales.view", "no_policy.view"];
+  // Employee: only No Policy page access (restricted for now)
+  const employeeDefaultPolicies = ["no_policy.view"];
   const allPolicyKeys = Object.keys(createdPolicies);
 
   const roles = [
