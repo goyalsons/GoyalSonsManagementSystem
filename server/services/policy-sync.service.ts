@@ -106,16 +106,52 @@ const NAV_CONFIG: NavConfigItem[] = [
     policy: "attendance.history.view" 
   },
   { 
+    key: "attendance-self", 
+    label: "My Attendance", 
+    path: "/attendance/self", 
+    policy: "attendance.self.view" 
+  },
+  { 
+    key: "attendance-team", 
+    label: "Team Attendance", 
+    path: "/attendance/team", 
+    policy: "attendance.team.view" 
+  },
+  { 
     key: "sales", 
     label: "Sales", 
     path: "/sales", 
     policy: "staff-sales.view" 
   },
   { 
+    key: "sales-self", 
+    label: "My Sales", 
+    path: "/sales/self", 
+    policy: "sales.self.view" 
+  },
+  { 
+    key: "sales-dashboard", 
+    label: "Sales Dashboard", 
+    path: "/sales/dashboard", 
+    policy: "sales.dashboard.view" 
+  },
+  { 
+    key: "sales-store", 
+    label: "Store Sales", 
+    path: "/sales/store", 
+    policy: "sales.store.view" 
+  },
+  { 
     key: "sales-staff", 
     label: "Sales Staff", 
     path: "/sales-staff", 
     policy: "sales-staff.view" 
+  },
+  { 
+    key: "sales-staff-view", 
+    label: "Staff Sales View", 
+    path: "/sales/staff", 
+    policy: "sales.staff.view" 
   },
   { 
     key: "integrations", 
@@ -145,13 +181,34 @@ const NAV_CONFIG: NavConfigItem[] = [
     key: "trainings", 
     label: "Trainings", 
     path: "/training", 
-    policy: "trainings.view" 
+    policy: "trainings.view",
+    actions: {
+      create: "trainings.create",
+      assign: "trainings.assign",
+      complete: "trainings.complete"
+    }
   },
   { 
     key: "requests", 
     label: "Requests", 
     path: "/requests", 
-    policy: "requests.view" 
+    policy: "requests.view",
+    actions: {
+      create: "requests.create",
+      approve: "requests.approve"
+    }
+  },
+  { 
+    key: "requests-self", 
+    label: "My Requests", 
+    path: "/requests/self", 
+    policy: "requests.self.view" 
+  },
+  { 
+    key: "requests-team", 
+    label: "Team Requests", 
+    path: "/requests/team", 
+    policy: "requests.team.view" 
   },
   { 
     key: "salary", 
@@ -243,8 +300,12 @@ export async function syncPoliciesFromNavConfig(): Promise<{
   removed: number;
   errors: string[];
 }> {
-  const policies = getAllPoliciesFromNavConfig();
-  const allowedPolicyKeys = new Set(policies.map((policy) => policy.key));
+  const policiesFromNav = getAllPoliciesFromNavConfig();
+  const allowedPolicyKeys = new Set(policiesFromNav.map((p) => p.key));
+  allowedPolicyKeys.add("sales.view");
+  const policies = policiesFromNav.some((p) => p.key === "sales.view")
+    ? policiesFromNav
+    : [...policiesFromNav, { key: "sales.view", description: "Access sales page", category: "sales" }];
   const result = {
     total: policies.length,
     created: 0,
@@ -315,7 +376,6 @@ export async function syncPoliciesFromNavConfig(): Promise<{
   }
 
   console.log(`[Policy Sync] Complete: ${result.created} created, ${result.existing} existing, ${result.removed} removed, ${result.errors.length} errors`);
-  
   return result;
 }
 

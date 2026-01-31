@@ -1,10 +1,12 @@
 import type { Express } from "express";
 import { prisma } from "../lib/prisma";
-import { requireAuth, requirePolicy } from "../lib/auth-middleware";
+import { requireAuth, requirePolicy, hashPassword } from "../lib/auth-middleware";
 import { POLICIES } from "../constants/policies";
 import { validateUUID } from "../lib/validation";
 import { canAssignRole } from "../lib/role-assignment-security";
 import { logUserRoleAssignment } from "../lib/audit-log";
+import { replaceUserRoles } from "../lib/role-replacement";
+import { invalidateSessionsForUser } from "../lib/auth-cache";
 
 export function registerUserAssignmentRoutes(app: Express): void {
   // POST /api/users/assign-role - Assign role to user
@@ -57,25 +59,9 @@ export function registerUserAssignmentRoutes(app: Express): void {
         return res.status(404).json({ message: "Role not found" });
       }
 
-      const existing = await prisma.userRole.findUnique({
-        where: {
-          userId_roleId: {
-            userId,
-            roleId,
-          },
-        },
-      });
-
-      if (existing) {
-        return res.status(400).json({ message: "Role is already assigned to this user" });
-      }
-
-      await prisma.userRole.create({
-        data: {
-          userId,
-          roleId,
-        },
-      });
+      // Single active role: remove all existing roles, add only the selected one
+      await replaceUserRoles(prisma, userId, roleId);
+      await invalidateSessionsForUser(userId);
 
       // Log role assignment
       await logUserRoleAssignment(req.user!.id, userId, roleId, role.name, "assign");
@@ -235,6 +221,158 @@ export function registerUserAssignmentRoutes(app: Express): void {
     } catch (error) {
       console.error("Update permissions error:", error);
       res.status(500).json({ message: "Failed to update permissions" });
+    }
+  });
+
+  /**
+   * POST /api/users/create-credentials
+   * Director-only: Create or update ID/password user with role.
+   * Body: { email, password, name?, roleId }
+   * - If user exists: update passwordHash and replace role (single active role)
+   * - If user does not exist: create User, set passwordHash, attach roleId
+   */
+  app.post("/api/users/create-credentials", requireAuth, requirePolicy(POLICIES.ADMIN_PANEL), async (req, res) => {
+    try {
+      if (!req.user!.roles?.some((r) => r.name === "Director")) {
+        return res.status(403).json({ message: "Only Director can create credential users" });
+      }
+
+      const { email, password, name, roleId } = req.body;
+
+      if (!email || typeof email !== "string") {
+        return res.status(400).json({ message: "Email is required" });
+      }
+      if (!password || typeof password !== "string") {
+        return res.status(400).json({ message: "Password is required" });
+      }
+      if (password.length < 8) {
+        return res.status(400).json({ message: "Password must be at least 8 characters" });
+      }
+      if (!roleId) {
+        return res.status(400).json({ message: "Role is required" });
+      }
+
+      const roleIdValidation = validateUUID(roleId);
+      if (!roleIdValidation.valid) {
+        return res.status(400).json({ message: `Invalid role ID: ${roleIdValidation.error}` });
+      }
+
+      const normalizedEmail = email.trim().toLowerCase();
+      const role = await prisma.role.findUnique({ where: { id: roleId } });
+      if (!role) {
+        return res.status(404).json({ message: "Role not found" });
+      }
+
+      const existingUser = await prisma.user.findUnique({
+        where: { email: normalizedEmail },
+        select: { id: true, name: true },
+      });
+
+      let userId: string;
+
+      if (existingUser) {
+        await replaceUserRoles(prisma, existingUser.id, roleId);
+        await prisma.user.update({
+          where: { id: existingUser.id },
+          data: {
+            passwordHash: hashPassword(password),
+            name: (name && String(name).trim()) || existingUser.name,
+          },
+        });
+        userId = existingUser.id;
+        await invalidateSessionsForUser(userId);
+      } else {
+        const displayName = (name && String(name).trim()) || normalizedEmail.split("@")[0] || "User";
+        const user = await prisma.user.create({
+          data: {
+            name: displayName,
+            email: normalizedEmail,
+            passwordHash: hashPassword(password),
+            status: "active",
+          },
+        });
+        userId = user.id;
+        await replaceUserRoles(prisma, userId, roleId);
+      }
+
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, name: true, email: true },
+      });
+
+      res.json({
+        success: true,
+        user: { id: user!.id, name: user!.name, email: user!.email },
+        role: { id: role.id, name: role.name },
+      });
+    } catch (error) {
+      console.error("Create credentials error:", error);
+      res.status(500).json({ message: "Failed to create credentials" });
+    }
+  });
+
+  /**
+   * POST /api/admin/backfill-employee-users
+   * Director-only: Create User + assign Employee role for all employees without a linked user.
+   * Use when sync ran before auto-assign logic existed, or to fix role counts.
+   */
+  app.post("/api/admin/backfill-employee-users", requireAuth, requirePolicy(POLICIES.ADMIN_PANEL), async (req, res) => {
+    try {
+      if (!req.user!.roles?.some((r) => r.name === "Director")) {
+        return res.status(403).json({ message: "Only Director can run backfill" });
+      }
+
+      const employeeRole = await prisma.role.findUnique({ where: { name: "Employee" }, select: { id: true } });
+      if (!employeeRole) {
+        return res.status(500).json({ message: "Employee role not found in database" });
+      }
+
+      const employeesWithoutUser = await prisma.employee.findMany({
+        where: { user: null },
+        select: { id: true, cardNumber: true, firstName: true, lastName: true, companyEmail: true, personalEmail: true, orgUnitId: true },
+      });
+
+      let created = 0;
+      let failed = 0;
+
+      for (const emp of employeesWithoutUser) {
+        try {
+          const fullName = [emp.firstName, emp.lastName].filter(Boolean).join(" ").trim() || "Employee";
+          let email = emp.companyEmail || emp.personalEmail || `emp-${emp.cardNumber}@example.invalid`;
+          const existingByEmail = await prisma.user.findUnique({ where: { email: email.trim().toLowerCase() } });
+          if (existingByEmail) {
+            email = `emp-${emp.id}@example.invalid`;
+          }
+          const user = await prisma.user.create({
+            data: {
+              name: fullName,
+              email: email.trim().toLowerCase(),
+              passwordHash: hashPassword("sync-created"),
+              employeeId: emp.id,
+              orgUnitId: emp.orgUnitId,
+              status: "active",
+            },
+          });
+          await prisma.userRole.create({
+            data: { userId: user.id, roleId: employeeRole.id },
+          });
+          created++;
+        } catch (err: any) {
+          console.error(`[Backfill] Failed for employee ${emp.cardNumber}:`, err.message);
+          failed++;
+        }
+      }
+
+      res.json({
+        success: true,
+        created,
+        failed,
+        total: employeesWithoutUser.length,
+        message: `Created User + Employee role for ${created} employees.${failed > 0 ? ` ${failed} failed.` : ""}`,
+      });
+    } catch (error) {
+      console.error("Backfill employee users error:", error);
+      res.status(500).json({ message: "Failed to run backfill" });
     }
   });
 }

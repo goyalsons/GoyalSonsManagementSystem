@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import {
@@ -8,19 +9,100 @@ import {
   CardTitle,
   CardFooter
 } from "@/components/ui/card";
-import { ArrowLeft, Shield, Users, Lock, Edit } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { ArrowLeft, Shield, Users, Lock, Edit, KeyRound, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { useQuery } from "@tanstack/react-query";
-import { rolesApi } from "@/lib/api";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { rolesApi, usersApi } from "@/lib/api";
+import { useToast } from "@/hooks/use-toast";
 
 export default function RolesPage() {
   const [, setLocation] = useLocation();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [addConfigOpen, setAddConfigOpen] = useState(false);
+  const [configEmail, setConfigEmail] = useState("");
+  const [configPassword, setConfigPassword] = useState("");
+  const [configConfirmPassword, setConfigConfirmPassword] = useState("");
+  const [configName, setConfigName] = useState("");
+  const [configRoleId, setConfigRoleId] = useState<string>("");
 
   // Fetch roles from API
   const { data: roles = [], isLoading: rolesLoading } = useQuery({
     queryKey: ["roles"],
     queryFn: () => rolesApi.getAll(),
   });
+
+  const createCredentialsMutation = useMutation({
+    mutationFn: (data: { email: string; password: string; name?: string; roleId: string }) =>
+      usersApi.createCredentials(data),
+    onSuccess: (data) => {
+      toast({
+        title: "Configuration created",
+        description: `${data.user.email} can now login with the selected role (${data.role.name}).`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["roles"] });
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      setAddConfigOpen(false);
+      setConfigEmail("");
+      setConfigPassword("");
+      setConfigConfirmPassword("");
+      setConfigName("");
+      setConfigRoleId("");
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to create configuration",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleAddConfigSubmit = () => {
+    if (!configEmail.trim()) {
+      toast({ title: "Email is required", variant: "destructive" });
+      return;
+    }
+    if (!configPassword) {
+      toast({ title: "Password is required", variant: "destructive" });
+      return;
+    }
+    if (configPassword.length < 8) {
+      toast({ title: "Password must be at least 8 characters", variant: "destructive" });
+      return;
+    }
+    if (configPassword !== configConfirmPassword) {
+      toast({ title: "Passwords do not match", variant: "destructive" });
+      return;
+    }
+    if (!configRoleId) {
+      toast({ title: "Please select a role", variant: "destructive" });
+      return;
+    }
+    createCredentialsMutation.mutate({
+      email: configEmail.trim(),
+      password: configPassword,
+      name: configName.trim() || undefined,
+      roleId: configRoleId,
+    });
+  };
 
   const handleRoleCardClick = (roleName: string) => {
     if (roleName === "Manager") {
@@ -30,19 +112,112 @@ export default function RolesPage() {
 
   return (
     <>
-      <div className="flex items-center gap-4 mb-6">
-        <Link href="/roles-assigned">
-          <Button variant="ghost" size="icon">
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-        </Link>
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Roles & Permissions</h1>
-          <p className="text-muted-foreground mt-1">
-            Define what users can see and do in the system.
-          </p>
+      <div className="flex items-center justify-between gap-4 mb-6">
+        <div className="flex items-center gap-4">
+          <Link href="/roles-assigned">
+            <Button variant="ghost" size="icon">
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+          </Link>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Roles & Permissions</h1>
+            <p className="text-muted-foreground mt-1">
+              Define what users can see and do in the system.
+            </p>
+          </div>
         </div>
+        <Button onClick={() => setAddConfigOpen(true)} className="gap-2">
+          <KeyRound className="h-4 w-4" />
+          Add Configuration
+        </Button>
       </div>
+
+      <Dialog open={addConfigOpen} onOpenChange={setAddConfigOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Configuration</DialogTitle>
+            <DialogDescription>
+              Create an ID/password login user and assign a role. The user can sign in via email and password.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="config-email">ID (Email)</Label>
+              <Input
+                id="config-email"
+                type="email"
+                placeholder="user@example.com"
+                value={configEmail}
+                onChange={(e) => setConfigEmail(e.target.value)}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="config-password">Password</Label>
+              <Input
+                id="config-password"
+                type="password"
+                placeholder="Min 8 characters"
+                value={configPassword}
+                onChange={(e) => setConfigPassword(e.target.value)}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="config-confirm">Confirm Password</Label>
+              <Input
+                id="config-confirm"
+                type="password"
+                placeholder="Repeat password"
+                value={configConfirmPassword}
+                onChange={(e) => setConfigConfirmPassword(e.target.value)}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="config-name">Display Name (optional)</Label>
+              <Input
+                id="config-name"
+                placeholder="Full name"
+                value={configName}
+                onChange={(e) => setConfigName(e.target.value)}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label>Role</Label>
+              <Select value={configRoleId} onValueChange={setConfigRoleId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select role" />
+                </SelectTrigger>
+                <SelectContent>
+                  {roles
+                    .filter((r: { name: string }) => r.name !== "Manager")
+                    .map((role: { id: string; name: string }) => (
+                      <SelectItem key={role.id} value={role.id}>
+                        {role.name}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddConfigOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleAddConfigSubmit}
+              disabled={createCredentialsMutation.isPending}
+            >
+              {createCredentialsMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Creating...
+                </>
+              ) : (
+                "Create"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
         {rolesLoading ? (

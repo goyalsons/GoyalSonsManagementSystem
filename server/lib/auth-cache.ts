@@ -95,6 +95,20 @@ export function invalidateSessionAuthCache(sessionId: string): void {
 }
 
 /**
+ * Invalidate all cached auth snapshots for a user (all their sessions).
+ * Call after role/credentials change for immediate effect.
+ */
+export async function invalidateSessionsForUser(userId: string): Promise<void> {
+  const sessions = await prisma.session.findMany({
+    where: { userId },
+    select: { id: true },
+  });
+  for (const s of sessions) {
+    cache.delete(s.id);
+  }
+}
+
+/**
  * Try to use cached snapshot for a session.
  *
  * Returns:

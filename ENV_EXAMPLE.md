@@ -37,6 +37,14 @@ SALES_API_MAX_REDIRECTS=20
 
 ```
 
+## Authentication
+
+```env
+# Enable legacy behavior: auto-promote password/Google login users to Director (default: false)
+# When false, users get their actual DB roles. Use "Add Configuration" to create ID/password users with roles.
+ENABLE_PASSWORD_LOGIN_DIRECTOR_PROMOTION=false
+```
+
 ## How to Use
 
 1. Create a `.env` file in the root directory

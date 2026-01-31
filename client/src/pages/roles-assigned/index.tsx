@@ -13,7 +13,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Shield, UserPlus, Loader2, Search, CheckSquare, Building2, Briefcase, MapPin, X, Trash2, Plus, Edit } from "lucide-react";
+import { ArrowLeft, Shield, UserPlus, Loader2, Search, CheckSquare, Building2, Briefcase, MapPin, X, Trash2, Plus, Edit, KeyRound, RefreshCw } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { employeesApi, rolesApi, policiesApi, apiPost, apiDelete, orgUnitsApi, departmentsApi, designationsApi, usersApi } from "@/lib/api";
@@ -24,6 +24,13 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface Employee {
   id: string;
@@ -93,6 +100,14 @@ export default function RolesAssignedPage() {
   const [newRoleDescription, setNewRoleDescription] = useState<string>("");
   const [newRolePolicies, setNewRolePolicies] = useState<Set<string>>(new Set());
   const [newRolePolicySearch, setNewRolePolicySearch] = useState<string>("");
+
+  // Add Configuration Dialog State
+  const [addConfigOpen, setAddConfigOpen] = useState(false);
+  const [configEmail, setConfigEmail] = useState("");
+  const [configPassword, setConfigPassword] = useState("");
+  const [configConfirmPassword, setConfigConfirmPassword] = useState("");
+  const [configName, setConfigName] = useState("");
+  const [configRoleId, setConfigRoleId] = useState<string>("");
   
   // Filter states
   const [selectedUnits, setSelectedUnits] = useState<Set<string>>(new Set());
@@ -650,6 +665,89 @@ export default function RolesAssignedPage() {
     });
   };
 
+  // Create credentials (ID/password user) mutation
+  const createCredentialsMutation = useMutation({
+    mutationFn: (data: { email: string; password: string; name?: string; roleId: string }) =>
+      usersApi.createCredentials(data),
+    onSuccess: (data) => {
+      toast({
+        title: "Configuration created",
+        description: `${data.user.email} can now login with role: ${data.role.name}`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["roles"] });
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      queryClient.invalidateQueries({ queryKey: ["employees", "all-active"] });
+      setAddConfigOpen(false);
+      setConfigEmail("");
+      setConfigPassword("");
+      setConfigConfirmPassword("");
+      setConfigName("");
+      setConfigRoleId("");
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to create configuration",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Backfill: Create User + Employee role for employees without a linked user
+  const backfillMutation = useMutation({
+    mutationFn: () => usersApi.backfillEmployeeUsers(),
+    onSuccess: (data) => {
+      toast({
+        title: "Backfill complete",
+        description: data.message,
+      });
+      queryClient.invalidateQueries({ queryKey: ["roles"] });
+      queryClient.invalidateQueries({ queryKey: ["employees", "all-active"] });
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Backfill failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const employeesWithoutUserCount = useMemo(
+    () => allActiveEmployees.filter((e: Employee) => !e.user).length,
+    [allActiveEmployees]
+  );
+
+  const handleAddConfigSubmit = () => {
+    if (!configEmail.trim()) {
+      toast({ title: "Email is required", variant: "destructive" });
+      return;
+    }
+    if (!configPassword) {
+      toast({ title: "Password is required", variant: "destructive" });
+      return;
+    }
+    if (configPassword.length < 8) {
+      toast({ title: "Password must be at least 8 characters", variant: "destructive" });
+      return;
+    }
+    if (configPassword !== configConfirmPassword) {
+      toast({ title: "Passwords do not match", variant: "destructive" });
+      return;
+    }
+    if (!configRoleId) {
+      toast({ title: "Please select a role", variant: "destructive" });
+      return;
+    }
+    createCredentialsMutation.mutate({
+      email: configEmail.trim(),
+      password: configPassword,
+      name: configName.trim() || undefined,
+      roleId: configRoleId,
+    });
+  };
+
   // Handle delete role
   const handleDeleteRole = (role: Role) => {
     const activeCount = role.activeEmployeeCount ?? role.userCount ?? 0;
@@ -693,6 +791,30 @@ export default function RolesAssignedPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {employeesWithoutUserCount > 0 && (
+            <Button
+              variant="outline"
+              onClick={() => backfillMutation.mutate()}
+              disabled={backfillMutation.isPending}
+              className="gap-2"
+              title={`Assign Employee role to ${employeesWithoutUserCount} employees without User`}
+            >
+              {backfillMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+              Backfill ({employeesWithoutUserCount})
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            onClick={() => setAddConfigOpen(true)}
+            className="gap-2"
+          >
+            <KeyRound className="h-4 w-4" />
+            Add Configuration
+          </Button>
           <Button
             onClick={handleAddRole}
             className="gap-2"
@@ -1538,6 +1660,94 @@ export default function RolesAssignedPage() {
                   <Plus className="h-4 w-4" />
                   Create Role
                 </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Configuration Dialog */}
+      <Dialog open={addConfigOpen} onOpenChange={setAddConfigOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Configuration</DialogTitle>
+            <DialogDescription>
+              Create an ID/password login user and assign a role. The user can sign in via email and password.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="config-email">ID (Email)</Label>
+              <Input
+                id="config-email"
+                type="email"
+                placeholder="user@example.com"
+                value={configEmail}
+                onChange={(e) => setConfigEmail(e.target.value)}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="config-password">Password</Label>
+              <Input
+                id="config-password"
+                type="password"
+                placeholder="Min 8 characters"
+                value={configPassword}
+                onChange={(e) => setConfigPassword(e.target.value)}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="config-confirm">Confirm Password</Label>
+              <Input
+                id="config-confirm"
+                type="password"
+                placeholder="Repeat password"
+                value={configConfirmPassword}
+                onChange={(e) => setConfigConfirmPassword(e.target.value)}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="config-name">Display Name (optional)</Label>
+              <Input
+                id="config-name"
+                placeholder="Full name"
+                value={configName}
+                onChange={(e) => setConfigName(e.target.value)}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label>Role</Label>
+              <Select value={configRoleId} onValueChange={setConfigRoleId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select role" />
+                </SelectTrigger>
+                <SelectContent>
+                  {roles
+                    .filter((r: { name: string }) => r.name !== "Manager")
+                    .map((role: { id: string; name: string }) => (
+                      <SelectItem key={role.id} value={role.id}>
+                        {role.name}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddConfigOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleAddConfigSubmit}
+              disabled={createCredentialsMutation.isPending}
+            >
+              {createCredentialsMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Creating...
+                </>
+              ) : (
+                "Create"
               )}
             </Button>
           </DialogFooter>

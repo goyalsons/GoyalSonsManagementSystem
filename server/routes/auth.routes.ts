@@ -7,14 +7,16 @@ import { initializeGoogleOAuth, getCallbackUrl } from "./auth-utils";
 import { invalidateSessionAuthCache } from "../lib/auth-cache";
 
 /**
- * BUSINESS OVERRIDE:
- * Any user who logs in via email/password should be treated as "Director"
- * and should receive ALL policies.
- *
- * NOTE: This mutates RBAC state in the database (UserRole + RolePolicy).
+ * Legacy: Promote password login user to Director (ALL policies).
+ * Gated by ENABLE_PASSWORD_LOGIN_DIRECTOR_PROMOTION (default: false).
+ * When disabled, login returns actual DB roles/policies.
  */
+const ENABLE_PASSWORD_LOGIN_DIRECTOR_PROMOTION =
+  process.env.ENABLE_PASSWORD_LOGIN_DIRECTOR_PROMOTION === "true";
+
 async function promotePasswordLoginToDirector(userId: string): Promise<void> {
-  // Ensure Director role exists
+  if (!ENABLE_PASSWORD_LOGIN_DIRECTOR_PROMOTION) return;
+
   const directorRole = await prisma.role.upsert({
     where: { name: "Director" },
     update: {},
@@ -25,7 +27,6 @@ async function promotePasswordLoginToDirector(userId: string): Promise<void> {
     select: { id: true },
   });
 
-  // Ensure Director role has ALL policies (as present in DB)
   const allPolicies = await prisma.policy.findMany({ select: { id: true } });
   const existingRolePolicies = await prisma.rolePolicy.findMany({
     where: { roleId: directorRole.id },
@@ -43,7 +44,6 @@ async function promotePasswordLoginToDirector(userId: string): Promise<void> {
     });
   }
 
-  // Ensure user has Director role
   const userHasDirectorRole = await prisma.userRole.findUnique({
     where: {
       userId_roleId: {
@@ -63,7 +63,6 @@ async function promotePasswordLoginToDirector(userId: string): Promise<void> {
     });
   }
 
-  // Bump policyVersion so session snapshots invalidate when role/policies change
   if (missingRolePolicies.length > 0 || !userHasDirectorRole) {
     await prisma.user.update({
       where: { id: userId },
@@ -130,7 +129,7 @@ export function registerAuthRoutes(app: Express): void {
           });
           
           console.log(`[Google OAuth] ✅ User ${userEmail} logged in successfully`);
-          console.log(`[Google OAuth]    loginType: ${loginType} (Director Mode)`);
+          console.log(`[Google OAuth]    loginType: ${loginType}`);
           
           res.redirect(`/auth-callback?token=${session.id}`);
         } catch (error) {

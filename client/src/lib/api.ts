@@ -35,18 +35,33 @@ export async function apiGet<T>(endpoint: string): Promise<T> {
 }
 
 export async function apiPost<T>(endpoint: string, data?: unknown): Promise<T> {
-  const response = await fetch(`${API_BASE}${endpoint}`, {
+  const url = `${API_BASE}${endpoint}`;
+  const response = await fetch(url, {
     method: "POST",
     headers: getAuthHeaders(),
     body: data ? JSON.stringify(data) : undefined,
+    cache: "no-store",
   });
 
+  const contentType = response.headers.get("content-type") || "";
+  const isJson = contentType.includes("application/json");
+
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: "Request failed" }));
+    const error = isJson
+      ? await response.json().catch(() => ({ message: "Request failed" }))
+      : { message: `Request failed (${response.status})` };
     if (response.status === 401) {
       handleUnauthorized();
     }
-    throw new Error(error.message);
+    throw new Error((error as { message?: string }).message || "Request failed");
+  }
+
+  if (!isJson) {
+    const text = await response.text();
+    const preview = text.slice(0, 80);
+    throw new Error(
+      `Expected JSON but received ${contentType || "unknown"}. Check API proxy/URL. Response preview: ${preview}`
+    );
   }
 
   return response.json();
@@ -239,6 +254,16 @@ export const usersApi = {
     apiDelete<any>(`/users/${userId}/roles/${roleId}`),
   updateRolePermissions: (data: { userId: string; roleId: string; policyIds: string[] }) =>
     apiPost<any>("/users/update-role-permissions", data),
+  createCredentials: (data: { email: string; password: string; name?: string; roleId: string }) =>
+    apiPost<{ success: boolean; user: { id: string; name: string; email: string }; role: { id: string; name: string } }>(
+      "/users/create-credentials",
+      data
+    ),
+  backfillEmployeeUsers: () =>
+    apiPost<{ success: boolean; created: number; failed: number; total: number; message: string }>(
+      "/admin/backfill-employee-users",
+      {}
+    ),
 };
 
 export const claimsApi = {

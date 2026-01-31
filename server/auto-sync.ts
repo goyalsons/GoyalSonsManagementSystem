@@ -1,5 +1,10 @@
+import * as crypto from "crypto";
 import { syncPrisma as prisma } from "./lib/sync-prisma";
 import { clearTodayAttendanceCache, clearAttendanceCache } from "./bigquery-service";
+
+function hashPassword(password: string): string {
+  return crypto.createHash("sha256").update(password).digest("hex");
+}
 
 const syncTimers: Map<string, NodeJS.Timeout> = new Map();
 const syncInFlight: Set<string> = new Set();
@@ -437,6 +442,40 @@ async function syncApiSource(routeId: string): Promise<void> {
               metadata,
             },
           });
+
+          // Auto-create User + Employee role for employees without a linked user
+          try {
+            const employeeRecord = await prisma.employee.findUnique({
+              where: { cardNumber: emp["CARD_NO"] },
+              include: { user: true },
+            });
+            if (employeeRecord && !employeeRecord.user) {
+              const fullName = [employeeRecord.firstName, employeeRecord.lastName].filter(Boolean).join(" ").trim() || "Employee";
+              let email = employeeRecord.companyEmail || employeeRecord.personalEmail || `emp-${employeeRecord.cardNumber}@example.invalid`;
+              const existingByEmail = await prisma.user.findUnique({ where: { email: email.trim().toLowerCase() } });
+              if (existingByEmail) {
+                email = `emp-${employeeRecord.id}@example.invalid`;
+              }
+              const employeeRole = await prisma.role.findUnique({ where: { name: "Employee" }, select: { id: true } });
+              if (employeeRole) {
+                const user = await prisma.user.create({
+                  data: {
+                    name: fullName,
+                    email: email.trim().toLowerCase(),
+                    passwordHash: hashPassword("sync-created"),
+                    employeeId: employeeRecord.id,
+                    orgUnitId: employeeRecord.orgUnitId,
+                    status: "active",
+                  },
+                });
+                await prisma.userRole.create({
+                  data: { userId: user.id, roleId: employeeRole.id },
+                });
+              }
+            }
+          } catch (userErr: any) {
+            console.error(`[Auto-Sync] Failed to auto-create user for employee ${emp["CARD_NO"]}:`, userErr.message);
+          }
 
           return "imported";
         } catch (empError: any) {
