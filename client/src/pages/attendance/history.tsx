@@ -214,7 +214,7 @@ function calculateSummary(records: AttendanceRecord[]) {
 }
 
 export default function AttendanceHistoryPage() {
-  const { user } = useAuth();
+  const { user, hasPolicy } = useAuth();
   const employeeCardNo = user?.employeeCardNo;
   const hasEmployeeCardNo = Boolean(employeeCardNo);
   
@@ -772,22 +772,56 @@ export default function AttendanceHistoryPage() {
                   {(() => {
                     const remarks = (selectedRecord.status_remarks || "").toUpperCase().trim();
                     
-                    // Hide both fields for ABSENT/DOUBLE ABSENT
-                    const shouldHideBoth = status === "ABSENT" || status === "DOUBLE ABSENT" || status === "DOUBLE A" || status.includes("DOUBLE");
+                    // Policy-based timing visibility
+                    const hasAllTimingPolicy = hasPolicy("attendance.timing.all.view");
                     
-                    if (shouldHideBoth) {
-                      return null;
+                    // ABSENT / DOUBLE ABSENT
+                    const isAbsent = status === "ABSENT" || status === "DOUBLE ABSENT" || status === "DOUBLE A" || status.includes("DOUBLE");
+                    if (isAbsent) {
+                      const canViewAbsentIn = hasAllTimingPolicy || hasPolicy("attendance.timing.absent.in.view");
+                      const canViewAbsentOut = hasAllTimingPolicy || hasPolicy("attendance.timing.absent.out.view");
+                      
+                      if (!canViewAbsentIn && !canViewAbsentOut) {
+                        return null; // Hide both if no policy
+                      }
+                      
+                      return (
+                        <>
+                          {canViewAbsentIn && (
+                            <div>
+                              <span className="text-muted-foreground">In Time:</span>
+                              <div className="font-medium text-foreground font-mono">
+                                {selectedRecord.t_in || selectedRecord.result_t_in || "--:--"}
+                              </div>
+                            </div>
+                          )}
+                          {canViewAbsentOut && (
+                            <div>
+                              <span className="text-muted-foreground">Out Time:</span>
+                              <div className="font-medium text-foreground font-mono">
+                                {selectedRecord.t_out || selectedRecord.result_t_out || "--:--"}
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      );
                     }
                     
-                    // Hide In Time and Out Time for PRESENT LATE EARLY_OUT
+                    // PRESENT LATE EARLY_OUT
                     if (isPresentLateEarlyOut) {
-                      return null;
+                      return null; // Always hide for this combined status
                     }
                   
-                  // Check for PRESENT LATE (show only In Time, hide Out Time)
+                  // PRESENT LATE (show only In Time if policy allows)
                   const isPresentLate = status === "PRESENT LATE" || (status.includes("PRESENT") && status.includes("LATE") && !status.includes("EARLY"));
                   
                   if (isPresentLate) {
+                    const canViewLateIn = hasAllTimingPolicy || hasPolicy("attendance.timing.present_late.in.view");
+                    
+                    if (!canViewLateIn) {
+                      return null; // Hide if no policy
+                    }
+                    
                     return (
                       <div>
                         <span className="text-muted-foreground">In Time:</span>
@@ -798,11 +832,17 @@ export default function AttendanceHistoryPage() {
                     );
                   }
                   
-                  // Check for PRESENT EARLY_OUT (show only Out Time, hide In Time)
+                  // PRESENT EARLY_OUT (show only Out Time if policy allows)
                   const isPresentEarlyOut = status === "PRESENT EARLY_OUT" || status === "PRESENT E" || 
                                            (status.includes("PRESENT") && status.includes("EARLY") && !status.includes("LATE"));
                   
                   if (isPresentEarlyOut) {
+                    const canViewEarlyOut = hasAllTimingPolicy || hasPolicy("attendance.timing.present_early.out.view");
+                    
+                    if (!canViewEarlyOut) {
+                      return null; // Hide if no policy
+                    }
+                    
                     return (
                       <div>
                         <span className="text-muted-foreground">Out Time:</span>
@@ -813,26 +853,64 @@ export default function AttendanceHistoryPage() {
                     );
                   }
                   
-                  // Hide both fields for plain PRESENT (including MARKED PRESENT in remarks)
-                  if (status === "PRESENT" || status.includes("MARKED PRESENT") || remarks.includes("MARKED PRESENT")) {
-                    return null;
+                  // Plain PRESENT (including MARKED PRESENT)
+                  const isPlainPresent = status === "PRESENT" || status.includes("MARKED PRESENT") || remarks.includes("MARKED PRESENT");
+                  if (isPlainPresent) {
+                    const canViewPresentIn = hasAllTimingPolicy || hasPolicy("attendance.timing.present.in.view");
+                    const canViewPresentOut = hasAllTimingPolicy || hasPolicy("attendance.timing.present.out.view");
+                    
+                    if (!canViewPresentIn && !canViewPresentOut) {
+                      return null; // Hide both if no policy
+                    }
+                    
+                    return (
+                      <>
+                        {canViewPresentIn && (
+                          <div>
+                            <span className="text-muted-foreground">In Time:</span>
+                            <div className="font-medium text-foreground font-mono">
+                              {selectedRecord.t_in || selectedRecord.result_t_in || "--:--"}
+                            </div>
+                          </div>
+                        )}
+                        {canViewPresentOut && (
+                          <div>
+                            <span className="text-muted-foreground">Out Time:</span>
+                            <div className="font-medium text-foreground font-mono">
+                              {selectedRecord.t_out || selectedRecord.result_t_out || "--:--"}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    );
                   }
                   
-                  // For all other statuses, show both
+                  // MISS / MISS PENDING / Other statuses
+                  const canViewMissIn = hasAllTimingPolicy || hasPolicy("attendance.timing.miss.in.view");
+                  const canViewMissOut = hasAllTimingPolicy || hasPolicy("attendance.timing.miss.out.view");
+                  
+                  if (!canViewMissIn && !canViewMissOut) {
+                    return null; // Hide both if no policy
+                  }
+                  
                   return (
                     <>
-                      <div>
-                        <span className="text-muted-foreground">In Time:</span>
-                        <div className="font-medium text-foreground font-mono">
-                          {selectedRecord.t_in || selectedRecord.result_t_in || "--:--"}
+                      {canViewMissIn && (
+                        <div>
+                          <span className="text-muted-foreground">In Time:</span>
+                          <div className="font-medium text-foreground font-mono">
+                            {selectedRecord.t_in || selectedRecord.result_t_in || "--:--"}
+                          </div>
                         </div>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Out Time:</span>
-                        <div className="font-medium text-foreground font-mono">
-                          {selectedRecord.t_out || selectedRecord.result_t_out || "--:--"}
+                      )}
+                      {canViewMissOut && (
+                        <div>
+                          <span className="text-muted-foreground">Out Time:</span>
+                          <div className="font-medium text-foreground font-mono">
+                            {selectedRecord.t_out || selectedRecord.result_t_out || "--:--"}
+                          </div>
                         </div>
-                      </div>
+                      )}
                     </>
                   );
                   })()}

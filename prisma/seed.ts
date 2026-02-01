@@ -165,6 +165,19 @@ async function main() {
     { key: "help_tickets.assign", description: "Assign help tickets", category: "help_tickets" },
     { key: "help_tickets.close", description: "Close help tickets", category: "help_tickets" },
     { key: "no_policy.view", description: "Access no policy page", category: "system" },
+    
+    // Attendance Timing Visibility Policies (Granular per-status control)
+    { key: "attendance.timing.absent.in.view", description: "View In Time for ABSENT status", category: "attendance_timing" },
+    { key: "attendance.timing.absent.out.view", description: "View Out Time for ABSENT status", category: "attendance_timing" },
+    { key: "attendance.timing.present.in.view", description: "View In Time for PRESENT status", category: "attendance_timing" },
+    { key: "attendance.timing.present.out.view", description: "View Out Time for PRESENT status", category: "attendance_timing" },
+    { key: "attendance.timing.present_late.in.view", description: "View In Time for PRESENT LATE status", category: "attendance_timing" },
+    { key: "attendance.timing.present_late.out.view", description: "View Out Time for PRESENT LATE status", category: "attendance_timing" },
+    { key: "attendance.timing.present_early.in.view", description: "View In Time for PRESENT EARLY_OUT status", category: "attendance_timing" },
+    { key: "attendance.timing.present_early.out.view", description: "View Out Time for PRESENT EARLY_OUT status", category: "attendance_timing" },
+    { key: "attendance.timing.miss.in.view", description: "View In Time for MISS status", category: "attendance_timing" },
+    { key: "attendance.timing.miss.out.view", description: "View Out Time for MISS status", category: "attendance_timing" },
+    { key: "attendance.timing.all.view", description: "View all attendance timings (Director bypass)", category: "attendance_timing" },
   ];
 
   // Remove any policies not in the allowlist
