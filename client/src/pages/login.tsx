@@ -170,6 +170,7 @@ export default function LoginPage() {
 
       if (res.ok) {
         localStorage.setItem("gms_token", data.token);
+        localStorage.setItem("gms_login_at", String(Date.now()));
         
         if (!data.user?.policies?.length || (data.user.policies.length === 1 && data.user.policies[0] === "no_policy.view")) {
           window.location.href = "/no-policy";

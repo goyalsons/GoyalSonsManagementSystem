@@ -201,8 +201,7 @@ export function registerOtpRoutes(app: Express): void {
         await ensureEmployeeRole(user.id);
       }
 
-      const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + 7);
+      const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000);
       const loginType = employee?.cardNumber ? "employee" : "mdo";
       const employeeCardNo = employee?.cardNumber || null;
 
@@ -567,8 +566,7 @@ export function registerOtpRoutes(app: Express): void {
       // Ensure Employee role for employee OTP logins
       await ensureEmployeeRole(user.id);
 
-      const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + 7);
+      const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000);
 
       const session = await prisma.session.create({
         data: {

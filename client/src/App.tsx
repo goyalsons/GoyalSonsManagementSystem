@@ -31,6 +31,7 @@ const CreateEmployeePage = lazy(() => import("@/pages/employees/create"));
 const SettingsPage = lazy(() => import("@/pages/settings"));
 const ApiRoutingPage = lazy(() => import("@/pages/admin/routing"));
 const MasterSettingsPage = lazy(() => import("@/pages/admin/master-settings"));
+const LogoutAllSessionsPage = lazy(() => import("@/pages/admin/logout-all-sessions"));
 const FetchedDataPage = lazy(() => import("@/pages/integrations/fetched-data"));
 const SalesPage = lazy(() => import("@/pages/sales/index"));
 const SalesUnitPage = lazy(() => import("@/pages/sales/unit"));
@@ -183,6 +184,9 @@ function AuthenticatedRoutes() {
           )} />
           <Route path="/admin/master-settings" component={() => (
             <PageGuard policy="admin.master-settings.view"><MasterSettingsPage /></PageGuard>
+          )} />
+          <Route path="/admin/logout-all-sessions" component={() => (
+            <PageGuard policy="admin.panel"><LogoutAllSessionsPage /></PageGuard>
           )} />
           <Route path="/training" component={() => (
             <PageGuard policy="trainings.view"><TrainingPage /></PageGuard>

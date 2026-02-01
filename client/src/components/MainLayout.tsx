@@ -65,6 +65,7 @@ interface NavItem {
   label: string;
   policy: string | null;
   subItems?: SubNavItem[];
+  directorOnly?: boolean;
 }
 
 // Navigation items - policies come from NAV_CONFIG
@@ -122,6 +123,8 @@ const navItems: NavItem[] = [
   { href: "/settings", icon: Settings, label: "Settings", policy: getPolicyForPath("/settings") },
   // (Sales pivot is shown as "Sales" above)
   { href: "/assigned-manager", icon: UserCheck, label: "Assigned Manager", policy: getPolicyForPath("/assigned-manager") },
+  // Director-only: Logout all users at once (real-time via SSE)
+  { href: "/admin/logout-all-sessions", icon: LogOut, label: "Logout All Sessions", policy: getPolicyForPath("/admin/logout-all-sessions"), directorOnly: true },
 ];
 
 const adminItems: NavItem[] = [];
@@ -511,8 +514,10 @@ export default function MainLayout({ children }: MainLayoutProps) {
   }, []);
   
   const visibleNavItems = useMemo(() => {
+    const isDirector = user?.roles?.some((r) => r.name === "Director");
     return navItems
       .filter(item => {
+        if (item.directorOnly && !isDirector) return false;
         if (!item.policy || !hasPolicy(item.policy)) return false;
 
         if (item.subItems) {
@@ -535,7 +540,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
 
         return { ...item, subItems: filteredSubItems };
       });
-  }, [hasPolicy]);
+  }, [hasPolicy, user?.roles]);
   
   const visibleAdminItems = useMemo(() => {
     return adminItems.filter(item => item.policy !== null && hasPolicy(item.policy));

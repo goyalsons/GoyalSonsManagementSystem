@@ -9,8 +9,9 @@ function getAuthHeaders(): HeadersInit {
 
 function handleUnauthorized(): void {
   localStorage.removeItem("gms_token");
+  localStorage.removeItem("gms_login_at");
   if (typeof window !== "undefined") {
-    window.location.href = "/login";
+    window.location.href = "/login?error=Session+expired";
   }
 }
 

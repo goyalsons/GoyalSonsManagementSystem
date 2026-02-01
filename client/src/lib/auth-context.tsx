@@ -1,5 +1,19 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useRef, ReactNode } from "react";
 import { useLocation } from "wouter";
+
+const SESSION_EXPIRY_MS = 2 * 60 * 60 * 1000; // 2 hours
+const GMS_TOKEN = "gms_token";
+const GMS_LOGIN_AT = "gms_login_at";
+
+function setTokenAndLoginAt(token: string): void {
+  localStorage.setItem(GMS_TOKEN, token);
+  localStorage.setItem(GMS_LOGIN_AT, String(Date.now()));
+}
+
+function clearAuthStorage(): void {
+  localStorage.removeItem(GMS_TOKEN);
+  localStorage.removeItem(GMS_LOGIN_AT);
+}
 
 export interface UserAuth {
   id: string;
@@ -38,15 +52,112 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [, setLocation] = useLocation();
+  const logoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sseAbortRef = useRef<AbortController | null>(null);
+
+  // SSE client: real-time session invalidation when Director triggers "logout all"
+  // Uses fetch + ReadableStream (EventSource doesn't support X-Session-Id header)
+  useEffect(() => {
+    const t = token || localStorage.getItem(GMS_TOKEN);
+    if (!t || !user) return;
+
+    const ac = new AbortController();
+    sseAbortRef.current = ac;
+
+    const connect = () => {
+      fetch("/api/auth/session-events", {
+        headers: { "X-Session-Id": t },
+        signal: ac.signal,
+      })
+        .then((res) => {
+          if (!res.ok || !res.body) return;
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buf = "";
+          const read = () =>
+            reader.read().then(({ done, value }) => {
+              if (done) return;
+              buf += decoder.decode(value, { stream: true });
+              const lines = buf.split("\n\n");
+              buf = lines.pop() || "";
+              for (const block of lines) {
+                const m = block.match(/^data:\s*(.+)$/m);
+                if (m) {
+                  try {
+                    const data = JSON.parse(m[1]);
+                    if (data.event === "logout_all") {
+                      clearAuthStorage();
+                      setToken(null);
+                      setUser(null);
+                      if (logoutTimerRef.current) {
+                        clearTimeout(logoutTimerRef.current);
+                        logoutTimerRef.current = null;
+                      }
+                      window.location.href = "/login?error=Session+expired";
+                      return;
+                    }
+                  } catch {
+                    // Ignore parse errors
+                  }
+                }
+              }
+              return read();
+            });
+          return read();
+        })
+        .catch(() => {
+          // Aborted or network error - normal on logout
+        });
+    };
+    connect();
+
+    return () => {
+      ac.abort();
+      sseAbortRef.current = null;
+    };
+  }, [token, user]);
 
   useEffect(() => {
-    const storedToken = localStorage.getItem("gms_token");
-    if (storedToken) {
-      setToken(storedToken);
-      fetchUser(storedToken);
-    } else {
+    const storedToken = localStorage.getItem(GMS_TOKEN);
+    const loginAtStr = localStorage.getItem(GMS_LOGIN_AT);
+    const loginAt = loginAtStr ? parseInt(loginAtStr, 10) : Date.now();
+
+    if (!storedToken) {
       setIsLoading(false);
+      return;
     }
+
+    const elapsed = Date.now() - loginAt;
+    if (elapsed >= SESSION_EXPIRY_MS) {
+      clearAuthStorage();
+      setToken(null);
+      setUser(null);
+      setIsLoading(false);
+      setLocation("/login?error=Session+expired");
+      return;
+    }
+
+    if (!loginAtStr) {
+      localStorage.setItem(GMS_LOGIN_AT, String(Date.now()));
+    }
+
+    setToken(storedToken);
+    fetchUser(storedToken);
+
+    const remainingMs = SESSION_EXPIRY_MS - elapsed;
+    logoutTimerRef.current = setTimeout(() => {
+      clearAuthStorage();
+      setToken(null);
+      setUser(null);
+      setLocation("/login?error=Session+expired");
+    }, remainingMs);
+
+    return () => {
+      if (logoutTimerRef.current) {
+        clearTimeout(logoutTimerRef.current);
+        logoutTimerRef.current = null;
+      }
+    };
   }, []);
 
   async function fetchUser(authToken: string) {
@@ -61,12 +172,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const userData = await response.json();
         setUser(userData);
       } else {
-        localStorage.removeItem("gms_token");
+        if (logoutTimerRef.current) {
+          clearTimeout(logoutTimerRef.current);
+          logoutTimerRef.current = null;
+        }
+        clearAuthStorage();
         setToken(null);
       }
     } catch (error) {
       console.error("Failed to fetch user:", error);
-      localStorage.removeItem("gms_token");
+      if (logoutTimerRef.current) {
+        clearTimeout(logoutTimerRef.current);
+        logoutTimerRef.current = null;
+      }
+      clearAuthStorage();
       setToken(null);
     } finally {
       setIsLoading(false);
@@ -85,11 +204,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (response.ok) {
         const data = await response.json();
-        localStorage.setItem("gms_token", data.token);
+        setTokenAndLoginAt(data.token);
         setToken(data.token);
-        // Use user data from login (now includes manager status) and refresh to ensure latest
         setUser(data.user);
         await fetchUser(data.token);
+
+        if (logoutTimerRef.current) clearTimeout(logoutTimerRef.current);
+        logoutTimerRef.current = setTimeout(() => {
+          clearAuthStorage();
+          setToken(null);
+          setUser(null);
+          setLocation("/login?error=Session+expired");
+        }, SESSION_EXPIRY_MS);
+
         return { success: true };
       } else {
         const error = await response.json();
@@ -101,6 +228,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function logout() {
+    if (logoutTimerRef.current) {
+      clearTimeout(logoutTimerRef.current);
+      logoutTimerRef.current = null;
+    }
     if (token) {
       try {
         await fetch("/api/auth/logout", {
@@ -114,7 +245,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    localStorage.removeItem("gms_token");
+    clearAuthStorage();
     setToken(null);
     setUser(null);
     setLocation("/login");

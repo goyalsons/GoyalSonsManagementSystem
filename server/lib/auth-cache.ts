@@ -95,6 +95,14 @@ export function invalidateSessionAuthCache(sessionId: string): void {
 }
 
 /**
+ * Invalidate all cached auth snapshots (entire cache).
+ * Used when Director triggers "logout all sessions".
+ */
+export function invalidateAllAuthCache(): void {
+  cache.clear();
+}
+
+/**
  * Invalidate all cached auth snapshots for a user (all their sessions).
  * Call after role/credentials change for immediate effect.
  */

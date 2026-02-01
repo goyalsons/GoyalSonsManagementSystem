@@ -5,6 +5,7 @@ import { requireAuth, hashPassword } from "../lib/auth-middleware";
 import { getUserAuthInfo } from "../lib/authorization";
 import { initializeGoogleOAuth, getCallbackUrl } from "./auth-utils";
 import { invalidateSessionAuthCache } from "../lib/auth-cache";
+import { registerSseClient } from "../lib/session-events";
 
 /**
  * Legacy: Promote password login user to Director (ALL policies).
@@ -119,7 +120,7 @@ export function registerAuthRoutes(app: Express): void {
           // so Director mode is full access and not restricted by policies.
           await promotePasswordLoginToDirector(user.id);
 
-          const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+          const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000);
           const session = await prisma.session.create({
             data: {
               userId: user.id,
@@ -191,8 +192,7 @@ export function registerAuthRoutes(app: Express): void {
             await promotePasswordLoginToDirector(envUser.id);
 
             // Use env user
-            const expiresAt = new Date();
-            expiresAt.setDate(expiresAt.getDate() + 7);
+            const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000);
 
             const session = await prisma.session.create({
               data: {
@@ -226,8 +226,7 @@ export function registerAuthRoutes(app: Express): void {
       // Password login: promote to Director with all policies
       await promotePasswordLoginToDirector(user.id);
 
-      const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + 7);
+      const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000);
 
       const session = await prisma.session.create({
         data: {
@@ -283,6 +282,25 @@ export function registerAuthRoutes(app: Express): void {
       console.error("Auth me error:", error);
       res.status(500).json({ message: "Failed to get user info" });
     }
+  });
+
+  /**
+   * GET /api/auth/session-events
+   * SSE endpoint for real-time session invalidation.
+   * Clients connect with X-Session-Id. When Director triggers "logout all", server pushes logout event.
+   */
+  app.get("/api/auth/session-events", requireAuth, (req, res) => {
+    const sessionId = req.headers["x-session-id"];
+    const sessionValue = Array.isArray(sessionId) ? sessionId[0] : sessionId;
+    if (!sessionValue) {
+      return res.status(401).json({ message: "Session ID required" });
+    }
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders?.();
+    registerSseClient(String(sessionValue), res);
   });
 
   app.post("/api/auth/logout", requireAuth, async (req, res) => {

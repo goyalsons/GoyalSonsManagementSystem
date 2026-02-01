@@ -326,7 +326,7 @@ export async function registerLegacyRoutes(
           // Create session for the user with MDO loginType
           // All Google OAuth logins are treated as MDO users
           const loginType = "mdo";
-          const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+          const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000);
           const session = await prisma.session.create({
             data: {
               userId: user.id,
@@ -373,8 +373,7 @@ export async function registerLegacyRoutes(
         return res.status(401).json({ message: "Invalid email or password" });
       }
 
-      const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + 7);
+      const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000);
 
       const session = await prisma.session.create({
         data: {
@@ -2696,8 +2695,7 @@ export async function registerLegacyRoutes(
         return res.status(404).json({ message: "No employee found with this phone number. Please contact admin." });
       }
 
-      const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + 7);
+      const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000);
 
       const session = await prisma.session.create({
         data: {
@@ -3085,8 +3083,7 @@ export async function registerLegacyRoutes(
         }
       }
 
-      const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + 7);
+      const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000);
 
       const session = await prisma.session.create({
         data: {

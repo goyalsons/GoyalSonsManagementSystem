@@ -6,7 +6,8 @@ import { validateUUID } from "../lib/validation";
 import { canAssignRole } from "../lib/role-assignment-security";
 import { logUserRoleAssignment } from "../lib/audit-log";
 import { replaceUserRoles } from "../lib/role-replacement";
-import { invalidateSessionsForUser } from "../lib/auth-cache";
+import { invalidateSessionsForUser, invalidateAllAuthCache } from "../lib/auth-cache";
+import { broadcastLogoutAll } from "../lib/session-events";
 
 export function registerUserAssignmentRoutes(app: Express): void {
   // POST /api/users/assign-role - Assign role to user
@@ -373,6 +374,31 @@ export function registerUserAssignmentRoutes(app: Express): void {
     } catch (error) {
       console.error("Backfill employee users error:", error);
       res.status(500).json({ message: "Failed to run backfill" });
+    }
+  });
+
+  /**
+   * POST /api/admin/logout-all-sessions
+   * Director-only: Delete all sessions and broadcast logout to SSE clients (real-time).
+   */
+  app.post("/api/admin/logout-all-sessions", requireAuth, requirePolicy(POLICIES.ADMIN_PANEL), async (req, res) => {
+    try {
+      if (!req.user!.roles?.some((r) => r.name === "Director")) {
+        return res.status(403).json({ message: "Only Director can logout all sessions" });
+      }
+
+      const result = await prisma.session.deleteMany({});
+      invalidateAllAuthCache();
+      broadcastLogoutAll();
+
+      res.json({
+        success: true,
+        count: result.count,
+        message: `Logged out ${result.count} session(s). All users must login again.`,
+      });
+    } catch (error) {
+      console.error("Logout all sessions error:", error);
+      res.status(500).json({ message: "Failed to logout all sessions" });
     }
   });
 }

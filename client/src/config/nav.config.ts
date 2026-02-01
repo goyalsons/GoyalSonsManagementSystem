@@ -159,6 +159,12 @@ export const NAV_CONFIG: NavConfigItem[] = [
     policy: "admin.panel" 
   },
   { 
+    key: "logout-all-sessions", 
+    label: "Logout All Sessions", 
+    path: "/admin/logout-all-sessions", 
+    policy: "admin.panel" 
+  },
+  { 
     key: "api-settings", 
     label: "API Setting", 
     path: "/admin/routing", 

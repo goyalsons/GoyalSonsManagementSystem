@@ -27,6 +27,7 @@ export default function AuthCallbackPage() {
     
     if (token) {
       localStorage.setItem("gms_token", token);
+      localStorage.setItem("gms_login_at", String(Date.now()));
       
       // Fetch user data to redirect based on policies
       fetch("/api/auth/me", {
