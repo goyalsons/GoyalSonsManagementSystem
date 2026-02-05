@@ -421,23 +421,6 @@ export default function TeamAttendancePage() {
             </div>
           )}
           <div className="flex flex-wrap gap-4">
-            <div className="flex-1 min-w-[200px]">
-              <Label className="text-sm text-muted-foreground">Team Member</Label>
-              <Select value={selectedMember} onValueChange={(v) => { setSelectedMember(v); setSearchMessage(null); }}>
-                <SelectTrigger className="mt-1">
-                  <SelectValue placeholder="Select member..." />
-                </SelectTrigger>
-                <SelectContent className="max-h-[min(20rem,70vh)] overflow-y-auto">
-                  <SelectItem value="all">-- Select a member --</SelectItem>
-                  {teamMembers.map((member) => (
-                    <SelectItem key={member.id} value={member.cardNumber || member.id}>
-                      {member.firstName} {member.lastName || ""} ({member.cardNumber || "No Card"})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
             <div>
               <Label className="text-sm text-muted-foreground">Month</Label>
               <Select value={String(selectedMonth)} onValueChange={(v) => setSelectedMonth(Number(v))}>
@@ -498,7 +481,7 @@ export default function TeamAttendancePage() {
             <Users className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
             <p className="text-lg font-medium text-muted-foreground">Select a Team Member</p>
             <p className="text-sm text-muted-foreground mt-1">
-              Choose a team member from the dropdown above to view their attendance calendar
+              Search by card no or name above to view their attendance calendar
             </p>
           </CardContent>
         </Card>
