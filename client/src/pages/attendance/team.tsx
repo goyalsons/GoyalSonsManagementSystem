@@ -152,6 +152,7 @@ export default function TeamAttendancePage() {
   const [searchInput, setSearchInput] = useState("");
   const [searchMessage, setSearchMessage] = useState<"not_under_you" | "not_found" | null>(null);
   const [searching, setSearching] = useState(false);
+  const [membersListOpen, setMembersListOpen] = useState(false);
 
   // Check if user has team view permission
   const canViewTeam = hasPolicy("attendance.team.view");
@@ -388,20 +389,48 @@ export default function TeamAttendancePage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-wrap items-end gap-3">
-            <div className="flex-1 min-w-[200px]">
+            <div className="flex-1 min-w-[200px] relative">
               <Label className="text-sm text-muted-foreground">Search by Card No or Name</Label>
               <div className="flex gap-2 mt-1">
-                <Input
-                  placeholder="Enter card no or name..."
-                  value={searchInput}
-                  onChange={(e) => {
-                    setSearchInput(e.target.value);
-                    setSearchMessage(null);
-                  }}
-                  onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-                  disabled={searching}
-                  className="flex-1"
-                />
+                <div className="flex-1 relative">
+                  <Input
+                    placeholder="Enter card no or name, or click to see members..."
+                    value={searchInput}
+                    onChange={(e) => {
+                      setSearchInput(e.target.value);
+                      setSearchMessage(null);
+                    }}
+                    onFocus={() => setMembersListOpen(true)}
+                    onBlur={() => setTimeout(() => setMembersListOpen(false), 200)}
+                    onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+                    disabled={searching}
+                    className="w-full"
+                  />
+                  {membersListOpen && teamMembers.length > 0 && (
+                    <div
+                      className="absolute top-full left-0 right-0 mt-1 z-50 rounded-md border bg-popover text-popover-foreground shadow-md max-h-[min(20rem,70vh)] overflow-y-auto"
+                      onMouseDown={(e) => e.preventDefault()}
+                    >
+                      <div className="p-2 text-xs text-muted-foreground border-b">Your team members</div>
+                      {teamMembers.map((member) => (
+                        <button
+                          key={member.id}
+                          type="button"
+                          className="w-full px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground rounded-sm flex items-center justify-between"
+                          onMouseDown={() => {
+                            setSelectedMember(member.cardNumber || member.id);
+                            setSearchInput("");
+                            setSearchMessage(null);
+                            setMembersListOpen(false);
+                          }}
+                        >
+                          <span>{member.firstName} {member.lastName || ""}</span>
+                          <span className="text-muted-foreground font-mono text-xs">{member.cardNumber || "—"}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <Button type="button" onClick={handleSearch} disabled={searching || !searchInput.trim()}>
                   {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
                 </Button>
