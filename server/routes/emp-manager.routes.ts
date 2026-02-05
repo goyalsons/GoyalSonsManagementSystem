@@ -1,6 +1,8 @@
 import type { Express } from "express";
 import { prisma } from "../lib/prisma";
 import { requireAuth } from "../lib/auth-middleware";
+import { replaceUserRoles } from "../lib/role-replacement";
+import { invalidateSessionsForUser } from "../lib/auth-cache";
 
 export function registerEmpManagerRoutes(app: Express) {
   // POST /api/emp-manager - Assign or update manager
@@ -86,9 +88,21 @@ export function registerEmpManagerRoutes(app: Express) {
             where: { employeeId: employee.id },
             data: { policyVersion: { increment: 1 } }
           });
+          const managerUser = await prisma.user.findFirst({
+            where: { employeeId: employee.id },
+            select: { id: true }
+          });
+          const storeManagerRole = await prisma.role.findUnique({
+            where: { name: "Store Manager" },
+            select: { id: true }
+          });
+          if (managerUser && storeManagerRole) {
+            await replaceUserRoles(prisma, managerUser.id, storeManagerRole.id);
+            invalidateSessionsForUser(managerUser.id);
+          }
         }
       } catch (pvError) {
-        console.error("[emp-manager] Failed to increment policyVersion:", pvError);
+        console.error("[emp-manager] Failed to increment policyVersion or assign role:", pvError);
       }
 
       res.json({

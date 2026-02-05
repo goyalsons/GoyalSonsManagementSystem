@@ -477,6 +477,7 @@ export default function RolesAssignedPage() {
         description: `${successCount} employee(s) assigned successfully${failCount > 0 ? `. ${failCount} failed.` : ""}. All role policies have been automatically assigned.`,
       });
       queryClient.invalidateQueries({ queryKey: ["employees"] });
+      queryClient.invalidateQueries({ queryKey: ["employees", "all-active"] });
       queryClient.invalidateQueries({ queryKey: ["users"] });
       queryClient.invalidateQueries({ queryKey: ["roles"] });
       queryClient.invalidateQueries({ queryKey: ["all-active-employees"] });
@@ -549,6 +550,7 @@ export default function RolesAssignedPage() {
         description: `Role "${variables.roleName}" has been removed from ${variables.employeeName}.`,
       });
       queryClient.invalidateQueries({ queryKey: ["employees"] });
+      queryClient.invalidateQueries({ queryKey: ["employees", "all-active"] });
       queryClient.invalidateQueries({ queryKey: ["users"] });
       queryClient.invalidateQueries({ queryKey: ["roles"] });
       queryClient.invalidateQueries({ queryKey: ["all-active-employees"] });
