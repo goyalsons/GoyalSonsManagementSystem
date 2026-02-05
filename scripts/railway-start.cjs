@@ -84,6 +84,14 @@ function main() {
     }
   }
 
+  console.log("[start] Running prisma db seed...");
+  const seedResult = run("npx", ["prisma", "db", "seed"]);
+  if (seedResult.status !== 0) {
+    console.warn("[start] prisma db seed failed (non-fatal). Server will still start.", seedResult.stderr || "");
+  } else {
+    console.log("[start] Seed completed.");
+  }
+
   console.log("[start] Starting server...");
   const serverPath = path.join(process.cwd(), "dist", "index.cjs");
   const child = spawn("node", [serverPath], {

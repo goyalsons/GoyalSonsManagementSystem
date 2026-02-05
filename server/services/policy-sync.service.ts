@@ -303,6 +303,20 @@ export async function syncPoliciesFromNavConfig(): Promise<{
   const policiesFromNav = getAllPoliciesFromNavConfig();
   const allowedPolicyKeys = new Set(policiesFromNav.map((p) => p.key));
   allowedPolicyKeys.add("sales.view");
+  // Attendance timing visibility policies (from seed, not in NAV_CONFIG)
+  [
+    "attendance.timing.absent.in.view",
+    "attendance.timing.absent.out.view",
+    "attendance.timing.present.in.view",
+    "attendance.timing.present.out.view",
+    "attendance.timing.present_late.in.view",
+    "attendance.timing.present_late.out.view",
+    "attendance.timing.present_early.in.view",
+    "attendance.timing.present_early.out.view",
+    "attendance.timing.miss.in.view",
+    "attendance.timing.miss.out.view",
+    "attendance.timing.all.view",
+  ].forEach((k) => allowedPolicyKeys.add(k));
   const policies = policiesFromNav.some((p) => p.key === "sales.view")
     ? policiesFromNav
     : [...policiesFromNav, { key: "sales.view", description: "Access sales page", category: "sales" }];
