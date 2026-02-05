@@ -282,7 +282,7 @@ async function main() {
 
   const rolesByName = new Map<string, { id: string; name: string }>();
 
-  // Create roles with policies
+  // Create roles; assign default policies only if role has no policies yet (preserve UI changes)
   for (const roleData of roles) {
     const { policies: policyKeys, ...roleInfo } = roleData;
     
@@ -295,12 +295,15 @@ async function main() {
     });
     rolesByName.set(role.name, role);
 
-    // Delete existing role policies
-    await prisma.rolePolicy.deleteMany({
+    const existingCount = await prisma.rolePolicy.count({
       where: { roleId: role.id },
     });
 
-    // Assign policies to role
+    if (existingCount > 0) {
+      console.log(`✅ Role "${role.name}" already has ${existingCount} policies – skipping (preserve UI changes)`);
+      continue;
+    }
+
     if (policyKeys && policyKeys.length > 0) {
       const rolePolicies = policyKeys
         .map((key) => createdPolicies[key])
@@ -317,7 +320,7 @@ async function main() {
       }
     }
 
-    console.log(`✅ Created/Updated role: ${role.name} with ${policyKeys?.length || 0} policies`);
+    console.log(`✅ Created/Updated role: ${role.name} with ${policyKeys?.length || 0} policies (initial seed)`);
   }
 
   console.log("✅ Roles and Policies seeded successfully!");
