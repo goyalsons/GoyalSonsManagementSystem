@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/lib/auth-context";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -26,7 +27,8 @@ import {
   AlertCircle,
   Loader2,
   Users,
-  RefreshCw
+  RefreshCw,
+  Search
 } from "lucide-react";
 import { apiGet } from "@/lib/api";
 import { encodeName } from "@/lib/utils";
@@ -147,6 +149,9 @@ export default function TeamAttendancePage() {
   const [selectedMember, setSelectedMember] = useState<string>("all");
   const [selectedRecord, setSelectedRecord] = useState<AttendanceRecord | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [searchInput, setSearchInput] = useState("");
+  const [searchMessage, setSearchMessage] = useState<"not_under_you" | "not_found" | null>(null);
+  const [searching, setSearching] = useState(false);
 
   // Check if user has team view permission
   const canViewTeam = hasPolicy("attendance.team.view");
@@ -214,6 +219,34 @@ export default function TeamAttendancePage() {
     if (selectedMember !== "all") {
       await queryClient.invalidateQueries({ queryKey: ["team-attendance", selectedMember, monthDate] });
       await refetchAttendance();
+    }
+  };
+
+  const handleSearch = async () => {
+    const q = searchInput.trim();
+    setSearchMessage(null);
+    if (!q) return;
+    setSearching(true);
+    try {
+      const res = await apiGet<{ success: boolean; found: boolean; employee?: { id: string; cardNumber: string | null; firstName: string; lastName: string | null }; isUnderYou?: boolean }>(
+        `/emp-manager/lookup?q=${encodeURIComponent(q)}`
+      );
+      if (!res.found) {
+        setSearchMessage("not_found");
+        return;
+      }
+      if (res.employee && res.isUnderYou === false) {
+        setSearchMessage("not_under_you");
+        return;
+      }
+      if (res.employee?.cardNumber) {
+        setSelectedMember(res.employee.cardNumber);
+        setSearchInput("");
+      }
+    } catch {
+      setSearchMessage("not_found");
+    } finally {
+      setSearching(false);
     }
   };
 
@@ -353,11 +386,44 @@ export default function TeamAttendancePage() {
         <CardHeader>
           <CardTitle className="text-base font-medium">Select Team Member</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="flex-1 min-w-[200px]">
+              <Label className="text-sm text-muted-foreground">Search by Card No or Name</Label>
+              <div className="flex gap-2 mt-1">
+                <Input
+                  placeholder="Enter card no or name..."
+                  value={searchInput}
+                  onChange={(e) => {
+                    setSearchInput(e.target.value);
+                    setSearchMessage(null);
+                  }}
+                  onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+                  disabled={searching}
+                  className="flex-1"
+                />
+                <Button type="button" onClick={handleSearch} disabled={searching || !searchInput.trim()}>
+                  {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                </Button>
+              </div>
+            </div>
+          </div>
+          {searchMessage === "not_under_you" && (
+            <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-amber-800">
+              <AlertCircle className="h-5 w-5 shrink-0" />
+              <p className="text-sm font-medium">The person is not under you.</p>
+            </div>
+          )}
+          {searchMessage === "not_found" && (
+            <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-slate-700">
+              <AlertCircle className="h-5 w-5 shrink-0" />
+              <p className="text-sm">No employee found with that card no or name.</p>
+            </div>
+          )}
           <div className="flex flex-wrap gap-4">
             <div className="flex-1 min-w-[200px]">
               <Label className="text-sm text-muted-foreground">Team Member</Label>
-              <Select value={selectedMember} onValueChange={setSelectedMember}>
+              <Select value={selectedMember} onValueChange={(v) => { setSelectedMember(v); setSearchMessage(null); }}>
                 <SelectTrigger className="mt-1">
                   <SelectValue placeholder="Select member..." />
                 </SelectTrigger>

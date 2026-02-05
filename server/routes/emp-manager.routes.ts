@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { prisma } from "../lib/prisma";
-import { requireAuth } from "../lib/auth-middleware";
+import { requireAuth, requirePolicy } from "../lib/auth-middleware";
 import { replaceUserRoles } from "../lib/role-replacement";
 import { invalidateSessionsForUser } from "../lib/auth-cache";
 
@@ -225,6 +225,98 @@ export function registerEmpManagerRoutes(app: Express) {
     } catch (error: any) {
       console.error("Get my team error:", error);
       res.status(500).json({ success: false, message: error.message, data: [] });
+    }
+  });
+
+  // GET /api/emp-manager/lookup?q=cardNoOrName - Search by card no or name; returns employee + isUnderYou
+  app.get("/api/emp-manager/lookup", requireAuth, requirePolicy("attendance.team.view"), async (req, res) => {
+    try {
+      const q = (req.query.q as string)?.trim();
+      if (!q) {
+        return res.json({ success: true, found: false });
+      }
+      const user = req.user!;
+      if (!user.employeeId) {
+        return res.json({ success: true, found: false });
+      }
+      const managerEmployee = await prisma.employee.findUnique({
+        where: { id: user.employeeId },
+        select: { cardNumber: true },
+      });
+      if (!managerEmployee?.cardNumber) {
+        return res.json({ success: true, found: false });
+      }
+      const managerAssignments = await prisma.$queryRaw<Array<{
+        mdepartmentIds: string[];
+        mdesignationIds: string[];
+        morgUnitIds: string[];
+      }>>`
+        SELECT "mdepartmentIds", "mdesignationIds", "morgUnitIds"
+        FROM "emp_manager"
+        WHERE "mcardno" = ${managerEmployee.cardNumber} AND "mis_extinct" = false
+      `;
+      const teamWhere: any = { OR: [] };
+      if (managerAssignments.length > 0) {
+        const a = managerAssignments[0];
+        if (a.mdepartmentIds?.length > 0) teamWhere.OR.push({ departmentId: { in: a.mdepartmentIds } });
+        if (a.mdesignationIds?.length > 0) teamWhere.OR.push({ designationId: { in: a.mdesignationIds } });
+        if (a.morgUnitIds?.length > 0) teamWhere.OR.push({ orgUnitId: { in: a.morgUnitIds } });
+      }
+      if (teamWhere.OR.length === 0) {
+        return res.json({ success: true, found: false });
+      }
+      const teamIds = await prisma.employee.findMany({
+        where: { ...teamWhere, lastInterviewDate: null, cardNumber: { not: null } },
+        select: { id: true },
+      }).then((rows) => new Set(rows.map((r) => r.id)));
+      const isNumeric = /^\d+$/.test(q);
+      let match: { id: string; cardNumber: string | null; firstName: string; lastName: string | null } | null = null;
+      if (isNumeric) {
+        match = await prisma.employee.findFirst({
+          where: {
+            OR: [
+              { cardNumber: q },
+              { cardNumber: { contains: q, mode: "insensitive" } },
+              { employeeCode: q },
+            ],
+            lastInterviewDate: null,
+            cardNumber: { not: null },
+          },
+          select: { id: true, cardNumber: true, firstName: true, lastName: true },
+        });
+      }
+      if (!match) {
+        match = await prisma.employee.findFirst({
+          where: {
+            OR: [
+              { firstName: { contains: q, mode: "insensitive" } },
+              { lastName: { contains: q, mode: "insensitive" } },
+              { cardNumber: { contains: q, mode: "insensitive" } },
+            ],
+            lastInterviewDate: null,
+            cardNumber: { not: null },
+          },
+          select: { id: true, cardNumber: true, firstName: true, lastName: true },
+        });
+      }
+      if (!match) {
+        return res.json({ success: true, found: false });
+      }
+      const isUnderYou = teamIds.has(match.id);
+      return res.json({
+        success: true,
+        found: true,
+        employee: {
+          id: match.id,
+          cardNumber: match.cardNumber,
+          firstName: match.firstName,
+          lastName: match.lastName,
+        },
+        isUnderYou,
+      });
+    } catch (error: any) {
+      console.error("Lookup member error:", error);
+      res.status(500).json({ success: false, message: error.message || "Lookup failed" });
     }
   });
 
