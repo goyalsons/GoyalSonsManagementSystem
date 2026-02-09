@@ -377,6 +377,14 @@ Isi ek file (**APP_COMPLETE_GUIDE.md**) se tum pura app ek jagah samajh sakte ho
 
 ---
 
+## Railway Deployment & DATABASE_URL
+
+- **Recommended:** In Railway, add PostgreSQL to your project, then for your **backend service** set **Variables** → use **Reference** to the Postgres service’s **DATABASE_URL** (or **DATABASE_PRIVATE_URL**). That way the app always uses the correct URL and password; no copy-paste.
+- **Warning – duplicate DATABASE_URL:** Do not set `DATABASE_URL` in both **project-level** and **service-level** variables with different values. Service-level overrides project-level; if the project has an old or placeholder URL, the service might still get the wrong one if you later add a project default. Prefer a single source: reference the Postgres variable on the backend service only.
+- **Warning – manual overrides:** If you set `DATABASE_URL` manually (paste full URL), ensure the password is correct and URL-encoded (e.g. `@` → `%40`). After rotating the Postgres password on Railway, update the referenced variable or the manual override or deploy will fail with P1000 (auth failed).
+
+---
+
 ## Summary of Improvements
 
 - Document title renamed to **GMS – Complete Application Architecture & Operations Guide** with a one-line subtitle.

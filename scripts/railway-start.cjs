@@ -32,6 +32,16 @@ function sanitizeDatabaseUrl(url) {
   }
 }
 
+function hasPasswordInUrl(url) {
+  if (!url || typeof url !== "string") return false;
+  try {
+    const u = new URL(url);
+    return Boolean(u.password && u.password.length > 0);
+  } catch {
+    return false;
+  }
+}
+
 function run(cmd, args, options = {}) {
   const result = spawnSync(cmd, args, {
     shell: true,
@@ -65,8 +75,17 @@ function shouldAutoResolveInitMigration(output) {
 
 function main() {
   const dbUrl = process.env.DATABASE_URL;
-  console.log("[start] DATABASE_URL (sanitized):", sanitizeDatabaseUrl(dbUrl));
+  const sanitized = sanitizeDatabaseUrl(dbUrl);
+  const passwordSet = hasPasswordInUrl(dbUrl);
+
+  console.log("[start] DATABASE_URL (sanitized):", sanitized);
+  console.log("[start] DATABASE_URL has password:", passwordSet);
   console.log("[start] PORT:", process.env.PORT ?? "(not set, app will use default)");
+
+  if (!dbUrl || typeof dbUrl !== "string" || dbUrl.trim() === "") {
+    console.error("[start] FATAL: DATABASE_URL is not set. Set it in Railway Variables (e.g. reference Postgres DATABASE_URL).");
+    process.exit(1);
+  }
 
   console.log("[start] Running prisma migrate deploy...");
   const deploy1 = run("npx", ["prisma", "migrate", "deploy"]);
@@ -96,7 +115,7 @@ function main() {
         process.exit(1);
       }
     } else {
-      console.error("[start] prisma migrate deploy failed. Aborting. Check logs above.");
+      console.error("[start] prisma migrate deploy failed (e.g. P1000 auth, network, or migration error). Aborting. Check logs above.");
       process.exit(1);
     }
   }
