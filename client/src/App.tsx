@@ -237,8 +237,9 @@ function Router() {
     }
   }, [isLoading, user, location, setLocation]);
   
-  // Always allow these public routes
+  // Public route /login: if already authenticated, redirect to Dashboard (root)
   if (location === "/login") {
+    if (!isLoading && user) return <Redirect to="/" />;
     return <LoginPage />;
   }
   
