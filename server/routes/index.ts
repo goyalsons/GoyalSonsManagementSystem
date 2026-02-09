@@ -16,11 +16,7 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
   
-  // Health check endpoint for Railway
-  app.get("/api/health", (req, res) => {
-    res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
-  });
-  
+  // Health: /healthz and /api/health are registered in server/index.ts (no auth, no DB).
   // Initialize passport BEFORE registering strategies
   app.use(passport.initialize());
   

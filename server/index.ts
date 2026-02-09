@@ -29,9 +29,15 @@ console.log("BOOT => NODE_ENV:", process.env.NODE_ENV, "PORT:", process.env.PORT
 const app = express();
 const httpServer = createServer(app);
 
-// Health check must be fast and available in all envs.
-// Keep it BEFORE any auth/session middleware.
-app.get("/api/health", (_req, res) => res.status(200).send("ok"));
+// Health check endpoints: no auth, no DB, fast. Keep BEFORE any auth/session middleware.
+// Railway should use healthcheckPath: "/healthz"
+app.get("/healthz", (_req, res) =>
+  res.status(200).json({ status: "ok", ts: new Date().toISOString() })
+);
+app.get("/", (_req, res) => res.status(200).send("OK"));
+app.get("/api/health", (_req, res) =>
+  res.status(200).json({ status: "ok", ts: new Date().toISOString() })
+);
 
 declare module "http" {
   interface IncomingMessage {
@@ -107,13 +113,10 @@ app.use((req, res, next) => {
     await setupVite(httpServer, app);
   }
 
-  // ALWAYS serve the app on the port specified in the environment variable PORT
-  // Other ports are firewalled. Default to 5000 if not specified.
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
-  const port = parseInt(process.env.PORT || "5000", 10);
+  // ALWAYS serve on PORT (Railway sets this). Bind to 0.0.0.0 so external healthchecks succeed.
+  const port = Number(process.env.PORT ?? 5000);
   httpServer.listen(port, "0.0.0.0", () => {
-    log(`serving on port ${port}`);
+    log(`listening on 0.0.0.0:${port}`);
     startAutoSync();
 
     // Sales pivot data: auto-refresh every 2 hours

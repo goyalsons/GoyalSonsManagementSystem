@@ -10,15 +10,27 @@
  *   as applied after making it idempotent.
  *
  * Behavior:
- * - Run `prisma migrate deploy`
- * - If it fails and output references `20260119114801_init`, run:
- *     `prisma migrate resolve --applied 20260119114801_init`
- *   then retry `prisma migrate deploy`
- * - Run `prisma db seed` only if RUN_SEED_ON_START=1 (prevents production data reset on restart)
- * - Start the server (`node dist/index.cjs`)
+ * - Log sanitized DATABASE_URL (host/user only; never password).
+ * - Run `prisma migrate deploy`. On failure: exit(1) with clear message (no hang).
+ * - If it fails and output references `20260119114801_init`, run migrate resolve then retry.
+ * - Run `prisma db seed` only if RUN_SEED_ON_START=1.
+ * - Start the server (`node dist/index.cjs`). Server must listen on process.env.PORT and 0.0.0.0.
+ *
+ * Railway healthcheck: set healthcheckPath to /healthz.
  */
 const { spawn, spawnSync } = require("child_process");
 const path = require("path");
+
+function sanitizeDatabaseUrl(url) {
+  if (!url || typeof url !== "string") return "(not set)";
+  try {
+    const u = new URL(url);
+    const user = u.username ? `${u.username}@` : "";
+    return `${u.protocol}//${user}${u.hostname}${u.port ? ":" + u.port : ""}${u.pathname || ""}`;
+  } catch {
+    return "(invalid url)";
+  }
+}
 
 function run(cmd, args, options = {}) {
   const result = spawnSync(cmd, args, {
@@ -52,6 +64,10 @@ function shouldAutoResolveInitMigration(output) {
 }
 
 function main() {
+  const dbUrl = process.env.DATABASE_URL;
+  console.log("[start] DATABASE_URL (sanitized):", sanitizeDatabaseUrl(dbUrl));
+  console.log("[start] PORT:", process.env.PORT ?? "(not set, app will use default)");
+
   console.log("[start] Running prisma migrate deploy...");
   const deploy1 = run("npx", ["prisma", "migrate", "deploy"]);
 
@@ -70,20 +86,21 @@ function main() {
       ]);
       if (resolve.status !== 0) {
         console.error("[start] migrate resolve failed; aborting start.");
-        process.exit(resolve.status || 1);
+        process.exit(1);
       }
 
       console.log("[start] Retrying prisma migrate deploy...");
       const deploy2 = run("npx", ["prisma", "migrate", "deploy"]);
       if (deploy2.status !== 0) {
-        console.error("[start] prisma migrate deploy still failing; aborting start.");
-        process.exit(deploy2.status || 1);
+        console.error("[start] prisma migrate deploy failed after retry. Aborting. Check logs above.");
+        process.exit(1);
       }
     } else {
-      console.error("[start] prisma migrate deploy failed; aborting start.");
-      process.exit(deploy1.status || 1);
+      console.error("[start] prisma migrate deploy failed. Aborting. Check logs above.");
+      process.exit(1);
     }
   }
+  console.log("[start] prisma migrate deploy completed.");
 
   // Seed only when explicitly requested (e.g. first-time deploy). Prevents production data reset on restart.
   if (process.env.RUN_SEED_ON_START === "1") {
