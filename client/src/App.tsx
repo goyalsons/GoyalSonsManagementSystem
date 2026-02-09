@@ -1,4 +1,4 @@
-import { Switch, Route, useLocation } from "wouter";
+import { Switch, Route, Redirect, useLocation } from "wouter";
 import { lazy, Suspense, useEffect } from "react";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -270,8 +270,13 @@ function Router() {
   if (isLoading) {
     return <FullPageLoader />;
   }
-  
-  // If not authenticated, show login page (redirect is handled by useEffect above)
+
+  // Root "/" when not authenticated → redirect to Login (so gms.goyalsons.com opens Login directly)
+  if (location === "/" && !user) {
+    return <Redirect to="/login" />;
+  }
+
+  // Any other path when not authenticated → show login page (useEffect also syncs URL to /login)
   if (!user) {
     return <LoginPage />;
   }
