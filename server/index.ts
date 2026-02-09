@@ -34,7 +34,7 @@ const httpServer = createServer(app);
 app.get("/healthz", (_req, res) =>
   res.status(200).json({ status: "ok", ts: new Date().toISOString() })
 );
-app.get("/", (_req, res) => res.status(200).send("OK"));
+// Do NOT register GET "/" here — let static/SPA serve index.html for "/" so the client app loads and can redirect to /login.
 app.get("/api/health", (_req, res) =>
   res.status(200).json({ status: "ok", ts: new Date().toISOString() })
 );
