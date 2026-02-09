@@ -4,6 +4,7 @@ import { rm, readFile } from "fs/promises";
 
 // server deps to bundle to reduce openat(2) syscalls
 // which helps cold start times
+// Bundled deps (rest are external). Keep express EXTERNAL so it uses node_modules path-to-regexp (0.1.7) at runtime.
 const allowlist = [
   "@google/generative-ai",
   "@neondatabase/serverless",
@@ -13,7 +14,6 @@ const allowlist = [
   "date-fns",
   "drizzle-orm",
   "drizzle-zod",
-  "express",
   "express-rate-limit",
   "express-session",
   "jsonwebtoken",
