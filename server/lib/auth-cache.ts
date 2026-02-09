@@ -94,6 +94,11 @@ export function invalidateSessionAuthCache(sessionId: string): void {
   cache.delete(sessionId);
 }
 
+/** Current number of entries in the auth snapshot cache (for health endpoint) */
+export function getAuthCacheSize(): number {
+  return cache.size;
+}
+
 /**
  * Invalidate all cached auth snapshots (entire cache).
  * Used when Director triggers "logout all sessions".

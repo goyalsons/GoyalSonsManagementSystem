@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { prisma } from "./prisma";
 import { getUserAuthInfo } from "./authorization";
-import { POLICIES } from "../constants/policies";
+import { POLICIES, getAllPolicyKeys } from "../constants/policies";
 import * as crypto from "crypto";
 import { getSessionAuthSnapshot, putSessionAuthSnapshot } from "./auth-cache";
 
@@ -97,9 +97,8 @@ export function requirePolicy(policyKey: string) {
       return next();
     }
 
-    // POLICIES is a const map; its Object.values() becomes a string-literal union.
-    // Cast for runtime membership check without forcing callers to use the union type.
-    const allowedPolicies = new Set(Object.values(POLICIES) as unknown as string[]);
+    // Allowlist from shared policy registry (single source of truth)
+    const allowedPolicies = new Set(getAllPolicyKeys());
     if (!allowedPolicies.has(policyKey)) {
       return res.status(500).json({
         code: "INVALID_POLICY",
@@ -126,6 +125,28 @@ export function requirePolicy(policyKey: string) {
       message: "User has no applicable policy",
       requiredPolicy: policyKey
     });
+  };
+}
+
+/**
+ * Require at least one of the given policies.
+ */
+export function requireAnyPolicy(...policyKeys: string[]) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    if (!req.user) {
+      return res.status(401).json({ message: "Authentication required" });
+    }
+    if (req.user.roles?.some((r) => r.name === "Director")) {
+      return next();
+    }
+    if (!req.user.policies || req.user.policies.length === 0) {
+      return res.status(403).json({ code: "NO_POLICY", message: "User has no applicable policy" });
+    }
+    const set = new Set(policyKeys);
+    if (policyKeys.some((p) => req.user!.policies?.includes(p))) {
+      return next();
+    }
+    return res.status(403).json({ code: "NO_POLICY", message: "User has no applicable policy" });
   };
 }
 
@@ -243,9 +264,11 @@ export async function loadUserFromSession(req: Request, res: Response, next: Nex
       return next();
     }
 
-    // If user has no policies, auto-attach default role for employee sessions.
-    // This matches desired behavior: users with zero policies get default access automatically.
+    // If user has no roles at all, auto-attach Employee for employee sessions so they get default access.
+    // Do NOT add Employee when user already has other roles (e.g. Store Manager); respect admin's choice.
+    const hasNoRoles = !authInfo.roles || authInfo.roles.length === 0;
     if (
+      hasNoRoles &&
       (!authInfo.policies || authInfo.policies.length === 0) &&
       !authInfo.roles?.some((r) => r.name === "Director") &&
       (session.loginType === "employee" || Boolean(authInfo.employeeId))

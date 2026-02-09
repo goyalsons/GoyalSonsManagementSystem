@@ -6,6 +6,7 @@ import { validateUUID } from "../lib/validation";
 import { canAssignRole } from "../lib/role-assignment-security";
 import { logUserRoleAssignment } from "../lib/audit-log";
 import { replaceUserRoles } from "../lib/role-replacement";
+import { ensureNotLastDirector } from "../lib/role-assignment-security";
 import { invalidateSessionsForUser, invalidateAllAuthCache } from "../lib/auth-cache";
 import { broadcastLogoutAll } from "../lib/session-events";
 
@@ -58,6 +59,11 @@ export function registerUserAssignmentRoutes(app: Express): void {
 
       if (!role) {
         return res.status(404).json({ message: "Role not found" });
+      }
+
+      const lastDirectorCheck = await ensureNotLastDirector({ userId, newRoleId: roleId });
+      if (!lastDirectorCheck.allowed) {
+        return res.status(400).json({ message: lastDirectorCheck.message });
       }
 
       // Single active role: remove all existing roles, add only the selected one
@@ -232,11 +238,8 @@ export function registerUserAssignmentRoutes(app: Express): void {
    * - If user exists: update passwordHash and replace role (single active role)
    * - If user does not exist: create User, set passwordHash, attach roleId
    */
-  app.post("/api/users/create-credentials", requireAuth, requirePolicy(POLICIES.ADMIN_PANEL), async (req, res) => {
+  app.post("/api/users/create-credentials", requireAuth, requirePolicy(POLICIES.CREATE_USER), async (req, res) => {
     try {
-      if (!req.user!.roles?.some((r) => r.name === "Director")) {
-        return res.status(403).json({ message: "Only Director can create credential users" });
-      }
 
       const { email, password, name, roleId } = req.body;
 
@@ -272,6 +275,10 @@ export function registerUserAssignmentRoutes(app: Express): void {
       let userId: string;
 
       if (existingUser) {
+        const lastDirectorCheck = await ensureNotLastDirector({ userId: existingUser.id, newRoleId: roleId });
+        if (!lastDirectorCheck.allowed) {
+          return res.status(400).json({ message: lastDirectorCheck.message });
+        }
         await replaceUserRoles(prisma, existingUser.id, roleId);
         await prisma.user.update({
           where: { id: existingUser.id },

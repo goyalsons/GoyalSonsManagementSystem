@@ -8,55 +8,53 @@ datasource db {
 }
 
 model OrgUnit {
-  id          String    @id @default(uuid())
-  name        String    @unique
-  code        String    @unique
+  id          String     @id @default(uuid())
+  name        String     @unique
+  code        String     @unique
   description String?
-  type        String    @default("functional") // "branch" for physical locations, "functional" for departments
-  level       Int       @default(0)
+  level       Int        @default(0)
   path        String?
   parentId    String?
-  parent      OrgUnit?  @relation("OrgHierarchy", fields: [parentId], references: [id])
-  children    OrgUnit[] @relation("OrgHierarchy")
-  users       User[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  type        String     @default("functional")
   employees   Employee[]
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  parent      OrgUnit?   @relation("OrgHierarchy", fields: [parentId], references: [id])
+  children    OrgUnit[]  @relation("OrgHierarchy")
+  users       User[]
 }
 
 model User {
-  id            String        @id @default(uuid())
-  name          String
-  email         String        @unique
-  phone         String?
-  passwordHash  String
-  status        String        @default("active")
-  policyVersion Int           @default(1) // Increments when policies change, forces JWT refresh
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  
-  orgUnit       OrgUnit?      @relation(fields: [orgUnitId], references: [id])
-  orgUnitId     String?
-  roles         UserRole[]
-  
-  employee      Employee?     @relation(fields: [employeeId], references: [id])
-  employeeId    String?       @unique
-  sessions      Session[]
-  auditLogs     AuditLog[]
-  tasksCreated  Task[]
-  announcements Announcement[]
+  id                  String         @id @default(uuid())
+  name                String
+  email               String         @unique
+  phone               String?
+  passwordHash        String?        // nullable for Google OAuth–only users
+  status              String         @default("active")
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+  orgUnitId           String?
+  employeeId          String?        @unique
+  policyVersion       Int            @default(1)
+  announcements       Announcement[]
+  auditLogs           AuditLog[]
   helpTicketsResolved HelpTicket[]
-  settings      UserSettings?
+  sessions            Session[]
+  tasksCreated        Task[]
+  employee            Employee?      @relation(fields: [employeeId], references: [id])
+  orgUnit             OrgUnit?       @relation(fields: [orgUnitId], references: [id])
+  roles               UserRole[]
+  settings            UserSettings?
 }
 
 model Role {
   id          String       @id @default(uuid())
   name        String       @unique
   description String?
-  users       UserRole[]
-  policies    RolePolicy[]
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
+  policies    RolePolicy[]
+  users       UserRole[]
 }
 
 model Policy {
@@ -64,100 +62,102 @@ model Policy {
   key         String       @unique
   description String?
   category    String?
-  isActive    Boolean      @default(true) // Admin can enable/disable policies
-  pageId      String?      // FK to UiPage (if auto-generated from page)
-  page        UiPage?      @relation(fields: [pageId], references: [id], onDelete: SetNull)
-  roles       RolePolicy[]
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
+  isActive    Boolean      @default(true)
+  pageId      String?
+  page        UiPage?      @relation(fields: [pageId], references: [id])
+  roles       RolePolicy[]
+
   @@index([pageId])
 }
 
 model UiPage {
-  id              String    @id @default(uuid())
-  pageKey         String    @unique // Unique identifier (e.g., "help-tickets")
-  pageName        String    // Display name (e.g., "Help Tickets")
-  path            String    @unique // Route path (e.g., "/help-tickets")
-  policyPrefix    String    // Policy prefix (e.g., "help_tickets")
-  autoGenerate    Boolean   @default(true) // Auto-generate policies for this page
-  icon            String?   // Icon identifier
-  order           Int       @default(0) // Display order
-  isActive        Boolean   @default(true) // Show in navigation
-  policies        Policy[]  // Auto-generated policies
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id           String   @id @default(uuid())
+  pageKey      String   @unique
+  pageName     String
+  path         String   @unique
+  policyPrefix String
+  autoGenerate Boolean  @default(true)
+  icon         String?
+  order        Int      @default(0)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  policies     Policy[]
+
   @@index([isActive])
   @@index([order])
 }
 
 model UserRole {
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId    String
-  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
   roleId    String
   createdAt DateTime @default(now())
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@id([userId, roleId])
   @@index([userId])
   @@index([roleId])
 }
 
 model RolePolicy {
-  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
   roleId    String
-  policy    Policy   @relation(fields: [policyId], references: [id], onDelete: Cascade)
   policyId  String
   createdAt DateTime @default(now())
+  policy    Policy   @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
   @@id([roleId, policyId])
   @@index([roleId])
   @@index([policyId])
 }
 
 model Employee {
-  id              String      @id @default(uuid())
-  user            User?       @relation()
-  firstName       String
-  lastName        String?
-  employeeCode    String?     @unique
-  cardNumber      String?     @unique
-  phone           String?
-  secondaryPhone  String?
-  personalEmail   String?
-  companyEmail    String?
-  gender          String?
-  aadhaar         String?
-  profileImageUrl String?
-  status          String      @default("ACTIVE")
-  weeklyOff       String?
+  id                   String           @id @default(uuid())
+  firstName            String
+  lastName             String?
+  employeeCode         String?          @unique
+  phone                String?
+  joiningDate          DateTime?
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+  orgUnitId            String?
+  aadhaar              String?
+  autoNumber           String?
+  cardNumber           String?          @unique
+  companyEmail         String?
+  departmentId         String?
+  designationId        String?
+  externalId           String?          @unique
+  gender               String?
+  interviewDate        DateTime?
+  metadata             Json?
+  personalEmail        String?
+  profileImageUrl      String?
+  secondaryPhone       String?
+  shiftEnd             String?
+  shiftStart           String?
+  status               String           @default("ACTIVE")
+  timePolicyId         String?
+  weeklyOff            String?
+  zohoId               String?
   weeklyOffCalculation String?
-  shiftStart      String?
-  shiftEnd        String?
-  interviewDate   DateTime?
-  lastInterviewDate DateTime?
-  joiningDate     DateTime?
-  externalId      String?     // Removed @unique - API may have duplicates
-  autoNumber      String?
-  zohoId          String?
-  mobileOtp       String?
-  personelImage   String?
-  metadata        Json?
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
-  
-  orgUnit         OrgUnit?    @relation(fields: [orgUnitId], references: [id])
-  orgUnitId       String?
-  department      Department? @relation(fields: [departmentId], references: [id])
-  departmentId    String?
-  designation     Designation? @relation(fields: [designationId], references: [id])
-  designationId   String?
-  timePolicy      TimePolicy? @relation(fields: [timePolicyId], references: [id])
-  timePolicyId    String?
-  
-  attendance      Attendance[]
-  targets         EmployeeTarget[]
-  tasks           Task[]
-  announcements   Announcement[] @relation("AnnouncementRecipients")
-  claims          Claim[]
-  helpTickets     HelpTicket[]
+  mobileOtp            String?
+  lastInterviewDate    DateTime?
+  personelImage        String?
+  attendance           Attendance[]
+  claims               Claim[]
+  department           Department?      @relation(fields: [departmentId], references: [id])
+  designation          Designation?     @relation(fields: [designationId], references: [id])
+  orgUnit              OrgUnit?         @relation(fields: [orgUnitId], references: [id])
+  timePolicy           TimePolicy?      @relation(fields: [timePolicyId], references: [id])
+  targets              EmployeeTarget[]
+  helpTickets          HelpTicket[]
+  tasks                Task[]
+  user                 User?
+  announcements        Announcement[]   @relation("AnnouncementRecipients")
 
   @@index([orgUnitId])
   @@index([departmentId])
@@ -172,9 +172,9 @@ model Department {
   name        String
   description String?
   isActive    Boolean    @default(true)
-  employees   Employee[]
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
+  employees   Employee[]
 }
 
 model Designation {
@@ -183,9 +183,9 @@ model Designation {
   name        String
   description String?
   isActive    Boolean    @default(true)
-  employees   Employee[]
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
+  employees   Employee[]
 }
 
 model TimePolicy {
@@ -195,43 +195,42 @@ model TimePolicy {
   isSinglePunch Boolean    @default(false)
   scheduleJson  Json?
   isActive      Boolean    @default(true)
-  employees     Employee[]
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
+  employees     Employee[]
 }
 
 model DataImportLog {
-  id          String   @id @default(uuid())
-  sourceName  String
-  sourceUrl   String?
-  status      String   @default("pending")
-  recordsTotal Int     @default(0)
-  recordsImported Int  @default(0)
-  recordsFailed Int    @default(0)
-  errorMessage String?
-  startedAt   DateTime @default(now())
-  completedAt DateTime?
-  metadata    Json?
+  id              String    @id @default(uuid())
+  sourceName      String
+  sourceUrl       String?
+  status          String    @default("pending")
+  recordsTotal    Int       @default(0)
+  recordsImported Int       @default(0)
+  recordsFailed   Int       @default(0)
+  errorMessage    String?
+  startedAt       DateTime  @default(now())
+  completedAt     DateTime?
+  metadata        Json?
 }
 
 model Attendance {
-  id           String   @id @default(uuid())
-  employee     Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  employeeId   String
-  date         DateTime
-  checkInAt    DateTime?
-  checkOutAt   DateTime?
-  status       String
-  lat          Float?
-  lng          Float?
-  geoAccuracy  Int?
-  meta         Json?
-  createdAt    DateTime @default(now())
+  id          String    @id @default(uuid())
+  employeeId  String
+  date        DateTime
+  checkInAt   DateTime?
+  checkOutAt  DateTime?
+  status      String
+  lat         Float?
+  lng         Float?
+  geoAccuracy Int?
+  meta        Json?
+  createdAt   DateTime  @default(now())
+  employee    Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 }
 
 model EmployeeTarget {
   id          String   @id @default(uuid())
-  employee    Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   employeeId  String
   periodStart DateTime
   periodEnd   DateTime
@@ -239,76 +238,76 @@ model EmployeeTarget {
   value       Float
   achieved    Float    @default(0)
   createdAt   DateTime @default(now())
+  employee    Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 }
 
 model Task {
   id          String    @id @default(uuid())
   title       String
   description String?
-  assignee    Employee? @relation(fields: [assigneeId], references: [id])
   assigneeId  String?
-  creator     User?     @relation(fields: [creatorId], references: [id])
   creatorId   String?
   status      String    @default("open")
   priority    String?
   dueDate     DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+  assignee    Employee? @relation(fields: [assigneeId], references: [id])
+  creator     User?     @relation(fields: [creatorId], references: [id])
 }
 
 model Announcement {
   id          String     @id @default(uuid())
   title       String
   body        String
-  createdBy   User?      @relation(fields: [createdById], references: [id])
   createdById String?
   scope       String
-  recipients  Employee[] @relation("AnnouncementRecipients")
   createdAt   DateTime   @default(now())
+  createdBy   User?      @relation(fields: [createdById], references: [id])
+  recipients  Employee[] @relation("AnnouncementRecipients")
 }
 
 model Claim {
   id          String            @id @default(uuid())
-  employee    Employee          @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   employeeId  String
   amount      Float
   currency    String            @default("INR")
   category    String
   status      String            @default("pending")
   submittedAt DateTime          @default(now())
+  employee    Employee          @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   attachments ClaimAttachment[]
 }
 
 model ClaimAttachment {
-  id       String @id @default(uuid())
-  claim    Claim  @relation(fields: [claimId], references: [id], onDelete: Cascade)
-  claimId  String
-  url      String
-  name     String?
+  id      String  @id @default(uuid())
+  claimId String
+  url     String
+  name    String?
+  claim   Claim   @relation(fields: [claimId], references: [id], onDelete: Cascade)
 }
 
 model HelpTicket {
-  id              String   @id @default(uuid())
-  employee        Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  employeeId      String
-  subject         String
-  description     String
-  category        String   @default("attendance") // attendance, general, technical, etc.
-  status          String   @default("open") // open, in_progress, resolved, closed
-  priority        String   @default("medium") // low, medium, high, urgent
-  relatedData     Json?    // Store related attendance/work log data
-  response        String?
-  resolvedBy      User?    @relation(fields: [resolvedById], references: [id])
-  resolvedById    String?
-  resolvedAt      DateTime?
-  // New fields for role-based assignment
-  raisedByRole    String   @default("EMPLOYEE") // EMPLOYEE, MANAGER, MDO
-  managerId       String?  // Manager ID if employee is assigned to a manager
-  assignedToRole  String   @default("MDO") // MANAGER or MDO
-  assignedToId    String?  // ID of the assigned manager or MDO user
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  
+  id             String    @id @default(uuid())
+  employeeId     String
+  subject        String
+  description    String
+  category       String    @default("attendance")
+  status         String    @default("open")
+  priority       String    @default("medium")
+  relatedData    Json?
+  response       String?
+  resolvedById   String?
+  resolvedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  raisedByRole   String    @default("EMPLOYEE")
+  managerId      String?
+  assignedToRole String    @default("MDO")
+  assignedToId   String?
+  employee       Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  resolvedBy     User?     @relation(fields: [resolvedById], references: [id])
+
   @@index([employeeId])
   @@index([status])
   @@index([createdAt])
@@ -319,23 +318,23 @@ model HelpTicket {
 
 model Session {
   id             String   @id @default(uuid())
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId         String
   expiresAt      DateTime
   createdAt      DateTime @default(now())
-  loginType      String   @default("mdo")  // "mdo" for management, "employee" for card login
-  employeeCardNo String?                    // Card number for employee logins
+  employeeCardNo String?
+  loginType      String   @default("mdo")
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model AuditLog {
   id        String   @id @default(uuid())
-  user      User?    @relation(fields: [userId], references: [id])
   userId    String?
   action    String
   entity    String
   entityId  String?
   meta      Json?
   createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id])
 }
 
 model OtpCode {
@@ -347,49 +346,49 @@ model OtpCode {
   used      Boolean  @default(false)
   expiresAt DateTime
   createdAt DateTime @default(now())
-  
+
   @@index([phone, code])
   @@index([email, code])
 }
 
 model UserSettings {
-  id                String   @id @default(uuid())
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId            String   @unique
-  theme             String   @default("light")
-  emailNotifications Boolean @default(true)
-  smsNotifications  Boolean  @default(false)
-  loginMethod       String   @default("password")
-  timezone          String   @default("Asia/Kolkata")
-  language          String   @default("en")
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id                 String   @id @default(uuid())
+  userId             String   @unique
+  theme              String   @default("light")
+  emailNotifications Boolean  @default(true)
+  smsNotifications   Boolean  @default(false)
+  loginMethod        String   @default("password")
+  timezone           String   @default("Asia/Kolkata")
+  language           String   @default("en")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model ApiRouting {
-  id                  String   @id @default(uuid())
-  name                String   @unique
+  id                  String    @id @default(uuid())
+  name                String    @unique
   description         String?
   endpoint            String?
-  method              String   @default("GET")
-  sourceType          String   @default("api")
+  method              String    @default("GET")
+  sourceType          String    @default("api")
   csvFilePath         String?
   csvUrl              String?
   headers             Json?
-  isActive            Boolean  @default(true)
-  status              String   @default("draft") // draft, tested, active
-  syncEnabled         Boolean  @default(false)
-  syncIntervalHours   Int      @default(0)
-  syncIntervalMinutes Int      @default(10)
+  isActive            Boolean   @default(true)
+  status              String    @default("draft")
+  syncEnabled         Boolean   @default(false)
+  syncIntervalHours   Int       @default(0)
+  syncIntervalMinutes Int       @default(10)
   syncSchedule        String?
   lastSyncAt          DateTime?
   lastSyncStatus      String?
   lastTestAt          DateTime?
   lastTestStatus      String?
-  syncProgressCurrent Int      @default(0)
-  syncProgressTotal   Int      @default(0)
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  syncProgressCurrent Int       @default(0)
+  syncProgressTotal   Int       @default(0)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 }
 
 model SystemSettings {
@@ -403,40 +402,40 @@ model SystemSettings {
 }
 
 model SmsLog {
-  id              String    @id @default(uuid())
-  recipientPhone  String
-  messageType     String    @default("OTP")
-  messageText     String?
-  status          String    @default("pending")
-  apiResponse     Json?
-  apiMessageId    String?
-  customerRef     String?
-  sentAt          DateTime?
-  deliveredAt     DateTime?
-  failedAt        DateTime?
-  errorMessage    String?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  
+  id             String    @id @default(uuid())
+  recipientPhone String
+  messageType    String    @default("OTP")
+  messageText    String?
+  status         String    @default("pending")
+  apiResponse    Json?
+  apiMessageId   String?
+  customerRef    String?
+  sentAt         DateTime?
+  deliveredAt    DateTime?
+  failedAt       DateTime?
+  errorMessage   String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
   @@index([recipientPhone])
   @@index([status])
   @@index([apiMessageId])
 }
 
 model SalesStaffSummary {
-  id          String   @id @default(uuid())
-  dat         String   // Date string like "10-NOV-2025"
-  unit        String?
-  smno        String   // Salesman number
-  sm          String?  // Salesman name
-  divi        String?  // Division
-  btype       String?  // Brand type (N=INH, Y=SOR)
-  qty         Int      @default(0)
-  netSale     Float    @default(0)
-  updon       DateTime? // Update timestamp from source
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  
+  id        String    @id @default(uuid())
+  dat       String
+  unit      String?
+  smno      String
+  sm        String?
+  divi      String?
+  btype     String?
+  qty       Int       @default(0)
+  netSale   Float     @default(0)
+  updon     DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
   @@index([smno])
   @@index([dat])
   @@index([unit])
@@ -444,21 +443,21 @@ model SalesStaffSummary {
 }
 
 model SalesData {
-  id          String    @id @default(uuid())
-  smno        String?   // Salesman number
-  sm          String?   // Salesman name
-  shrtname    String?   // Unit/Short name
-  dept        String?   // Department
-  brand       String?   // Brand
-  email       String?   // Email
-  totalSale   Float     @default(0)
-  inhouseSal  Float     @default(0)
-  prDays      Int       @default(0)
-  billMonth   DateTime? // Bill month
-  updOn       String?   // Update date string
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  
+  id         String    @id @default(uuid())
+  smno       String?
+  sm         String?
+  shrtname   String?
+  dept       String?
+  brand      String?
+  email      String?
+  totalSale  Float     @default(0)
+  inhouseSal Float     @default(0)
+  prDays     Int       @default(0)
+  billMonth  DateTime?
+  updOn      String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
   @@index([smno])
   @@index([shrtname])
   @@index([dept])
@@ -468,11 +467,11 @@ model SalesData {
 }
 
 model EmpManager {
-  mid             String   @id
-  mcardno         String   @unique  // One row per card number
-  mdepartmentIds  String[] @default([])  // Array of department IDs
-  mdesignationIds String[] @default([])  // Array of designation IDs
-  morgUnitIds     String[] @default([])  // Array of org unit IDs
+  mid             String   @id(map: "emp_manager_new_pkey")
+  mcardno         String   @unique
+  mdepartmentIds  String[] @default([])
+  mdesignationIds String[] @default([])
+  morgUnitIds     String[] @default([])
   mis_extinct     Boolean  @default(false)
 
   @@index([mcardno])

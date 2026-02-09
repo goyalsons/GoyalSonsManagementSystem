@@ -38,12 +38,14 @@ interface SalesmanInfo {
 
 interface SalesExcelPivotTableProps {
   data: SalesDataRow[];
-  /** If true, shows salesman filter dropdown (for MDO). If false, uses defaultSmno to auto-filter. */
+  /** If true, shows salesman filter dropdown (for MDO/manager). If false, uses defaultSmno to auto-filter. */
   showSalesmanFilter?: boolean;
   /** For employee mode: auto-filter by this smno (employee's card number) */
   defaultSmno?: number | null;
   /** Employee name to display when in employee mode */
   employeeName?: string;
+  /** When set (e.g. for managers), dropdown shows only these smnos (team members). Omit for full list. */
+  allowedSmnos?: number[] | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -197,17 +199,20 @@ export default function SalesExcelPivotTable({
   data, 
   showSalesmanFilter = true,
   defaultSmno = null,
-  employeeName = ""
+  employeeName = "",
+  allowedSmnos = null,
 }: SalesExcelPivotTableProps) {
   // Employee mode (defaultSmno set) must never show "All Salesmen" dropdown.
   const effectiveShowSalesmanFilter = showSalesmanFilter && defaultSmno === null;
   
-  // Extract unique salesmen from data
+  // Extract unique salesmen from data; when allowedSmnos is set (manager), only show those
   const availableSalesmen = useMemo(() => {
     const salesmenMap = new Map<number, string>();
     data.forEach((d) => {
-      if (!salesmenMap.has(d.smno)) {
-        salesmenMap.set(d.smno, d.sm);
+      if (allowedSmnos != null ? allowedSmnos.includes(d.smno) : true) {
+        if (!salesmenMap.has(d.smno)) {
+          salesmenMap.set(d.smno, d.sm);
+        }
       }
     });
     const salesmen: SalesmanInfo[] = [];
@@ -215,7 +220,7 @@ export default function SalesExcelPivotTable({
       salesmen.push({ smno, sm });
     });
     return salesmen.sort((a, b) => a.sm.localeCompare(b.sm));
-  }, [data]);
+  }, [data, allowedSmnos]);
 
   // State for selected salesman
   // For employees (defaultSmno set), always use their smno
@@ -258,13 +263,16 @@ export default function SalesExcelPivotTable({
     setSelectedMonth((prev) => (prev && availableMonths.includes(prev) ? prev : availableMonths[0]));
   }, [availableMonths]);
 
-  // Filter data by selected salesman and month
+  // Filter data by selected salesman and month (when allowedSmnos set, "all" = team only)
   const filteredData = useMemo(() => {
     let result = data;
     
-    // Filter by salesman
+    // Filter by salesman (or by team when allowedSmnos is set and "all" selected)
     if (selectedSmno !== "all") {
       result = result.filter((row) => row.smno === selectedSmno);
+    } else if (allowedSmnos != null && allowedSmnos.length > 0) {
+      const teamSet = new Set(allowedSmnos);
+      result = result.filter((row) => teamSet.has(row.smno));
     }
     
     // Filter by month (always, default is latest)
@@ -274,7 +282,7 @@ export default function SalesExcelPivotTable({
     }
     
     return result;
-  }, [data, selectedSmno, selectedMonth, availableMonths]);
+  }, [data, selectedSmno, selectedMonth, availableMonths, allowedSmnos]);
 
   // Get selected salesman info
   const selectedSalesmanInfo = useMemo(() => {
@@ -319,7 +327,7 @@ export default function SalesExcelPivotTable({
                     <User className="h-4 w-4 text-indigo-500" />
                     <span className="truncate max-w-[140px]">
                       {selectedSmno === "all" 
-                        ? "All Salesmen" 
+                        ? (allowedSmnos != null ? "All (Team)" : "All Salesmen")
                         : `${selectedSalesmanInfo?.sm || "Unknown"}`
                       }
                     </span>
@@ -336,7 +344,7 @@ export default function SalesExcelPivotTable({
                     <Badge variant="outline" className="font-mono text-xs px-1.5">
                       ALL
                     </Badge>
-                    <span className="truncate flex-1">All Salesmen</span>
+                    <span className="truncate flex-1">{allowedSmnos != null ? "All (Team)" : "All Salesmen"}</span>
                     <Badge variant="secondary" className="text-xs">
                       {data.length} records
                     </Badge>

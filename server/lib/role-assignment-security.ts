@@ -221,3 +221,46 @@ export async function canRemoveRole(params: {
 
   return { allowed: true };
 }
+
+/**
+ * Ensure that replacing a user's role with the new role would not remove the last Director.
+ * Call before replaceUserRoles when the target user might currently have Director.
+ */
+export async function ensureNotLastDirector(params: {
+  userId: string;
+  newRoleId: string;
+}): Promise<{ allowed: boolean; message?: string }> {
+  const { userId, newRoleId } = params;
+
+  const directorRole = await prisma.role.findUnique({
+    where: { name: "Director" },
+    select: { id: true },
+  });
+  if (!directorRole) return { allowed: true };
+
+  const newRole = await prisma.role.findUnique({
+    where: { id: newRoleId },
+    select: { name: true },
+  });
+  if (!newRole) return { allowed: true };
+
+  if (newRole.name === "Director") return { allowed: true };
+
+  const userCurrentRole = await prisma.userRole.findFirst({
+    where: { userId },
+    include: { role: { select: { name: true } } },
+  });
+  if (!userCurrentRole || userCurrentRole.role.name !== "Director") return { allowed: true };
+
+  const otherDirectorCount = await prisma.userRole.count({
+    where: {
+      roleId: directorRole.id,
+      userId: { not: userId },
+    },
+  });
+
+  if (otherDirectorCount === 0) {
+    return { allowed: false, message: "Cannot change role: at least one Director must remain in the system." };
+  }
+  return { allowed: true };
+}

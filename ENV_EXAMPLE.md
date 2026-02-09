@@ -2,6 +2,17 @@
 
 Copy these variables to your `.env` file and update with your actual values.
 
+## Database (required)
+
+```env
+# PostgreSQL connection string. For Railway/remote DB, include connection_limit to avoid pool exhaustion.
+# Example local:  postgresql://postgres:PASSWORD@localhost:5432/gms_dev
+# Example Railway: postgresql://postgres:PASSWORD@host:port/railway?sslmode=require&connection_limit=10
+DATABASE_URL="postgresql://postgres:YOUR_PASSWORD@localhost:5432/goyalsons_db?connection_limit=10"
+```
+
+**Important for Railway / remote DB:** Add `connection_limit=10` (and if needed `connect_timeout=30`) to the URL. If the URL already has `?sslmode=require`, use `&connection_limit=10`. Prisma’s default pool size is small (e.g. 2); login + auto-sync can exhaust it and cause "Timed out fetching a new connection" or "Server has closed the connection".
+
 ## Sales API Configuration
 
 ```env

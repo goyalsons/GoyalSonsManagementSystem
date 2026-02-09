@@ -86,6 +86,24 @@ export async function apiPut<T>(endpoint: string, data: unknown): Promise<T> {
   return response.json();
 }
 
+export async function apiPatch<T>(endpoint: string, data: unknown): Promise<T> {
+  const response = await fetch(`${API_BASE}${endpoint}`, {
+    method: "PATCH",
+    headers: getAuthHeaders(),
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ message: "Request failed" }));
+    if (response.status === 401) {
+      handleUnauthorized();
+    }
+    throw new Error(error.message);
+  }
+
+  return response.json();
+}
+
 export async function apiDelete<T>(endpoint: string): Promise<T> {
   const response = await fetch(`${API_BASE}${endpoint}`, {
     method: "DELETE",
@@ -247,8 +265,42 @@ export const tasksApi = {
     apiPost<any>("/tasks", data),
 };
 
+export interface UsersListParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+}
+
+export interface UsersListResponse {
+  users: Array<{
+    id: string;
+    email: string;
+    name: string;
+    status: string;
+    createdAt: string;
+    role: { id: string; name: string } | null;
+  }>;
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
 export const usersApi = {
-  getAll: () => apiGet<any[]>("/users"),
+  getList: (params?: UsersListParams) => {
+    const q = new URLSearchParams();
+    if (params?.page != null) q.set("page", String(params.page));
+    if (params?.limit != null) q.set("limit", String(params.limit));
+    if (params?.search) q.set("search", params.search);
+    return apiGet<UsersListResponse>(`/users?${q.toString()}`);
+  },
+  getAll: () => apiGet<UsersListResponse>("/users?limit=1000").then((r) => r.users),
+  update: (id: string, data: { name?: string; status?: string }) =>
+    apiPatch<any>(`/users/${id}`, data),
+  resetPassword: (id: string, newPassword: string) =>
+    apiPatch<{ message: string }>(`/users/${id}/password`, { newPassword }),
+  updateRole: (id: string, roleId: string) =>
+    apiPatch<{ message: string; user: any; role: any }>(`/users/${id}/role`, { roleId }),
   assignRole: (data: { userId: string; roleId: string; policyIds?: string[] }) =>
     apiPost<any>("/users/assign-role", data),
   removeRole: (userId: string, roleId: string) =>
@@ -309,6 +361,8 @@ export const policiesApi = {
   getAll: () => apiGet<any[]>("/policies"),
   create: (data: { key: string; description?: string; category?: string }) =>
     apiPost<any>("/policies", data),
+  update: (id: string, data: { description?: string; category?: string }) =>
+    apiPatch<any>(`/policies/${id}`, data),
 };
 
 export const orgUnitsApi = {
@@ -393,9 +447,63 @@ export interface AssignManagerResponse {
 }
 
 export const managerApi = {
-  getEmployeeByCard: (cardNumber: string) => 
+  getEmployeeByCard: (cardNumber: string) =>
     apiGet<EmployeeByCardResponse>(`/employees/by-card/${encodeURIComponent(cardNumber)}`),
-  
-  assignManager: (data: AssignManagerRequest) => 
+
+  assignManager: (data: AssignManagerRequest) =>
     apiPost<AssignManagerResponse>("/manager/assign", data),
+};
+
+export interface AuditLogEntry {
+  id: string;
+  userId: string | null;
+  actor: { id: string; name: string; email: string } | null;
+  action: string;
+  entity: string;
+  entityId: string | null;
+  meta: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+export interface AuditLogsResponse {
+  data: AuditLogEntry[];
+  pagination: { page: number; pageSize: number; total: number; totalPages: number };
+}
+
+export interface AuditLogsFilters {
+  page?: number;
+  pageSize?: number;
+  from?: string;
+  to?: string;
+  actorId?: string;
+  action?: string;
+  entity?: string;
+}
+
+export const auditLogsApi = {
+  getList: (filters?: AuditLogsFilters) => {
+    const params = new URLSearchParams();
+    if (filters?.page != null) params.set("page", String(filters.page));
+    if (filters?.pageSize != null) params.set("pageSize", String(filters.pageSize));
+    if (filters?.from) params.set("from", filters.from);
+    if (filters?.to) params.set("to", filters.to);
+    if (filters?.actorId) params.set("actorId", filters.actorId);
+    if (filters?.action) params.set("action", filters.action);
+    if (filters?.entity) params.set("entity", filters.entity);
+    const q = params.toString();
+    return apiGet<AuditLogsResponse>(`/audit-logs${q ? `?${q}` : ""}`);
+  },
+};
+
+export interface SystemHealthResponse {
+  registryPolicyCount: number;
+  dbPolicyCount: number;
+  missingPolicies: string[];
+  rolesCount: number;
+  cacheSize: number;
+  timestamp: string;
+}
+
+export const systemApi = {
+  getHealth: () => apiGet<SystemHealthResponse>("/system/health/dashboard"),
 };

@@ -7,6 +7,7 @@ import SalesExcelPivotTable, { type SalesDataRow } from "@/components/SalesExcel
 import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
+import { apiGet } from "@/lib/api";
 
 interface PivotApiResponse {
   success: boolean;
@@ -22,10 +23,28 @@ export default function SalesStaffPage() {
   const isEmployee = user?.loginType === "employee" || Boolean(user?.employeeCardNo);
   const employeeCardNo = user?.employeeCardNo;
   const hasStaffView = hasPolicy("sales.staff.view");
-  const showSalesmanFilter = !isEmployee || hasStaffView;
-  const defaultSmno = isEmployee && !hasStaffView && employeeCardNo ? parseInt(employeeCardNo, 10) : null;
+  const hasManagerView = hasPolicy("assigned-manager.view");
+  // Show person dropdown for staff (all salesmen) or manager (team only)
+  const showSalesmanFilter = !isEmployee || hasStaffView || hasManagerView;
+  // Employee with no staff/manager view sees only their own sales (no dropdown)
+  const defaultSmno = isEmployee && !hasStaffView && !hasManagerView && employeeCardNo ? parseInt(employeeCardNo, 10) : null;
+
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastApiHit, setLastApiHit] = useState<string | null>(null);
+
+  // For managers (without full staff view), fetch team to restrict dropdown to team members
+  const { data: teamResponse } = useQuery<{ data?: { cardNumber?: string | null }[] }>({
+    queryKey: ["my-team-members"],
+    queryFn: () => apiGet("/emp-manager/my-team"),
+    enabled: hasManagerView && !hasStaffView,
+  });
+  const allowedSmnos = useMemo(() => {
+    if (hasStaffView || !hasManagerView) return null;
+    const members = teamResponse?.data ?? [];
+    return members
+      .map((m) => (m.cardNumber ? parseInt(m.cardNumber, 10) : NaN))
+      .filter((n) => !isNaN(n));
+  }, [hasStaffView, hasManagerView, teamResponse]);
 
   const { data: pivotResponse, isLoading, isError } = useQuery<PivotApiResponse>({
     queryKey: ["/api/sales/pivot"],
@@ -157,6 +176,7 @@ export default function SalesStaffPage() {
               showSalesmanFilter={showSalesmanFilter}
               defaultSmno={defaultSmno}
               employeeName={user?.name || ""}
+              allowedSmnos={allowedSmnos ?? undefined}
             />
           </CardContent>
         </Card>

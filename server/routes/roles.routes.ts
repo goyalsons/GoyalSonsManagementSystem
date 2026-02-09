@@ -1,13 +1,14 @@
 import type { Express } from "express";
 import { prisma } from "../lib/prisma";
-import { requireAuth, requirePolicy } from "../lib/auth-middleware";
+import { requireAuth, requirePolicy, requireAnyPolicy } from "../lib/auth-middleware";
 import { POLICIES } from "../constants/policies";
 import { validateRoleName, validatePolicyIds } from "../lib/validation";
 import { logRoleCreation, logRoleUpdate, logRoleDeletion, logRolePolicyChange } from "../lib/audit-log";
+import { incrementPolicyVersionForRoleUsers } from "../lib/increment-policy-version";
 
 export function registerRolesRoutes(app: Express): void {
   // GET /api/roles - Get all roles with user count
-  app.get("/api/roles", requireAuth, requirePolicy(POLICIES.ROLES_ASSIGNED_VIEW), async (req, res) => {
+  app.get("/api/roles", requireAuth, requireAnyPolicy(POLICIES.VIEW_ROLES, POLICIES.ROLES_ASSIGNED_VIEW), async (req, res) => {
     try {
       const roles = await prisma.role.findMany({
         orderBy: { name: "asc" },
@@ -34,7 +35,7 @@ export function registerRolesRoutes(app: Express): void {
   });
 
   // GET /api/roles/:id - Get single role with policies
-  app.get("/api/roles/:id", requireAuth, requirePolicy(POLICIES.ROLES_ASSIGNED_VIEW), async (req, res) => {
+  app.get("/api/roles/:id", requireAuth, requireAnyPolicy(POLICIES.VIEW_ROLES, POLICIES.ROLES_ASSIGNED_VIEW), async (req, res) => {
     try {
       const { id } = req.params;
       
@@ -71,7 +72,7 @@ export function registerRolesRoutes(app: Express): void {
   });
 
   // POST /api/roles - Create new role
-  app.post("/api/roles", requireAuth, requirePolicy(POLICIES.ADMIN_PANEL), async (req, res) => {
+  app.post("/api/roles", requireAuth, requirePolicy(POLICIES.CREATE_ROLE), async (req, res) => {
     try {
       const { name, description, policyIds } = req.body;
 
@@ -125,7 +126,7 @@ export function registerRolesRoutes(app: Express): void {
   });
 
   // PUT /api/roles/:id - Update role and policies
-  app.put("/api/roles/:id", requireAuth, requirePolicy(POLICIES.ADMIN_PANEL), async (req, res) => {
+  app.put("/api/roles/:id", requireAuth, requirePolicy(POLICIES.EDIT_ROLE), async (req, res) => {
     try {
       const { id } = req.params;
       const { name, description, policyIds } = req.body;
@@ -223,6 +224,10 @@ export function registerRolesRoutes(app: Express): void {
         if (Object.keys(changes).length > 0) {
           await logRoleUpdate(req.user!.id, id, existingRole.name, changes);
         }
+
+        if (policyIds !== undefined) {
+          await incrementPolicyVersionForRoleUsers(id);
+        }
       }
 
       res.json({ message: "Role updated successfully" });
@@ -236,7 +241,7 @@ export function registerRolesRoutes(app: Express): void {
   });
 
   // DELETE /api/roles/:id - Delete role
-  app.delete("/api/roles/:id", requireAuth, requirePolicy(POLICIES.ADMIN_PANEL), async (req, res) => {
+  app.delete("/api/roles/:id", requireAuth, requirePolicy(POLICIES.EDIT_ROLE), async (req, res) => {
     try {
       const { id } = req.params;
 

@@ -14,6 +14,7 @@
  * - If it fails and output references `20260119114801_init`, run:
  *     `prisma migrate resolve --applied 20260119114801_init`
  *   then retry `prisma migrate deploy`
+ * - Run `prisma db seed` only if RUN_SEED_ON_START=1 (prevents production data reset on restart)
  * - Start the server (`node dist/index.cjs`)
  */
 const { spawn, spawnSync } = require("child_process");
@@ -84,12 +85,17 @@ function main() {
     }
   }
 
-  console.log("[start] Running prisma db seed...");
-  const seedResult = run("npx", ["prisma", "db", "seed"]);
-  if (seedResult.status !== 0) {
-    console.warn("[start] prisma db seed failed (non-fatal). Server will still start.", seedResult.stderr || "");
+  // Seed only when explicitly requested (e.g. first-time deploy). Prevents production data reset on restart.
+  if (process.env.RUN_SEED_ON_START === "1") {
+    console.log("[start] RUN_SEED_ON_START=1 — running prisma db seed...");
+    const seedResult = run("npx", ["prisma", "db", "seed"]);
+    if (seedResult.status !== 0) {
+      console.warn("[start] prisma db seed failed (non-fatal). Server will still start.", seedResult.stderr || "");
+    } else {
+      console.log("[start] Seed completed.");
+    }
   } else {
-    console.log("[start] Seed completed.");
+    console.log("[start] Seed skipped (set RUN_SEED_ON_START=1 to run seed on start).");
   }
 
   console.log("[start] Starting server...");

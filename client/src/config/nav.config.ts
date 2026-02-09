@@ -1,17 +1,21 @@
 /**
  * NAV_CONFIG - Single Source of Truth for Navigation & Policies
- * 
+ *
  * This file defines:
  * - All navigation items in the UI
  * - All policies required for each page/action
  * - Auto-synced to database on server startup
- * 
+ *
  * Rules:
  * - If a page exists → policy exists
  * - All policies are auto-generated from this config
  * - No manual policy creation needed
  * - Backend enforces these policies
+ *
+ * Dynamic routes (e.g. /roles/:id) are matched using path-to-regexp.
  */
+
+import { match } from "path-to-regexp";
 
 export interface NavAction {
   create?: string;
@@ -233,6 +237,12 @@ export const NAV_CONFIG: NavConfigItem[] = [
     path: "/assigned-manager", 
     policy: "assigned-manager.view" 
   },
+  { 
+    key: "my-team", 
+    label: "My Team", 
+    path: "/my-team", 
+    policy: "my-team.view" 
+  },
   {
     key: "help-tickets",
     label: "Help Tickets",
@@ -250,7 +260,13 @@ export const NAV_CONFIG: NavConfigItem[] = [
     label: "No Policy",
     path: "/no-policy",
     policy: "no_policy.view",
-  }
+  },
+  // RBAC management
+  { key: "users-management", label: "Users", path: "/users-management", policy: "VIEW_USERS" },
+  { key: "roles-management", label: "Roles", path: "/roles-management", policy: "VIEW_ROLES" },
+  { key: "policies-management", label: "Policies", path: "/policies-management", policy: "VIEW_POLICIES" },
+  { key: "audit-logs", label: "Audit Logs", path: "/audit-logs", policy: "audit.view" },
+  { key: "system-health", label: "System Health", path: "/system/health", policy: "system.health.view" },
 ];
 
 /**
@@ -274,11 +290,22 @@ export function getAllPoliciesFromNavConfig(): string[] {
   return Array.from(policies).sort();
 }
 
+/** Find nav item for path (exact match first, then pattern match e.g. /roles/:id) */
+function findNavItemForPath(pathname: string): NavConfigItem | null {
+  const exact = NAV_CONFIG.find((item) => item.path === pathname);
+  if (exact) return exact;
+  for (const item of NAV_CONFIG) {
+    const fn = match(item.path, { end: true });
+    if (fn(pathname)) return item;
+  }
+  return null;
+}
+
 /**
- * Get policy for a given path
+ * Get policy for a given path (supports dynamic segments e.g. /roles/123 -> /roles/:id)
  */
 export function getPolicyForPath(path: string): string | null {
-  const item = NAV_CONFIG.find(item => item.path === path);
+  const item = findNavItemForPath(path);
   return item ? item.policy : null;
 }
 
@@ -286,7 +313,7 @@ export function getPolicyForPath(path: string): string | null {
  * Get action policy for a given path and action
  */
 export function getActionPolicy(path: string, action: string): string | null {
-  const item = NAV_CONFIG.find(item => item.path === path);
+  const item = findNavItemForPath(path);
   if (!item || !item.actions) return null;
   return item.actions[action] || null;
 }

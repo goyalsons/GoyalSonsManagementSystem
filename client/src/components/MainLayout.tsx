@@ -34,7 +34,9 @@ import {
   Moon,
   UserCheck,
   HelpCircle,
-  IndianRupee
+  IndianRupee,
+  KeyRound,
+  Activity
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
@@ -97,16 +99,18 @@ const navItems: NavItem[] = [
   },
   // Standalone Sales for staff (employees don't have employees.view so "Members" submenu is hidden)
   { href: "/sales-staff", icon: TrendingUp, label: "Sales", policy: getPolicyForPath("/sales-staff") },
-  // Team management for managers
+  // My Team: separate policy (my-team.view). Sub-items use their own policies.
   { 
     icon: UsersRound, 
     label: "My Team", 
-    policy: getPolicyForPath("/attendance/team"),
+    policy: getPolicyForPath("/my-team"),
     subItems: [
       { href: "/attendance/team", icon: CalendarCheck, label: "Team Attendance" },
+      { href: "/manager/team-sales-staff", icon: TrendingUp, label: "Team Sales" },
       { href: "/requests/team", icon: HelpCircle, label: "Team Requests" },
     ]
   },
+  { href: "/assigned-manager", icon: UserCheck, label: "Assigned Manager", policy: getPolicyForPath("/assigned-manager") },
   { 
     icon: Settings2, 
     label: "Integrations", 
@@ -121,8 +125,12 @@ const navItems: NavItem[] = [
   { href: "/requests", icon: HelpCircle, label: "Requests", policy: getPolicyForPath("/requests") },
   { href: "/salary", icon: IndianRupee, label: "Salary", policy: getPolicyForPath("/salary") },
   { href: "/settings", icon: Settings, label: "Settings", policy: getPolicyForPath("/settings") },
-  // (Sales pivot is shown as "Sales" above)
-  { href: "/assigned-manager", icon: UserCheck, label: "Assigned Manager", policy: getPolicyForPath("/assigned-manager") },
+  // RBAC management
+  { href: "/users-management", icon: User, label: "Users", policy: "VIEW_USERS" },
+  { href: "/roles-management", icon: Shield, label: "Roles", policy: "VIEW_ROLES" },
+  { href: "/policies-management", icon: KeyRound, label: "Policies", policy: "VIEW_POLICIES" },
+  { href: "/audit-logs", icon: ClipboardList, label: "Audit Logs", policy: "audit.view" },
+  { href: "/system/health", icon: Activity, label: "System Health", policy: "system.health.view" },
   // Director-only: Logout all users at once (real-time via SSE)
   { href: "/admin/logout-all-sessions", icon: LogOut, label: "Logout All Sessions", policy: getPolicyForPath("/admin/logout-all-sessions"), directorOnly: true },
 ];

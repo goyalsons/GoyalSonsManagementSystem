@@ -37,10 +37,10 @@ import {
   logUserRoleAssignment,
 } from "../lib/audit-log";
 import { canAssignRole, canRemoveRole } from "../lib/role-assignment-security";
+import { incrementPolicyVersionForRoleUsers } from "../lib/increment-policy-version";
 
 /**
- * Increment policy version for a user
- * This forces them to re-login to get fresh policies
+ * Increment policy version for a user (forces re-login for fresh policies)
  */
 async function incrementUserPolicyVersion(userId: string): Promise<void> {
   await prisma.user.update({
@@ -49,27 +49,6 @@ async function incrementUserPolicyVersion(userId: string): Promise<void> {
       policyVersion: { increment: 1 },
     },
   });
-}
-
-/**
- * Increment policy version for all users with a specific role
- * Used when role's policies change
- */
-async function incrementPolicyVersionForRoleUsers(roleId: string): Promise<void> {
-  const usersWithRole = await prisma.userRole.findMany({
-    where: { roleId },
-    select: { userId: true },
-  });
-
-  const userIds = usersWithRole.map((ur) => ur.userId);
-  if (userIds.length > 0) {
-    await prisma.user.updateMany({
-      where: { id: { in: userIds } },
-      data: {
-        policyVersion: { increment: 1 },
-      },
-    });
-  }
 }
 
 export function registerRBACAdminRoutes(app: Express): void {

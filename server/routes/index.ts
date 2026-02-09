@@ -40,15 +40,21 @@ export async function registerRoutes(
   // Register RBAC routes
   const { registerRolesRoutes } = await import("./roles.routes");
   const { registerPoliciesRoutes } = await import("./policies.routes");
+  const { registerUsersRoutes } = await import("./users.routes");
   const { registerUserAssignmentRoutes } = await import("./user-assignment.routes");
   const { registerRBACAdminRoutes } = await import("./rbac-admin.routes");
   const { registerPagesRoutes } = await import("./pages.routes");
-  
+  const { registerSystemRoutes } = await import("./system.routes");
+  const { registerAuditLogsRoutes } = await import("./audit-logs.routes");
+
   registerRolesRoutes(app);
   registerPoliciesRoutes(app);
+  registerUsersRoutes(app);
   registerUserAssignmentRoutes(app);
   registerRBACAdminRoutes(app);
   registerPagesRoutes(app);
+  registerSystemRoutes(app);
+  registerAuditLogsRoutes(app);
 
   // For now, import the rest from the legacy routes file
   // This allows incremental migration - routes will be moved to separate files gradually

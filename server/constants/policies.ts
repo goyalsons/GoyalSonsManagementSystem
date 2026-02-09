@@ -1,32 +1,19 @@
 /**
- * Policy Constants - DEPRECATED
- * 
- * ⚠️ NOTE: Policies are now auto-synced from NAV_CONFIG (client/src/config/nav.config.ts)
- * ⚠️ This file is kept for backward compatibility but policies come from NAV_CONFIG
- * 
- * The single source of truth for policies is:
- * - client/src/config/nav.config.ts (defines all policies)
- * - server/services/policy-sync.service.ts (syncs to DB on startup)
- * - Database (PostgreSQL) is the runtime source of truth
- * 
- * Format: {resource}.{action}
- * - Lowercase only
- * - Use dots as separators
- * - No spaces, underscores, or hyphens
- * 
- * @deprecated Use policies from database via /api/policies endpoint
+ * Policy Constants - Allowlist for requirePolicy middleware.
+ * Single source of truth: shared/policies.ts (registry).
+ * POLICIES object kept for backward compatibility; allowlist from registry.
  */
+
+import { POLICY_KEYS_FLAT } from "../../shared/policies";
 
 export const POLICIES = {
   DASHBOARD_VIEW: "dashboard.view",
   ROLES_ASSIGNED_VIEW: "roles-assigned.view",
   EMPLOYEES_VIEW: "employees.view",
-  // Attendance policies
   ATTENDANCE_HISTORY_VIEW: "attendance.history.view",
   ATTENDANCE_SELF_VIEW: "attendance.self.view",
   ATTENDANCE_TEAM_VIEW: "attendance.team.view",
   ATTENDANCE_WORKLOG_VIEW: "attendance.worklog.view",
-  // Sales policies
   SALES_VIEW: "sales.view",
   SALES_SELF_VIEW: "sales.self.view",
   SALES_STAFF_VIEW: "sales.staff.view",
@@ -56,28 +43,45 @@ export const POLICIES = {
   HELP_TICKETS_ASSIGN: "help_tickets.assign",
   HELP_TICKETS_CLOSE: "help_tickets.close",
   NO_POLICY_VIEW: "no_policy.view",
+  VIEW_USERS: "VIEW_USERS",
+  CREATE_USER: "CREATE_USER",
+  EDIT_USER: "EDIT_USER",
+  RESET_PASSWORD: "RESET_PASSWORD",
+  ASSIGN_ROLE: "ASSIGN_ROLE",
+  VIEW_ROLES: "VIEW_ROLES",
+  CREATE_ROLE: "CREATE_ROLE",
+  EDIT_ROLE: "EDIT_ROLE",
+  VIEW_POLICIES: "VIEW_POLICIES",
+  CREATE_POLICY: "CREATE_POLICY",
+  EDIT_POLICY: "EDIT_POLICY",
+  MANAGE_SYSTEM_SETTINGS: "MANAGE_SYSTEM_SETTINGS",
+  VIEW_AUDIT_LOGS: "VIEW_AUDIT_LOGS",
+  AUDIT_VIEW: "audit.view",
+  SYSTEM_HEALTH_VIEW: "system.health.view",
+  VIEW_DASHBOARD: "VIEW_DASHBOARD",
+  VIEW_ATTENDANCE: "VIEW_ATTENDANCE",
+  VIEW_REPORTS: "VIEW_REPORTS",
+  VIEW_PAYROLL: "VIEW_PAYROLL",
 } as const;
 
 /**
- * Policy key validation regex
- * Format: {resource}.{action}
- * - Lowercase letters, numbers, hyphens, underscores
- * - Dots as separators
- * - Minimum 2 parts (resource.action)
- * - Maximum 3 levels deep (resource.subresource.action)
+ * Policy key validation regex (dot notation, 2+ segments)
  */
-export const POLICY_KEY_REGEX = /^[a-z][a-z0-9_-]*(\.[a-z][a-z0-9_-]*){1,2}$/;
+export const POLICY_KEY_REGEX = /^[a-z][a-z0-9_-]*(\.[a-z][a-z0-9_-]*)+$/;
+
+/** UPPER_SNAKE_CASE for RBAC policy keys */
+export const POLICY_KEY_RBAC_REGEX = /^[A-Z][A-Z0-9_]+$/;
 
 /**
- * Validate policy key format
+ * Validate policy key: format (dot or UPPER_SNAKE) or present in registry
  */
 export function isValidPolicyKey(key: string): boolean {
-  return POLICY_KEY_REGEX.test(key);
+  return POLICY_KEY_REGEX.test(key) || POLICY_KEY_RBAC_REGEX.test(key) || POLICY_KEYS_FLAT.includes(key);
 }
 
 /**
- * Get all policy keys as array
+ * Get all policy keys (from registry) for requirePolicy allowlist
  */
 export function getAllPolicyKeys(): string[] {
-  return Object.values(POLICIES);
+  return POLICY_KEYS_FLAT;
 }

@@ -137,12 +137,31 @@ app.use((req, res, next) => {
         );
       }
 
-      // Sync policies from NAV_CONFIG to database
+      // Sync policies from shared registry to database
       try {
         await initializePolicySync();
       } catch (error: any) {
         console.error("[Server] ❌ Failed to sync policies:", error.message);
         // Don't block server startup, but log the error
+      }
+
+      // Startup guard: warn if critical policies are missing from DB
+      try {
+        const { POLICY_KEYS_FLAT } = await import("../shared/policies");
+        const { prisma } = await import("./lib/prisma");
+        const dbKeys = new Set((await prisma.policy.findMany({ select: { key: true } })).map((p) => p.key));
+        const missing = POLICY_KEYS_FLAT.filter((k) => !dbKeys.has(k));
+        if (missing.length > 0) {
+          console.warn(
+            "[Server] ⚠️ RBAC startup guard:",
+            missing.length,
+            "policies from registry are missing in DB. Run seed or policy sync.",
+            "Missing (sample):",
+            missing.slice(0, 5).join(", "),
+          );
+        }
+      } catch (guardErr: any) {
+        console.warn("[Server] ⚠️ RBAC startup guard check failed:", guardErr?.message);
       }
     })();
   });

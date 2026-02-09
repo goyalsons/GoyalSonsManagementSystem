@@ -45,6 +45,11 @@ const TeamRequestsPage = lazy(() => import("@/pages/requests/team"));
 const TeamAttendancePage = lazy(() => import("@/pages/attendance/team"));
 const SalaryPage = lazy(() => import("@/pages/salary"));
 const NoPolicyPage = lazy(() => import("@/pages/no-policy"));
+const UsersManagementPage = lazy(() => import("@/pages/users-management"));
+const RolesManagementPage = lazy(() => import("@/pages/roles-management"));
+const PoliciesManagementPage = lazy(() => import("@/pages/policies-management"));
+const AuditLogsPage = lazy(() => import("@/pages/audit-logs"));
+const SystemHealthPage = lazy(() => import("@/pages/system-health"));
 
 // Loading spinner component for Suspense fallback
 function PageLoader() {
@@ -164,7 +169,7 @@ function AuthenticatedRoutes() {
             <PageGuard policy="assigned-manager.view"><TeamTaskHistoryPage /></PageGuard>
           )} />
           <Route path="/manager/team-sales-staff" component={() => (
-            <PageGuard policy="assigned-manager.view"><TeamSalesStaffPage /></PageGuard>
+            <PageGuard policy="my-team.view"><TeamSalesStaffPage /></PageGuard>
           )} />
           <Route path="/requests" component={() => (
             <PageGuard policy="requests.view"><RequestsPage /></PageGuard>
@@ -190,6 +195,21 @@ function AuthenticatedRoutes() {
           )} />
           <Route path="/training" component={() => (
             <PageGuard policy="trainings.view"><TrainingPage /></PageGuard>
+          )} />
+          <Route path="/users-management" component={() => (
+            <PageGuard policy="VIEW_USERS"><UsersManagementPage /></PageGuard>
+          )} />
+          <Route path="/roles-management" component={() => (
+            <PageGuard policy="VIEW_ROLES"><RolesManagementPage /></PageGuard>
+          )} />
+          <Route path="/policies-management" component={() => (
+            <PageGuard policy="VIEW_POLICIES"><PoliciesManagementPage /></PageGuard>
+          )} />
+          <Route path="/audit-logs" component={() => (
+            <PageGuard policy="audit.view"><AuditLogsPage /></PageGuard>
+          )} />
+          <Route path="/system/health" component={() => (
+            <PageGuard policy="system.health.view"><SystemHealthPage /></PageGuard>
           )} />
           <Route component={NotFound} />
         </Switch>

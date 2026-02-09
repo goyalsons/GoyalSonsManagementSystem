@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import * as crypto from "crypto";
+import { POLICY_REGISTRY } from "../shared/policies";
 
 const prisma = new PrismaClient();
 
@@ -8,7 +9,12 @@ function hashPassword(password: string): string {
 }
 
 async function main() {
+  const isProduction = process.env.NODE_ENV === "production";
+  const allowDestructive = !isProduction || process.env.SEED_FORCE_SYNC === "1";
   console.log("Starting seed...");
+  console.log(
+    `[seed] NODE_ENV=${process.env.NODE_ENV ?? "undefined"} | SEED_FORCE_SYNC=${process.env.SEED_FORCE_SYNC ?? "undefined"} | destructive operations (deleteMany): ${allowDestructive ? "allowed" : "skipped (production-safe)"}`,
+  );
 
   // ==================== EXTRACT DATA FROM EMPLOYEES ====================
   console.log("📊 Extracting units, departments, and designations from employees data...");
@@ -94,25 +100,7 @@ async function main() {
   const departmentsMap = new Map<string, string>();
   
   if (existingDepartments.length === 0) {
-    console.log("No departments found - creating default departments...");
-    // Only create if database is empty - these are fallback defaults
-    const departmentRecords = [
-      { code: "IT", name: "IT" },
-      { code: "MKT", name: "Marketing" },
-      { code: "OPS", name: "Operations" },
-      { code: "FIN", name: "Finance" },
-      { code: "HR", name: "HR" },
-    ];
-
-    for (const dept of departmentRecords) {
-      const record = await prisma.department.upsert({
-        where: { code: dept.code },
-        update: {},
-        create: { code: dept.code, name: dept.name },
-      });
-      departmentsMap.set(dept.code, record.id);
-    }
-    console.log("Created default departments");
+    console.log("No departments found - skipping (departments come from Zoho API or other source)");
   } else {
     console.log(`Found ${existingDepartments.length} existing departments - using real database data`);
     // Build map from existing departments for sample employee creation
@@ -128,70 +116,26 @@ async function main() {
   // ==================== SEED ROLES AND POLICIES ====================
   console.log("🌱 Seeding Roles and Policies...");
 
-  // Create Policies based on the locked allowlist
-  const policies = [
-    { key: "dashboard.view", description: "Access dashboard", category: "dashboard" },
-    { key: "roles-assigned.view", description: "Access roles assigned page", category: "roles" },
-    { key: "employees.view", description: "Access employees page", category: "employees" },
-    { key: "attendance.history.view", description: "Access attendance history", category: "attendance" },
-    { key: "attendance.self.view", description: "View own attendance", category: "attendance" },
-    { key: "attendance.team.view", description: "View team attendance", category: "attendance" },
-    { key: "attendance.worklog.view", description: "View attendance worklog", category: "attendance" },
-    { key: "sales.view", description: "Access sales page", category: "sales" },
-    { key: "sales.self.view", description: "View own sales", category: "sales" },
-    { key: "sales.staff.view", description: "View staff sales", category: "sales" },
-    { key: "sales.dashboard.view", description: "Access sales dashboard", category: "sales" },
-    { key: "sales.store.view", description: "View store sales", category: "sales" },
-    { key: "sales-staff.view", description: "Access sales staff page", category: "sales" },
-    { key: "admin.panel", description: "Access admin panel", category: "admin" },
-    { key: "admin.routing.view", description: "Access API routing", category: "admin" },
-    { key: "admin.master-settings.view", description: "Access master settings", category: "admin" },
-    { key: "integrations.fetched-data.view", description: "Access fetched data", category: "integrations" },
-    { key: "trainings.view", description: "Access trainings", category: "training" },
-    { key: "trainings.create", description: "Create training", category: "training" },
-    { key: "trainings.assign", description: "Assign training to employees", category: "training" },
-    { key: "trainings.complete", description: "Mark training complete", category: "training" },
-    { key: "requests.view", description: "Access requests", category: "requests" },
-    { key: "requests.self.view", description: "View own requests", category: "requests" },
-    { key: "requests.team.view", description: "View team requests", category: "requests" },
-    { key: "requests.create", description: "Create new request", category: "requests" },
-    { key: "requests.approve", description: "Approve or reject request", category: "requests" },
-    { key: "salary.view", description: "Access salary", category: "salary" },
-    { key: "settings.view", description: "Access settings", category: "settings" },
-    { key: "assigned-manager.view", description: "Access assigned manager", category: "manager" },
-    { key: "help_tickets.view", description: "View help tickets", category: "help_tickets" },
-    { key: "help_tickets.create", description: "Create help tickets", category: "help_tickets" },
-    { key: "help_tickets.update", description: "Update help tickets", category: "help_tickets" },
-    { key: "help_tickets.assign", description: "Assign help tickets", category: "help_tickets" },
-    { key: "help_tickets.close", description: "Close help tickets", category: "help_tickets" },
-    { key: "no_policy.view", description: "Access no policy page", category: "system" },
-    
-    // Attendance Timing Visibility Policies (Granular per-status control)
-    { key: "attendance.timing.absent.in.view", description: "View In Time for ABSENT status", category: "attendance_timing" },
-    { key: "attendance.timing.absent.out.view", description: "View Out Time for ABSENT status", category: "attendance_timing" },
-    { key: "attendance.timing.present.in.view", description: "View In Time for PRESENT status", category: "attendance_timing" },
-    { key: "attendance.timing.present.out.view", description: "View Out Time for PRESENT status", category: "attendance_timing" },
-    { key: "attendance.timing.present_late.in.view", description: "View In Time for PRESENT LATE status", category: "attendance_timing" },
-    { key: "attendance.timing.present_late.out.view", description: "View Out Time for PRESENT LATE status", category: "attendance_timing" },
-    { key: "attendance.timing.present_early.in.view", description: "View In Time for PRESENT EARLY_OUT status", category: "attendance_timing" },
-    { key: "attendance.timing.present_early.out.view", description: "View Out Time for PRESENT EARLY_OUT status", category: "attendance_timing" },
-    { key: "attendance.timing.miss.in.view", description: "View In Time for MISS status", category: "attendance_timing" },
-    { key: "attendance.timing.miss.out.view", description: "View Out Time for MISS status", category: "attendance_timing" },
-    { key: "attendance.timing.all.view", description: "View all attendance timings (Director bypass)", category: "attendance_timing" },
-  ];
+  // Create Policies from shared registry (single source of truth)
+  const policies = POLICY_REGISTRY;
 
-  // Remove any policies not in the allowlist
+  // Remove any policies not in the allowlist (skipped in production unless SEED_FORCE_SYNC=1)
   const allowedPolicyKeys = policies.map((policy) => policy.key);
   const disallowedPolicies = await prisma.policy.findMany({
     where: { key: { notIn: allowedPolicyKeys } },
     select: { id: true },
   });
   if (disallowedPolicies.length > 0) {
-    const disallowedIds = disallowedPolicies.map((policy) => policy.id);
-    await prisma.$transaction([
-      prisma.rolePolicy.deleteMany({ where: { policyId: { in: disallowedIds } } }),
-      prisma.policy.deleteMany({ where: { id: { in: disallowedIds } } }),
-    ]);
+    if (allowDestructive) {
+      const disallowedIds = disallowedPolicies.map((policy) => policy.id);
+      await prisma.$transaction([
+        prisma.rolePolicy.deleteMany({ where: { policyId: { in: disallowedIds } } }),
+        prisma.policy.deleteMany({ where: { id: { in: disallowedIds } } }),
+      ]);
+      console.log(`[seed] Removed ${disallowedPolicies.length} disallowed policies (destructive allowed).`);
+    } else {
+      console.log(`[seed] Skipping removal of ${disallowedPolicies.length} disallowed policies (production-safe).`);
+    }
   }
 
   // Create policies (canonical set)
@@ -218,6 +162,20 @@ async function main() {
   const defaultPolicies: string[] = [];
   const employeeDefaultPolicies: string[] = [];
   const allPolicyKeys = Object.keys(createdPolicies);
+  // HR: dashboard, members, attendance, roles, settings, requests
+  const hrPolicyKeys = allPolicyKeys.filter(
+    (k) =>
+      k.startsWith("dashboard.") ||
+      k.startsWith("employees.") ||
+      k.startsWith("attendance.") ||
+      k.startsWith("roles-assigned.") ||
+      k.startsWith("settings.") ||
+      k.startsWith("requests.") ||
+      k === "no_policy.view" ||
+      k === "VIEW_USERS" ||
+      k === "VIEW_ROLES" ||
+      k === "VIEW_POLICIES"
+  );
 
   const roles = [
     {
@@ -243,6 +201,11 @@ async function main() {
     {
       name: "HR",
       description: "Human Resources",
+      policies: hrPolicyKeys,
+    },
+    {
+      name: "Manager",
+      description: "Team/people manager with limited admin",
       policies: defaultPolicies,
     },
     {
@@ -269,16 +232,21 @@ async function main() {
 
   const allowedRoleNames = roles.map((role) => role.name);
 
-  // Remove any roles that are not in the allowed list
-  await prisma.userRole.deleteMany({
-    where: { role: { name: { notIn: allowedRoleNames } } },
-  });
-  await prisma.rolePolicy.deleteMany({
-    where: { role: { name: { notIn: allowedRoleNames } } },
-  });
-  await prisma.role.deleteMany({
-    where: { name: { notIn: allowedRoleNames } },
-  });
+  // Remove any roles that are not in the allowed list (skipped in production unless SEED_FORCE_SYNC=1)
+  if (allowDestructive) {
+    await prisma.userRole.deleteMany({
+      where: { role: { name: { notIn: allowedRoleNames } } },
+    });
+    await prisma.rolePolicy.deleteMany({
+      where: { role: { name: { notIn: allowedRoleNames } } },
+    });
+    await prisma.role.deleteMany({
+      where: { name: { notIn: allowedRoleNames } },
+    });
+    console.log("[seed] Removed roles/policies not in allowlist (destructive allowed).");
+  } else {
+    console.log("[seed] Skipping role/policy/userRole deleteMany (production-safe).");
+  }
 
   const rolesByName = new Map<string, { id: string; name: string }>();
 

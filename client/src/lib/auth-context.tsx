@@ -298,3 +298,9 @@ export function useRequireAuth() {
 
   return { user, isLoading };
 }
+
+/** Hook for policy-based UI: current user's policies and hasPolicy check. */
+export function usePolicies() {
+  const { user, hasPolicy } = useAuth();
+  return { policies: user?.policies ?? [], hasPolicy };
+}
