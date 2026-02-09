@@ -12,6 +12,7 @@
 
 import { prisma } from "../lib/prisma";
 import { POLICY_REGISTRY } from "../../shared/policies";
+import { getDirectorRoleId } from "../lib/director-role";
 
 /**
  * Sync policies from shared registry to database
@@ -39,7 +40,7 @@ export async function syncPoliciesFromNavConfig(): Promise<{
 
   console.log(`[Policy Sync] Starting sync of ${policies.length} policies from NAV_CONFIG...`);
 
-  // Remove any policies that are not in the allowlist
+  // Remove any policies that are not in the allowlist (never touch Director role)
   try {
     const disallowedPolicies = await prisma.policy.findMany({
       where: { key: { notIn: Array.from(allowedPolicyKeys) } },
@@ -48,9 +49,13 @@ export async function syncPoliciesFromNavConfig(): Promise<{
 
     if (disallowedPolicies.length > 0) {
       const disallowedIds = disallowedPolicies.map((policy) => policy.id);
+      const directorId = await getDirectorRoleId(prisma);
       await prisma.$transaction([
         prisma.rolePolicy.deleteMany({
-          where: { policyId: { in: disallowedIds } },
+          where: {
+            policyId: { in: disallowedIds },
+            ...(directorId ? { roleId: { not: directorId } } : {}),
+          },
         }),
         prisma.policy.deleteMany({
           where: { id: { in: disallowedIds } },
@@ -155,6 +160,8 @@ async function ensureDefaultRolePolicies(): Promise<void> {
 }
 
 async function removeRolePolicies(roleName: string, policyKeys: string[]): Promise<void> {
+  const { DIRECTOR_ROLE_NAME } = await import("../lib/director-role");
+  if (roleName === DIRECTOR_ROLE_NAME) return; // Director policies are immutable
   const role = await prisma.role.findUnique({
     where: { name: roleName },
     select: { id: true },
@@ -197,6 +204,9 @@ export async function initializePolicySync(): Promise<void> {
 
     // Keep default role policies aligned with expected access
     await ensureDefaultRolePolicies();
+    // Director must always have ALL policies (immutable)
+    const { ensureDirectorHasAllPolicies } = await import("../lib/director-role");
+    await ensureDirectorHasAllPolicies(prisma);
     // Employees should not see the /sales dashboard by default
     await removeRolePolicies("Employee", ["staff-sales.view"]);
   } catch (error: any) {

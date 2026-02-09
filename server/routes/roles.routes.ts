@@ -5,6 +5,7 @@ import { POLICIES } from "../constants/policies";
 import { validateRoleName, validatePolicyIds } from "../lib/validation";
 import { logRoleCreation, logRoleUpdate, logRoleDeletion, logRolePolicyChange } from "../lib/audit-log";
 import { incrementPolicyVersionForRoleUsers } from "../lib/increment-policy-version";
+import { isDirectorRoleName } from "../lib/director-role";
 
 export function registerRolesRoutes(app: Express): void {
   // GET /api/roles - Get all roles with user count
@@ -144,6 +145,10 @@ export function registerRolesRoutes(app: Express): void {
 
       if (!existingRole) {
         return res.status(404).json({ message: "Role not found" });
+      }
+
+      if (isDirectorRoleName(existingRole.name)) {
+        return res.status(403).json({ message: "Director role is immutable and cannot be updated." });
       }
 
       // Track changes for audit log

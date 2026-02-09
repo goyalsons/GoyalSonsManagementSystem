@@ -115,6 +115,8 @@ export default function EditRolePage() {
     return acc;
   }, {} as Record<string, Policy[]>);
 
+  const isDirectorLocked = role.name === "Director";
+
   return (
     <div className="max-w-3xl mx-auto">
         <div className="flex items-center gap-4 mb-6">
@@ -122,9 +124,13 @@ export default function EditRolePage() {
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">Edit Permissions: {role.name}</h1>
+            <h1 className="text-2xl font-bold tracking-tight">
+              {isDirectorLocked ? `${role.name} – System Role (locked)` : `Edit Permissions: ${role.name}`}
+            </h1>
             <p className="text-muted-foreground text-sm">
-              Configure what users with this role can access.
+              {isDirectorLocked
+                ? "This role has all policies and cannot be edited."
+                : "Configure what users with this role can access."}
             </p>
           </div>
         </div>
@@ -136,7 +142,9 @@ export default function EditRolePage() {
               <CardTitle>Policy Configuration</CardTitle>
             </div>
             <CardDescription>
-              Select the policies to apply to this role.
+              {isDirectorLocked
+                ? "Director has full access. Policies are managed by the system."
+                : "Select the policies to apply to this role."}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -156,6 +164,7 @@ export default function EditRolePage() {
                           id={policy.id}
                           checked={selectedPolicyIds.has(policy.id)}
                           onCheckedChange={() => handlePolicyToggle(policy.id)}
+                          disabled={isDirectorLocked}
                         />
                         <div className="grid gap-1.5 leading-none flex-1">
                           <Label
@@ -179,18 +188,20 @@ export default function EditRolePage() {
               <Button variant="outline" onClick={() => setLocation("/roles")}>
                 Cancel
               </Button>
-              <Button
-                onClick={handleSave}
-                disabled={updateRoleMutation.isPending}
-                className="gap-2"
-              >
-                {updateRoleMutation.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Save className="h-4 w-4" />
-                )}
-                Save Changes
-              </Button>
+              {!isDirectorLocked && (
+                <Button
+                  onClick={handleSave}
+                  disabled={updateRoleMutation.isPending}
+                  className="gap-2"
+                >
+                  {updateRoleMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Save className="h-4 w-4" />
+                  )}
+                  Save Changes
+                </Button>
+              )}
             </div>
           </CardContent>
         </Card>

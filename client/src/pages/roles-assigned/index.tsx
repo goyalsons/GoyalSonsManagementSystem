@@ -874,6 +874,8 @@ export default function RolesAssignedPage() {
                   variant="outline"
                   className="flex-1 gap-2"
                   onClick={(e) => handleEditPolicies(role, e)}
+                  disabled={role.name === "Director"}
+                  title={role.name === "Director" ? "System role (locked)" : undefined}
                 >
                   <Edit className="h-3 w-3" />
                   Edit Policies
@@ -915,13 +917,17 @@ export default function RolesAssignedPage() {
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              {viewMode === "policies" 
-                ? `${selectedRole?.name} - Policies` 
+              {viewMode === "policies"
+                ? selectedRole?.name === "Director"
+                  ? "Director – System Role (locked)"
+                  : `${selectedRole?.name} - Policies`
                 : `Add Members to ${selectedRole?.name}`}
             </DialogTitle>
             <DialogDescription>
               {viewMode === "policies"
-                ? "Edit and manage policies for this role. Select the policies you want to assign."
+                ? selectedRole?.name === "Director"
+                  ? "This role has all policies and cannot be edited."
+                  : "Edit and manage policies for this role. Select the policies you want to assign."
                 : "Select employees to assign this role. All role policies will be automatically assigned."}
             </DialogDescription>
           </DialogHeader>
@@ -970,7 +976,7 @@ export default function RolesAssignedPage() {
                           size="sm"
                           onClick={handleSelectAllPolicies}
                           className="gap-2"
-                          disabled={allPolicyIds.length === 0}
+                          disabled={allPolicyIds.length === 0 || selectedRole?.name === "Director"}
                         >
                           <CheckSquare className="h-4 w-4" />
                           {allSelected ? "Deselect All" : "Select All"}
@@ -994,6 +1000,7 @@ export default function RolesAssignedPage() {
                                     id={`policy-${policy.id}`}
                                     checked={selectedPolicies.has(policy.id)}
                                     onCheckedChange={() => handlePolicyToggle(policy.id)}
+                                    disabled={selectedRole?.name === "Director"}
                                   />
                                   <div className="flex-1">
                                     <Label
@@ -1468,23 +1475,25 @@ export default function RolesAssignedPage() {
                   <UserPlus className="h-4 w-4" />
                   Add Members
                 </Button>
-                <Button
-                  onClick={handleSavePolicies}
-                  disabled={saveRolePoliciesMutation.isPending}
-                  className="gap-2"
-                >
-                  {saveRolePoliciesMutation.isPending ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    <>
-                      <Shield className="h-4 w-4" />
-                      Save Policies
-                    </>
-                  )}
-                </Button>
+                {selectedRole?.name !== "Director" && (
+                  <Button
+                    onClick={handleSavePolicies}
+                    disabled={saveRolePoliciesMutation.isPending}
+                    className="gap-2"
+                  >
+                    {saveRolePoliciesMutation.isPending ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Shield className="h-4 w-4" />
+                        Save Policies
+                      </>
+                    )}
+                  </Button>
+                )}
               </>
             )}
             {viewMode === "members" && (

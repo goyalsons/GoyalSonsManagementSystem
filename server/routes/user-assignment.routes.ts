@@ -9,6 +9,7 @@ import { replaceUserRoles } from "../lib/role-replacement";
 import { ensureNotLastDirector } from "../lib/role-assignment-security";
 import { invalidateSessionsForUser, invalidateAllAuthCache } from "../lib/auth-cache";
 import { broadcastLogoutAll } from "../lib/session-events";
+import { isDirectorRoleName } from "../lib/director-role";
 
 export function registerUserAssignmentRoutes(app: Express): void {
   // POST /api/users/assign-role - Assign role to user
@@ -191,6 +192,10 @@ export function registerUserAssignmentRoutes(app: Express): void {
 
       if (!role) {
         return res.status(404).json({ message: "Role not found" });
+      }
+
+      if (isDirectorRoleName(role.name)) {
+        return res.status(403).json({ message: "Director role policies are immutable and cannot be changed." });
       }
 
       const oldPolicyIds = role.policies.map((rp) => rp.policyId);

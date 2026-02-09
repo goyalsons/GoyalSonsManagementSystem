@@ -7,63 +7,50 @@ import { initializeGoogleOAuth, getCallbackUrl } from "./auth-utils";
 import { replaceUserRoles } from "../lib/role-replacement";
 import { invalidateSessionAuthCache } from "../lib/auth-cache";
 import { registerSseClient } from "../lib/session-events";
+import { ensureDirectorHasAllPolicies, getDirectorRoleId } from "../lib/director-role";
+import { logBreakGlassLogin } from "../lib/audit-log";
 
-/**
- * Legacy: Promote password login user to Director (ALL policies).
- * Gated by ENABLE_PASSWORD_LOGIN_DIRECTOR_PROMOTION (default: false).
- * When disabled, login returns actual DB roles/policies.
- */
-const ENABLE_PASSWORD_LOGIN_DIRECTOR_PROMOTION =
-  process.env.ENABLE_PASSWORD_LOGIN_DIRECTOR_PROMOTION === "true";
-
-async function promotePasswordLoginToDirector(userId: string): Promise<void> {
-  if (!ENABLE_PASSWORD_LOGIN_DIRECTOR_PROMOTION) return;
-
-  const directorRole = await prisma.role.upsert({
-    where: { name: "Director" },
-    update: {},
-    create: {
-      name: "Director",
-      description: "Auto-promoted role for password logins",
-    },
-    select: { id: true },
-  });
-
-  const allPolicies = await prisma.policy.findMany({ select: { id: true } });
-  const existingRolePolicies = await prisma.rolePolicy.findMany({
-    where: { roleId: directorRole.id },
-    select: { policyId: true },
-  });
-  const existingPolicyIds = new Set(existingRolePolicies.map((rp) => rp.policyId));
-  const missingRolePolicies = allPolicies
-    .filter((p) => !existingPolicyIds.has(p.id))
-    .map((p) => ({ roleId: directorRole.id, policyId: p.id }));
-
-  if (missingRolePolicies.length > 0) {
-    await prisma.rolePolicy.createMany({
-      data: missingRolePolicies,
-      skipDuplicates: true,
-    });
+/** Allowed emails: ALLOWED_GOOGLE_EMAILS + keys of ALLOWED_EMAIL_PASSWORDS (no backdoor in code). */
+function getAllowedAdminEmails(): Set<string> {
+  const set = new Set<string>();
+  const google = (process.env.ALLOWED_GOOGLE_EMAILS || "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  google.forEach((e) => set.add(e));
+  const passwords = (process.env.ALLOWED_EMAIL_PASSWORDS || process.env.ALLOWED_PASSWORDS || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  for (const pair of passwords) {
+    const idx = pair.indexOf("=");
+    if (idx > 0) set.add(pair.slice(0, idx).trim().toLowerCase());
   }
+  return set;
+}
 
-  const userHasDirectorRole = await prisma.userRole.findUnique({
-    where: {
-      userId_roleId: {
-        userId,
-        roleId: directorRole.id,
-      },
-    },
-    select: { userId: true },
-  });
+/** Break-glass: env allowlist only. BREAK_GLASS_EMAILS (comma), BREAK_GLASS_PASSWORD or BREAK_GLASS_PASSWORD_HASH. */
+function getBreakGlassEmails(): Set<string> {
+  const emails = (process.env.BREAK_GLASS_EMAILS || "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  return new Set(emails);
+}
 
-  if (!userHasDirectorRole) {
-    await replaceUserRoles(prisma, userId, directorRole.id);
-  } else if (missingRolePolicies.length > 0) {
-    await prisma.user.update({
-      where: { id: userId },
-      data: { policyVersion: { increment: 1 } },
-    });
-  }
+function isBreakGlassPasswordMatch(passwordHash: string): boolean {
+  const envHash =
+    process.env.BREAK_GLASS_PASSWORD_HASH ||
+    (process.env.BREAK_GLASS_PASSWORD ? hashPassword(process.env.BREAK_GLASS_PASSWORD) : undefined);
+  return !!envHash && passwordHash === envHash;
+}
+
+/** Force user to have Director role (single-role). Director always has all policies. */
+async function assignDirectorIfAllowed(userId: string): Promise<void> {
+  await ensureDirectorHasAllPolicies(prisma);
+  const directorId = await getDirectorRoleId(prisma);
+  if (!directorId) return;
+  await replaceUserRoles(prisma, userId, directorId);
 }
 
 export function registerAuthRoutes(app: Express): void {
@@ -110,9 +97,8 @@ export function registerAuthRoutes(app: Express): void {
           const userEmail = user.email?.toLowerCase();
           const loginType = "mdo";
 
-          // Google login (whitelisted by strategy): promote to Director with all policies
-          // so Director mode is full access and not restricted by policies.
-          await promotePasswordLoginToDirector(user.id);
+          // Whitelisted Google users always get Director (single-role).
+          await assignDirectorIfAllowed(user.id);
 
           const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000);
           const session = await prisma.session.create({
@@ -162,63 +148,94 @@ export function registerAuthRoutes(app: Express): void {
         return res.status(400).json({ message: "Email and password are required" });
       }
 
-      // Authenticate user (checks password)
+      const emailNorm = email.toLowerCase().trim();
       const passwordHash = hashPassword(password);
-      const user = await prisma.user.findUnique({
-        where: { email, passwordHash },
-        select: { id: true, email: true, status: true },
-      });
+      const allowedEmails = getAllowedAdminEmails();
+      const breakGlassEmails = getBreakGlassEmails();
+      const isBreakGlass =
+        breakGlassEmails.has(emailNorm) && isBreakGlassPasswordMatch(passwordHash);
 
-      if (!user) {
-        // Check env-based override
-        const envEmail = process.env.ENV_LOGIN_EMAIL;
-        const envPasswordHash =
-          process.env.ENV_LOGIN_PASSWORD_HASH ||
-          (process.env.ENV_LOGIN_PASSWORD ? hashPassword(process.env.ENV_LOGIN_PASSWORD) : undefined);
-
-        if (envEmail && envPasswordHash && email.toLowerCase() === envEmail.toLowerCase() && passwordHash === envPasswordHash) {
-          const envUser = await prisma.user.findUnique({
-            where: { email: envEmail },
-            select: { id: true, email: true, status: true },
+      // Break-glass: env allowlist only; audit log
+      if (isBreakGlass) {
+        let breakUser = await prisma.user.findUnique({
+          where: { email: emailNorm },
+          select: { id: true, status: true },
+        });
+        if (!breakUser) {
+          breakUser = await prisma.user.create({
+            data: {
+              email: emailNorm,
+              name: "Break-glass Admin",
+              passwordHash,
+              status: "active",
+            },
+            select: { id: true, status: true },
           });
-          if (envUser) {
-            // Password login override: promote to Director with all policies
-            await promotePasswordLoginToDirector(envUser.id);
+        }
+        if (breakUser.status !== "active") {
+          return res.status(403).json({ message: "Account is inactive" });
+        }
+        await assignDirectorIfAllowed(breakUser.id);
+        await logBreakGlassLogin(breakUser.id, emailNorm, { ip: req.ip });
 
-            // Use env user
-            const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000);
+        const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000);
+        const session = await prisma.session.create({
+          data: { userId: breakUser.id, expiresAt, loginType: "mdo" },
+        });
+        const authInfo = await getUserAuthInfo(breakUser.id);
+        if (authInfo) {
+          return res.json({ token: session.id, user: { ...authInfo, loginType: "mdo" } });
+        }
+      }
 
-            const session = await prisma.session.create({
-              data: {
-                userId: envUser.id,
-                expiresAt,
-                loginType: "mdo",
-              },
+      // Env override (single user)
+      const envEmail = process.env.ENV_LOGIN_EMAIL;
+      const envPasswordHash =
+        process.env.ENV_LOGIN_PASSWORD_HASH ||
+        (process.env.ENV_LOGIN_PASSWORD ? hashPassword(process.env.ENV_LOGIN_PASSWORD) : undefined);
+      if (
+        envEmail &&
+        envPasswordHash &&
+        emailNorm === envEmail.toLowerCase() &&
+        passwordHash === envPasswordHash
+      ) {
+        const envUser = await prisma.user.findUnique({
+          where: { email: envEmail },
+          select: { id: true, email: true, status: true },
+        });
+        if (envUser && envUser.status === "active") {
+          await assignDirectorIfAllowed(envUser.id);
+          const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000);
+          const session = await prisma.session.create({
+            data: { userId: envUser.id, expiresAt, loginType: "mdo" },
+          });
+          const authInfo = await getUserAuthInfo(envUser.id);
+          if (authInfo) {
+            return res.json({
+              token: session.id,
+              user: { ...authInfo, loginType: "mdo" },
             });
-
-            const authInfo = await getUserAuthInfo(envUser.id);
-            if (authInfo) {
-              return res.json({
-                token: session.id,
-                user: {
-                  ...authInfo,
-                  loginType: "mdo",
-                },
-              });
-            }
           }
         }
+      }
 
+      const user = await prisma.user.findUnique({
+        where: { email: emailNorm },
+        select: { id: true, email: true, status: true, passwordHash: true },
+      });
+
+      if (!user || user.passwordHash !== passwordHash) {
         return res.status(401).json({ message: "Invalid email or password" });
       }
 
-      // Check if user is active
       if (user.status !== "active") {
         return res.status(403).json({ message: "Account is inactive" });
       }
 
-      // Password login: promote to Director with all policies
-      await promotePasswordLoginToDirector(user.id);
+      // Allowed list (ALLOWED_GOOGLE_EMAILS / ALLOWED_EMAIL_PASSWORDS): always Director
+      if (allowedEmails.has(emailNorm)) {
+        await assignDirectorIfAllowed(user.id);
+      }
 
       const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000);
 

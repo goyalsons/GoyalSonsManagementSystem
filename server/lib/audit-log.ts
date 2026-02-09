@@ -114,6 +114,22 @@ export async function logRolePolicyChange(
 }
 
 /**
+ * Log break-glass admin login (env allowlist, not stored in code).
+ */
+export async function logBreakGlassLogin(
+  userId: string,
+  email: string,
+  meta?: { ip?: string }
+): Promise<void> {
+  await createAuditLog({
+    userId,
+    action: "break_glass_login",
+    entity: "auth",
+    meta: { email, breakGlass: true, ...meta },
+  });
+}
+
+/**
  * Log user-role assignment
  */
 export async function logUserRoleAssignment(

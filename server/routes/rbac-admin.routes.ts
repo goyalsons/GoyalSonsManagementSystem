@@ -38,6 +38,7 @@ import {
 } from "../lib/audit-log";
 import { canAssignRole, canRemoveRole } from "../lib/role-assignment-security";
 import { incrementPolicyVersionForRoleUsers } from "../lib/increment-policy-version";
+import { isDirectorRoleName } from "../lib/director-role";
 
 /**
  * Increment policy version for a user (forces re-login for fresh policies)
@@ -432,6 +433,10 @@ export function registerRBACAdminRoutes(app: Express): void {
           }
         }
 
+        if (isDirectorRoleName(role.name)) {
+          return res.status(403).json({ message: "Director role policies are immutable and cannot be changed." });
+        }
+
         // Get current policy IDs
         const currentPolicyIds = role.policies.map((rp) => rp.policyId);
         const newPolicyIds = policyValidation.ids || [];
@@ -531,6 +536,10 @@ export function registerRBACAdminRoutes(app: Express): void {
 
       if (!role) {
         return res.status(404).json({ message: "Role not found" });
+      }
+
+      if (isDirectorRoleName(role.name)) {
+        return res.status(403).json({ message: "Director role cannot be deleted." });
       }
 
       // Get user IDs before deletion (for policy version increment)

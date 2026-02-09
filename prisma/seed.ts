@@ -250,10 +250,11 @@ async function main() {
 
   const rolesByName = new Map<string, { id: string; name: string }>();
 
-  // Create roles; assign default policies only if role has no policies yet (preserve UI changes)
+  // Create roles; assign default policies. Director is ALWAYS given all policies (no preserve).
+  const DIRECTOR_ROLE_NAME = "Director";
   for (const roleData of roles) {
     const { policies: policyKeys, ...roleInfo } = roleData;
-    
+
     const role = await prisma.role.upsert({
       where: { name: roleData.name },
       update: {
@@ -263,11 +264,12 @@ async function main() {
     });
     rolesByName.set(role.name, role);
 
+    const isDirector = role.name === DIRECTOR_ROLE_NAME;
     const existingCount = await prisma.rolePolicy.count({
       where: { roleId: role.id },
     });
 
-    if (existingCount > 0) {
+    if (existingCount > 0 && !isDirector) {
       console.log(`✅ Role "${role.name}" already has ${existingCount} policies – skipping (preserve UI changes)`);
       continue;
     }
@@ -282,8 +284,12 @@ async function main() {
         }));
 
       if (rolePolicies.length > 0) {
+        if (isDirector) {
+          await prisma.rolePolicy.deleteMany({ where: { roleId: role.id } });
+        }
         await prisma.rolePolicy.createMany({
           data: rolePolicies,
+          skipDuplicates: true,
         });
       }
     }
