@@ -318,6 +318,8 @@ export async function getUserAuthInfo(userId: string) {
     },
   });
 
+  const noPolicyAccess = user.roles.length === 0 || policies.length === 0;
+
   return {
     id: user.id,
     name: user.name,
@@ -330,6 +332,7 @@ export async function getUserAuthInfo(userId: string) {
     })),
     policies,
     accessibleOrgUnitIds,
+    noPolicyAccess,
     employee: fullUser?.employee ? {
       firstName: fullUser.employee.firstName,
       lastName: fullUser.employee.lastName,

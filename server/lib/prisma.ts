@@ -4,7 +4,11 @@ declare global {
   var prisma: PrismaClient | undefined;
 }
 
-// Single PrismaClient instance per process (singleton). Prevents connection pool fragmentation.
+/**
+ * SINGLETON: This is the only place the server app creates PrismaClient.
+ * All server code must import { prisma } from this file (or re-export like sync-prisma).
+ * Prevents "connection reset by peer" / pool fragmentation from multiple clients.
+ */
 const prismaInstance =
   globalThis.prisma ??
   new PrismaClient({
@@ -30,3 +34,6 @@ prisma.$on("error" as never, (e: unknown) => {
       : "Database error";
   console.error("[Prisma] Database error:", msg);
 });
+
+// Transaction safety: keep $transaction blocks short. For heavy sync, use small batches
+// and run work outside a single long transaction to avoid "unexpected EOF" / connection drops.

@@ -398,10 +398,9 @@ async function main() {
       });
 
       if (role) {
-        await prisma.userRole.upsert({
-          where: { userId_roleId: { userId: user.id, roleId: role.id } },
-          update: {},
-          create: { userId: user.id, roleId: role.id },
+        await prisma.userRole.deleteMany({ where: { userId: user.id } });
+        await prisma.userRole.create({
+          data: { userId: user.id, roleId: role.id },
         });
       }
 

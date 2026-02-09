@@ -23,6 +23,7 @@ export interface UserAuth {
   roles: { id: string; name: string }[];
   policies: string[];
   accessibleOrgUnitIds: string[];
+  noPolicyAccess?: boolean;
   loginType: "mdo" | "employee";
   employeeCardNo: string | null;
   employeeId: string | null;

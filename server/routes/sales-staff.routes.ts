@@ -3,6 +3,7 @@ import https from "follow-redirects";
 import { format } from "date-fns";
 import { prisma } from "../lib/prisma";
 import { requireAuth, requirePolicy } from "../lib/auth-middleware";
+import { pingDatabase } from "../lib/db-connect";
 
 // Sales API Configuration from Environment Variables
 const SALES_API_TIMEOUT_MS = parseInt(process.env.SALES_API_TIMEOUT_MS || "60000", 10);
@@ -1126,6 +1127,12 @@ export function registerSalesStaffRoutes(app: Express) {
   });
 
   runSalesPivotRefresh = async () => {
+    try {
+      await pingDatabase();
+    } catch (e: any) {
+      console.warn("[Sales Pivot Auto-Refresh] DB unreachable, skipping this run:", e?.message || e);
+      return;
+    }
     try {
       const records = await fetchMonthlySalesForPivot();
       if (records.length > 0) {

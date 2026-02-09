@@ -15,8 +15,7 @@ export default function NoPolicyPage() {
           </div>
           <CardTitle className="text-2xl">Access Restricted</CardTitle>
           <p className="text-muted-foreground text-sm max-w-md">
-            You are not under any policy assigned to access this system.
-            Please contact the system owner or administrator to request access.
+            Access not configured. Please contact administrator.
           </p>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">

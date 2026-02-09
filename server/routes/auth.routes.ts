@@ -4,6 +4,7 @@ import { prisma } from "../lib/prisma";
 import { requireAuth, hashPassword } from "../lib/auth-middleware";
 import { getUserAuthInfo } from "../lib/authorization";
 import { initializeGoogleOAuth, getCallbackUrl } from "./auth-utils";
+import { replaceUserRoles } from "../lib/role-replacement";
 import { invalidateSessionAuthCache } from "../lib/auth-cache";
 import { registerSseClient } from "../lib/session-events";
 
@@ -56,15 +57,8 @@ async function promotePasswordLoginToDirector(userId: string): Promise<void> {
   });
 
   if (!userHasDirectorRole) {
-    await prisma.userRole.create({
-      data: {
-        userId,
-        roleId: directorRole.id,
-      },
-    });
-  }
-
-  if (missingRolePolicies.length > 0 || !userHasDirectorRole) {
+    await replaceUserRoles(prisma, userId, directorRole.id);
+  } else if (missingRolePolicies.length > 0) {
     await prisma.user.update({
       where: { id: userId },
       data: { policyVersion: { increment: 1 } },
@@ -268,15 +262,17 @@ export function registerAuthRoutes(app: Express): void {
         id: req.user!.id,
         email: req.user!.email,
         name: req.user!.name,
-        policies: req.user!.policies, // From JWT snapshot
+        policies: req.user!.policies,
         orgUnitId: req.user!.orgUnitId,
         roles: req.user!.roles,
         accessibleOrgUnitIds: req.user!.accessibleOrgUnitIds,
+        noPolicyAccess: req.user!.noPolicyAccess,
         employeeId: req.user!.employeeId,
         employeeCardNo: req.user!.employeeCardNo,
         loginType: req.user!.loginType,
         isManager: req.user!.isManager,
         managerScopes: req.user!.managerScopes,
+        employee: req.user!.employee,
       });
     } catch (error) {
       console.error("Auth me error:", error);

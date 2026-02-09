@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { prisma } from "./prisma";
 import { getUserAuthInfo } from "./authorization";
+import { replaceUserRoles } from "./role-replacement";
 import { POLICIES, getAllPolicyKeys } from "../constants/policies";
 import * as crypto from "crypto";
 import { getSessionAuthSnapshot, putSessionAuthSnapshot } from "./auth-cache";
@@ -16,6 +17,7 @@ declare global {
         roles: { id: string; name: string }[];
         policies: string[];
         accessibleOrgUnitIds: string[];
+        noPolicyAccess?: boolean;
         loginType: "mdo" | "employee";
         employeeCardNo: string | null;
         employeeId: string | null;
@@ -25,6 +27,13 @@ declare global {
           departmentIds: string[] | null;
           designationIds: string[] | null;
           orgUnitIds: string[] | null;
+        } | null;
+        employee?: {
+          firstName: string;
+          lastName: string | null;
+          gender: string | null;
+          designationCode: string | null;
+          designationName: string | null;
         } | null;
       };
     }
@@ -195,15 +204,7 @@ async function ensureUserHasRole(userId: string, roleName: string): Promise<bool
   });
   if (existing) return false;
 
-  await prisma.userRole.create({
-    data: { userId, roleId: role.id },
-  });
-
-  await prisma.user.update({
-    where: { id: userId },
-    data: { policyVersion: { increment: 1 } },
-  });
-
+  await replaceUserRoles(prisma, userId, role.id);
   return true;
 }
 

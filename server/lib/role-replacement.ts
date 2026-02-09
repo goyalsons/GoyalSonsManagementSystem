@@ -2,7 +2,8 @@ import { PrismaClient } from "@prisma/client";
 
 /**
  * Atomic role replacement: remove all existing roles, add only the selected role.
- * Single active role behavior. Uses DB transaction.
+ * Single active role behavior. Uses a short transaction only (no long-held connections).
+ * Transaction safety: keep $transaction blocks small; for heavy sync use batches outside transactions.
  */
 export async function replaceUserRoles(
   prisma: PrismaClient,

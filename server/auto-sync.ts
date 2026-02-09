@@ -1,6 +1,7 @@
 import * as crypto from "crypto";
 import { syncPrisma as prisma } from "./lib/sync-prisma";
 import { clearTodayAttendanceCache, clearAttendanceCache } from "./bigquery-service";
+import { isConnectionError, pingDatabase } from "./lib/db-connect";
 
 function hashPassword(password: string): string {
   return crypto.createHash("sha256").update(password).digest("hex");
@@ -9,6 +10,9 @@ function hashPassword(password: string): string {
 const syncTimers: Map<string, NodeJS.Timeout> = new Map();
 const syncInFlight: Set<string> = new Set();
 let activeSyncs = 0;
+let schedulerPaused = false;
+let resumeCheckTimeout: ReturnType<typeof setTimeout> | null = null;
+const SCHEDULER_RESUME_CHECK_MS = 60_000;
 
 const parsedMaxConcurrent = Number(process.env.AUTO_SYNC_MAX_CONCURRENT || "1");
 const parsedStaggerMs = Number(process.env.AUTO_SYNC_STAGGER_MS || "20000");
@@ -565,10 +569,35 @@ async function syncApiSource(routeId: string): Promise<void> {
     }
   } catch (error) {
     console.error(`[Auto-Sync] Fatal error for route ${routeId}:`, error);
+    if (isConnectionError(error)) {
+      schedulerPaused = true;
+      console.warn("[Auto-Sync] DB connectivity lost; pausing scheduler. Will recheck in", SCHEDULER_RESUME_CHECK_MS / 1000, "s");
+      scheduleResumeCheck();
+    }
   }
 }
 
+function scheduleResumeCheck(): void {
+  if (resumeCheckTimeout != null) return;
+  resumeCheckTimeout = setTimeout(async () => {
+    resumeCheckTimeout = null;
+    try {
+      await pingDatabase();
+      schedulerPaused = false;
+      console.log("[Auto-Sync] DB reconnected; resuming scheduler.");
+      await refreshSyncSchedules();
+    } catch {
+      console.warn("[Auto-Sync] DB still unreachable; will recheck again.");
+      scheduleResumeCheck();
+    }
+  }, SCHEDULER_RESUME_CHECK_MS);
+}
+
 async function runSync(routeId: string, reason: "scheduled" | "manual" | "initial"): Promise<void> {
+  if (schedulerPaused) {
+    console.log(`[Auto-Sync] Skipping ${reason} sync (scheduler paused due to DB loss)`);
+    return;
+  }
   if (syncInFlight.has(routeId)) {
     console.log(`[Auto-Sync] Skipping ${reason} sync for ${routeId} (already running)`);
     return;

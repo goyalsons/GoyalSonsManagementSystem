@@ -17,7 +17,7 @@ import { startAutoSync } from "./auto-sync";
 import { createSalesDataTable } from "./create-sales-data-table";
 import { initializePolicySync } from "./services/policy-sync.service";
 import { runSalesPivotRefresh } from "./routes/sales-staff.routes";
-
+import { waitForDatabase } from "./lib/db-connect";
 
 console.log("BOOT => NODE_ENV:", process.env.NODE_ENV, "PORT:", process.env.PORT);
 
@@ -113,29 +113,24 @@ app.use((req, res, next) => {
   httpServer.listen(port, "0.0.0.0", () => {
     log(`listening on 0.0.0.0:${port}`);
 
-    // Run DB check first; only start schedulers and DB-backed tasks if connection succeeds.
+    // Resilient DB connect: retry with backoff; only start schedulers after DB is reachable.
     void (async () => {
+      const dbOk = await waitForDatabase();
+      if (!dbOk) {
+        console.warn("[Server] DB not reachable after retries. Schedulers and DB-backed init skipped.");
+        return;
+      }
+
       const { prisma } = await import("./lib/prisma");
-      let dbOk = false;
-      try {
-        await prisma.$queryRaw`SELECT 1`;
-        dbOk = true;
-      } catch (err: any) {
-        console.warn("[Server] DB connection check failed at startup, skipping background schedulers:", err?.message ?? "unknown");
-      }
 
-      if (dbOk) {
-        startAutoSync();
-        const SALES_PIVOT_INTERVAL_MS = 2 * 60 * 60 * 1000;
-        const runPivot = runSalesPivotRefresh;
-        if (runPivot) {
-          setInterval(runPivot, SALES_PIVOT_INTERVAL_MS);
-          setTimeout(() => runPivot(), 30 * 1000);
-          log("Sales pivot auto-refresh scheduled every 2 hours");
-        }
+      startAutoSync();
+      const SALES_PIVOT_INTERVAL_MS = 2 * 60 * 60 * 1000;
+      const runPivot = runSalesPivotRefresh;
+      if (runPivot) {
+        setInterval(runPivot, SALES_PIVOT_INTERVAL_MS);
+        setTimeout(() => runPivot(), 30 * 1000);
+        log("Sales pivot auto-refresh scheduled every 2 hours");
       }
-
-      if (!dbOk) return;
 
       try {
         await createSalesDataTable();

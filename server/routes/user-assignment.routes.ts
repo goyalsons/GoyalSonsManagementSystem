@@ -361,9 +361,7 @@ export function registerUserAssignmentRoutes(app: Express): void {
               status: "active",
             },
           });
-          await prisma.userRole.create({
-            data: { userId: user.id, roleId: employeeRole.id },
-          });
+          await replaceUserRoles(prisma, user.id, employeeRole.id);
           created++;
         } catch (err: any) {
           console.error(`[Backfill] Failed for employee ${emp.cardNumber}:`, err.message);

@@ -88,7 +88,7 @@ function AuthenticatedRoutes() {
   const [location] = useLocation();
   const noAccess = hasNoAccess(user);
 
-  // If user has no access (no policies or only no_policy), show only No Policy page
+  // If user has no access (noPolicyAccess or no policies / only no_policy), show only No Policy page
   if (noAccess) return <NoPolicyPage />;
 
   return (
@@ -221,9 +221,9 @@ function AuthenticatedRoutes() {
 function Router() {
   const [location, setLocation] = useLocation();
   const { user, isLoading } = useAuth();
-  const noAccess = user && hasNoAccess(user);
+  const noAccess = user && (user.noPolicyAccess === true || hasNoAccess(user));
 
-  // Redirect to /no-policy if user has no access (no policies or only no_policy.view)
+  // Redirect to /no-policy if user has no access (backend noPolicyAccess or no policies / only no_policy.view)
   useEffect(() => {
     if (user && noAccess && location !== "/no-policy") {
       setLocation("/no-policy");
