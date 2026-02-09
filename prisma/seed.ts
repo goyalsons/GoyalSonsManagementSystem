@@ -320,28 +320,8 @@ async function main() {
   if (allowedEmails.length === 0) {
     console.log("No ALLOWED_GOOGLE_EMAILS configured - skipping user creation");
   } else {
-    const directorEmail = allowedEmails[0];
-    const defaultRole = rolesByName.get("SalesMan");
     const directorRole = rolesByName.get("Director");
-
-    const roleOrder = [
-      "Director",
-      "MDO",
-      "DME",
-      "HR",
-      "Store Manager",
-      "Floor Manager",
-      "Purchaser",
-      "SalesMan",
-    ];
-
-    const getRoleForEmail = (email: string, index: number) => {
-      if (email.toLowerCase() === directorEmail.toLowerCase()) {
-        return directorRole || defaultRole;
-      }
-      const roleName = roleOrder[Math.min(index, roleOrder.length - 1)];
-      return rolesByName.get(roleName) || defaultRole;
-    };
+    const fallbackRole = rolesByName.get("SalesMan");
 
     const makeDisplayName = (email: string) =>
       email
@@ -381,8 +361,8 @@ async function main() {
 
     const seededUsers: Array<{ id: string; email: string; password: string; role?: string }> = [];
 
-    for (const [index, email] of allowedEmails.entries()) {
-      const role = getRoleForEmail(email, index);
+    for (const email of allowedEmails) {
+      const role = directorRole ?? fallbackRole;
       const password = makePassword(email);
 
       const displayName = makeDisplayName(email);
@@ -430,6 +410,7 @@ async function main() {
 
     taskCreatorId = seededUsers[0]?.id;
 
+    console.log(`[seed] Assigned Director role to all ALLOWED_GOOGLE_EMAILS (${allowedEmails.length}).`);
     console.log("\nSeeded Users (from ALLOWED_GOOGLE_EMAILS):");
     seededUsers.forEach((user) => {
       const roleLabel = user.role ? ` [${user.role}]` : "";
