@@ -42,6 +42,19 @@ function hasPasswordInUrl(url) {
   }
 }
 
+/** Ensure DATABASE_URL has connection_limit and connect_timeout for production stability. */
+function ensureDatabaseUrlParams(url) {
+  if (!url || typeof url !== "string") return url;
+  try {
+    const u = new URL(url);
+    if (!u.searchParams.has("connection_limit")) u.searchParams.set("connection_limit", "10");
+    if (!u.searchParams.has("connect_timeout")) u.searchParams.set("connect_timeout", "30");
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+
 function run(cmd, args, options = {}) {
   const result = spawnSync(cmd, args, {
     shell: true,
@@ -74,18 +87,20 @@ function shouldAutoResolveInitMigration(output) {
 }
 
 function main() {
-  const dbUrl = process.env.DATABASE_URL;
-  const sanitized = sanitizeDatabaseUrl(dbUrl);
-  const passwordSet = hasPasswordInUrl(dbUrl);
-
-  console.log("[start] DATABASE_URL (sanitized):", sanitized);
-  console.log("[start] DATABASE_URL has password:", passwordSet);
-  console.log("[start] PORT:", process.env.PORT ?? "(not set, app will use default)");
-
+  let dbUrl = process.env.DATABASE_URL;
   if (!dbUrl || typeof dbUrl !== "string" || dbUrl.trim() === "") {
     console.error("[start] FATAL: DATABASE_URL is not set. Set it in Railway Variables (e.g. reference Postgres DATABASE_URL).");
     process.exit(1);
   }
+
+  dbUrl = ensureDatabaseUrlParams(dbUrl);
+  process.env.DATABASE_URL = dbUrl;
+
+  const sanitized = sanitizeDatabaseUrl(dbUrl);
+  const passwordSet = hasPasswordInUrl(dbUrl);
+  console.log("[start] DATABASE_URL (sanitized):", sanitized);
+  console.log("[start] DATABASE_URL has password:", passwordSet);
+  console.log("[start] PORT:", process.env.PORT ?? "(not set, app will use default)");
 
   console.log("[start] Running prisma migrate deploy...");
   const deploy1 = run("npx", ["prisma", "migrate", "deploy"]);
@@ -123,10 +138,10 @@ function main() {
 
   // Seed only when explicitly requested (e.g. first-time deploy). Prevents production data reset on restart.
   if (process.env.RUN_SEED_ON_START === "1") {
-    console.log("[start] RUN_SEED_ON_START=1 — running prisma db seed...");
+    console.log("[start] Seed started.");
     const seedResult = run("npx", ["prisma", "db", "seed"]);
     if (seedResult.status !== 0) {
-      console.warn("[start] prisma db seed failed (non-fatal). Server will still start.", seedResult.stderr || "");
+      console.warn("[start] Seed failed (non-fatal). Server will still start.");
     } else {
       console.log("[start] Seed completed.");
     }

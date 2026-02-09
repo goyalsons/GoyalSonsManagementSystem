@@ -19,11 +19,6 @@ import { initializePolicySync } from "./services/policy-sync.service";
 import { runSalesPivotRefresh } from "./routes/sales-staff.routes";
 
 
-console.log(
-  "ENV CHECK =>",
-  process.env.BIGQUERY_CREDENTIALS || process.env.GOOGLE_APPLICATION_CREDENTIALS
-);
-
 console.log("BOOT => NODE_ENV:", process.env.NODE_ENV, "PORT:", process.env.PORT);
 
 const app = express();
@@ -117,54 +112,59 @@ app.use((req, res, next) => {
   const port = Number(process.env.PORT ?? 5000);
   httpServer.listen(port, "0.0.0.0", () => {
     log(`listening on 0.0.0.0:${port}`);
-    startAutoSync();
 
-    // Sales pivot data: auto-refresh every 2 hours
-    const SALES_PIVOT_INTERVAL_MS = 2 * 60 * 60 * 1000;
-    const runPivot = runSalesPivotRefresh;
-    if (runPivot) {
-      setInterval(runPivot, SALES_PIVOT_INTERVAL_MS);
-      setTimeout(() => runPivot(), 30 * 1000);
-      log("Sales pivot auto-refresh scheduled every 2 hours");
-    }
-
-    // Run DB-backed startup tasks WITHOUT blocking listen/healthcheck.
+    // Run DB check first; only start schedulers and DB-backed tasks if connection succeeds.
     void (async () => {
-      // Create SalesData table if it doesn't exist
+      const { prisma } = await import("./lib/prisma");
+      let dbOk = false;
+      try {
+        await prisma.$queryRaw`SELECT 1`;
+        dbOk = true;
+      } catch (err: any) {
+        console.warn("[Server] DB connection check failed at startup, skipping background schedulers:", err?.message ?? "unknown");
+      }
+
+      if (dbOk) {
+        startAutoSync();
+        const SALES_PIVOT_INTERVAL_MS = 2 * 60 * 60 * 1000;
+        const runPivot = runSalesPivotRefresh;
+        if (runPivot) {
+          setInterval(runPivot, SALES_PIVOT_INTERVAL_MS);
+          setTimeout(() => runPivot(), 30 * 1000);
+          log("Sales pivot auto-refresh scheduled every 2 hours");
+        }
+      }
+
+      if (!dbOk) return;
+
       try {
         await createSalesDataTable();
       } catch (error: any) {
-        console.warn(
-          "[Server] Could not create SalesData table (may already exist):",
-          error.message,
-        );
+        console.warn("[Server] Could not create SalesData table (may already exist):", error?.message ?? "unknown");
       }
 
-      // Sync policies from shared registry to database
       try {
         await initializePolicySync();
       } catch (error: any) {
-        console.error("[Server] ❌ Failed to sync policies:", error.message);
-        // Don't block server startup, but log the error
+        console.error("[Server] Failed to sync policies:", error?.message ?? "unknown");
       }
 
-      // Startup guard: warn if critical policies are missing from DB
       try {
         const { POLICY_KEYS_FLAT } = await import("../shared/policies");
-        const { prisma } = await import("./lib/prisma");
-        const dbKeys = new Set((await prisma.policy.findMany({ select: { key: true } })).map((p) => p.key));
+        const dbKeys = new Set(
+          (await prisma.policy.findMany({ select: { key: true } })).map((p: { key: string }) => p.key),
+        );
         const missing = POLICY_KEYS_FLAT.filter((k) => !dbKeys.has(k));
         if (missing.length > 0) {
           console.warn(
-            "[Server] ⚠️ RBAC startup guard:",
+            "[Server] RBAC startup guard:",
             missing.length,
-            "policies from registry are missing in DB. Run seed or policy sync.",
-            "Missing (sample):",
+            "policies from registry missing in DB. Missing (sample):",
             missing.slice(0, 5).join(", "),
           );
         }
       } catch (guardErr: any) {
-        console.warn("[Server] ⚠️ RBAC startup guard check failed:", guardErr?.message);
+        console.warn("[Server] RBAC startup guard check failed:", guardErr?.message ?? "unknown");
       }
     })();
   });
