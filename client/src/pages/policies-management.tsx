@@ -45,10 +45,12 @@ export default function PoliciesManagementPage() {
   const { toast } = useToast();
   const { user } = useAuth();
 
-  const { data: policies = [], isLoading } = useQuery({
+  const { data: policiesData, isLoading } = useQuery({
     queryKey: ["policies"],
     queryFn: () => policiesApi.getAll(),
   });
+
+  const policies = Array.isArray(policiesData) ? policiesData : [];
 
   const createMutation = useMutation({
     mutationFn: (data: { key: string; description?: string; category?: string }) =>
