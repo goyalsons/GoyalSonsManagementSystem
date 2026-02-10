@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { prisma } from "../lib/prisma";
 import { getUserAuthInfo } from "../lib/authorization";
 import { sendOtpSms } from "../sms-service";
+import { replaceUserRoles } from "../lib/role-replacement";
 
 async function ensureEmployeeRole(userId: string): Promise<void> {
   const employeeRole = await prisma.role.findUnique({
@@ -22,15 +23,8 @@ async function ensureEmployeeRole(userId: string): Promise<void> {
 
   if (existing) return;
 
-  await prisma.userRole.create({
-    data: { userId, roleId: employeeRole.id },
-  });
-
-  // Invalidate session auth snapshots (policyVersion is checked by cache)
-  await prisma.user.update({
-    where: { id: userId },
-    data: { policyVersion: { increment: 1 } },
-  });
+  // Single-role: replace any existing role with Employee (do not create a second role)
+  await replaceUserRoles(prisma, userId, employeeRole.id);
 }
 
 function generateOtp(): string {
