@@ -23,7 +23,8 @@ import { Label } from "@/components/ui/label";
 import { Loader2, Pencil, Shield } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { PageGuard } from "@/components/PageGuard";
-import { Checkbox } from "@/components/ui/checkbox";
+import { GroupedPolicySelector } from "@/components/GroupedPolicySelector";
+import { RoleMatrix } from "@/components/RoleMatrix";
 
 interface Policy {
   id: string;
@@ -82,13 +83,6 @@ export default function RolesManagementPage() {
     },
   });
 
-  const policiesByGroup = (allPolicies as Policy[]).reduce<Record<string, Policy[]>>((acc, p) => {
-    const g = p.category || "other";
-    if (!acc[g]) acc[g] = [];
-    acc[g].push(p);
-    return acc;
-  }, {});
-
   const openPolicies = (role: { id: string; name: string }) => {
     setPoliciesOpen(role);
     setSelectedPolicyIds(new Set());
@@ -106,6 +100,15 @@ export default function RolesManagementPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Roles</h1>
           <p className="text-muted-foreground">Manage roles and their permissions.</p>
+        </div>
+
+        {/* Role × Group access matrix (View / Limited / Full) */}
+        <div className="space-y-2">
+          <h2 className="text-lg font-semibold">Role matrix</h2>
+          <p className="text-sm text-muted-foreground">
+            Access level per role and area. Derived from assigned policies.
+          </p>
+          <RoleMatrix roles={(roles as any[]).map((r) => ({ id: r.id, name: r.name }))} />
         </div>
 
         <div className="rounded-md border">
@@ -205,61 +208,57 @@ export default function RolesManagementPage() {
           </DialogContent>
         </Dialog>
 
-        {/* Edit role policies */}
+        {/* Edit role policies - grouped UI */}
         <Dialog open={!!policiesOpen} onOpenChange={(open) => !open && setPoliciesOpen(null)}>
-          <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+          <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Edit policies: {policiesOpen?.name}</DialogTitle>
-              <DialogDescription>Select the policies assigned to this role.</DialogDescription>
+              <DialogTitle>
+                {policiesOpen?.name === "Director"
+                  ? "Director – System Role (locked)"
+                  : `Edit policies: ${policiesOpen?.name}`}
+              </DialogTitle>
+              <DialogDescription>
+                {policiesOpen?.name === "Director"
+                  ? "This role has all policies and cannot be edited."
+                  : "Use groups and templates, or expand for granular policies."}
+              </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
-              {Object.entries(policiesByGroup).map(([group, list]) => (
-                <div key={group}>
-                  <Label className="text-muted-foreground capitalize">{group}</Label>
-                  <div className="mt-2 space-y-2 pl-2">
-                    {list.map((p) => (
-                      <div key={p.id} className="flex items-center space-x-2">
-                        <Checkbox
-                          id={p.id}
-                          checked={selectedPolicyIds.has(p.id)}
-                          onCheckedChange={(checked) => {
-                            setSelectedPolicyIds((prev) => {
-                              const next = new Set(prev);
-                              if (checked) next.add(p.id);
-                              else next.delete(p.id);
-                              return next;
-                            });
-                          }}
-                        />
-                        <label
-                          htmlFor={p.id}
-                          className="text-sm font-medium leading-none cursor-pointer"
-                        >
-                          {p.key}
-                        </label>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
+              {policiesOpen?.name === "Director" ? (
+                <p className="text-sm text-muted-foreground py-2">Director policies are managed by the system.</p>
+              ) : (
+                <GroupedPolicySelector
+                  policies={(Array.isArray(allPolicies) ? allPolicies : []).map((p: Policy) => ({
+                    id: p.id,
+                    key: p.key,
+                    description: p.description,
+                  }))}
+                  selectedPolicyIds={selectedPolicyIds}
+                  onSelectionChange={setSelectedPolicyIds}
+                  disabled={policiesOpen?.name === "Director"}
+                  showTemplates={true}
+                />
+              )}
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setPoliciesOpen(null)}>
                 Cancel
               </Button>
-              <Button
-                disabled={updateRoleMutation.isPending || !policiesOpen}
-                onClick={() =>
-                  policiesOpen &&
-                  updateRoleMutation.mutate({
-                    id: policiesOpen.id,
-                    policyIds: Array.from(selectedPolicyIds),
-                  })
-                }
-              >
-                {updateRoleMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                Save
-              </Button>
+              {policiesOpen?.name !== "Director" && (
+                <Button
+                  disabled={updateRoleMutation.isPending || !policiesOpen}
+                  onClick={() =>
+                    policiesOpen &&
+                    updateRoleMutation.mutate({
+                      id: policiesOpen.id,
+                      policyIds: Array.from(selectedPolicyIds),
+                    })
+                  }
+                >
+                  {updateRoleMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                  Save
+                </Button>
+              )}
             </DialogFooter>
           </DialogContent>
         </Dialog>

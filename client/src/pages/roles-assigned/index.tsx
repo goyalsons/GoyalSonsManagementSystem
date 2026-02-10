@@ -17,6 +17,7 @@ import { ArrowLeft, Shield, UserPlus, Loader2, Search, CheckSquare, Building2, B
 import { Link, useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { employeesApi, rolesApi, policiesApi, apiPost, apiDelete, orgUnitsApi, departmentsApi, designationsApi, usersApi } from "@/lib/api";
+import { GroupedPolicySelector } from "@/components/GroupedPolicySelector";
 import { Input } from "@/components/ui/input";
 import {
   Popover,
@@ -932,99 +933,23 @@ export default function RolesAssignedPage() {
             </DialogDescription>
           </DialogHeader>
 
-          {/* Policies View - Edit Mode */}
+          {/* Policies View - Grouped UI */}
           {viewMode === "policies" && (
             <div className="space-y-4">
-              {/* Search Bar for Policies */}
-              <div>
-                <Label>Search Policies</Label>
-                <div className="relative mt-2">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Search policies by name, description, or category..."
-                    value={policySearchQuery}
-                    onChange={(e) => setPolicySearchQuery(e.target.value)}
-                    className="pl-10"
-                    autoComplete="off"
-                  />
-                </div>
-              </div>
-
-              {roleDetails ? (
-                <>
-                  {Object.keys(policiesByCategory).length === 0 ? (
-                    <div className="text-center py-8 text-muted-foreground">
-                      {policySearchQuery.trim() 
-                        ? "No policies found matching your search."
-                        : "No policies available."}
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      {/* Policy Count and Select All */}
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Badge variant="secondary" className="font-normal">
-                            {selectedPolicies.size} of {filteredAllPolicies.length} Selected
-                          </Badge>
-                          <Badge variant="outline" className="font-normal">
-                            {Object.keys(policiesByCategory).length} Categor{Object.keys(policiesByCategory).length !== 1 ? "ies" : "y"}
-                          </Badge>
-                        </div>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={handleSelectAllPolicies}
-                          className="gap-2"
-                          disabled={allPolicyIds.length === 0 || selectedRole?.name === "Director"}
-                        >
-                          <CheckSquare className="h-4 w-4" />
-                          {allSelected ? "Deselect All" : "Select All"}
-                        </Button>
-                      </div>
-
-                      {/* Policies by Category */}
-                      <div className="space-y-3 max-h-[500px] overflow-y-auto border rounded-lg p-4">
-                        {Object.entries(policiesByCategory).map(([category, categoryPolicies]: [string, any]) => (
-                          <div key={category} className="space-y-2">
-                            <h4 className="text-sm font-semibold uppercase text-muted-foreground sticky top-0 bg-background py-2 border-b">
-                              {category} ({categoryPolicies.length})
-                            </h4>
-                            <div className="space-y-1 pl-2">
-                              {categoryPolicies.map((policy: Policy) => (
-                                <div
-                                  key={policy.id}
-                                  className="flex items-start space-x-3 p-3 rounded-lg hover:bg-muted/50 border border-transparent hover:border-border transition-colors"
-                                >
-                                  <Checkbox
-                                    id={`policy-${policy.id}`}
-                                    checked={selectedPolicies.has(policy.id)}
-                                    onCheckedChange={() => handlePolicyToggle(policy.id)}
-                                    disabled={selectedRole?.name === "Director"}
-                                  />
-                                  <div className="flex-1">
-                                    <Label
-                                      htmlFor={`policy-${policy.id}`}
-                                      className="text-sm font-medium cursor-pointer"
-                                    >
-                                      {policy.key}
-                                    </Label>
-                                    {policy.description && (
-                                      <p className="text-xs text-muted-foreground mt-1">{policy.description}</p>
-                                    )}
-                                  </div>
-                                  <Badge variant="outline" className="text-xs">
-                                    {policy.category}
-                                  </Badge>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </>
+              {selectedRole?.name === "Director" ? (
+                <p className="text-sm text-muted-foreground py-4">This role has all policies and cannot be edited.</p>
+              ) : roleDetails ? (
+                <GroupedPolicySelector
+                  policies={(Array.isArray(allPolicies) ? allPolicies : []).map((p: Policy) => ({
+                    id: p.id,
+                    key: p.key,
+                    description: p.description,
+                  }))}
+                  selectedPolicyIds={selectedPolicies}
+                  onSelectionChange={setSelectedPolicies}
+                  disabled={selectedRole?.name === "Director"}
+                  showTemplates={true}
+                />
               ) : (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="h-6 w-6 animate-spin" />

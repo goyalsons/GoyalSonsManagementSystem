@@ -1,13 +1,12 @@
 import { useLocation, useRoute } from "wouter";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { ArrowLeft, Shield, Save, Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { rolesApi, policiesApi } from "@/lib/api";
+import { GroupedPolicySelector } from "@/components/GroupedPolicySelector";
 
 interface Policy {
   id: string;
@@ -105,17 +104,12 @@ export default function EditRolePage() {
     );
   }
 
-  // Group policies by category
-  const policiesByCategory = policies.reduce((acc, policy) => {
-    const category = policy.category || "Other";
-    if (!acc[category]) {
-      acc[category] = [];
-    }
-    acc[category].push(policy);
-    return acc;
-  }, {} as Record<string, Policy[]>);
-
   const isDirectorLocked = role.name === "Director";
+  const policyOptions = policies.map((p) => ({
+    id: p.id,
+    key: p.key,
+    description: p.description,
+  }));
 
   return (
     <div className="max-w-3xl mx-auto">
@@ -144,45 +138,19 @@ export default function EditRolePage() {
             <CardDescription>
               {isDirectorLocked
                 ? "Director has full access. Policies are managed by the system."
-                : "Select the policies to apply to this role."}
+                : "Use groups and templates to configure access. Expand a group for granular policies."}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="space-y-6">
-              {Object.entries(policiesByCategory).map(([category, categoryPolicies]) => (
-                <div key={category} className="space-y-3">
-                  <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-                    {category}
-                  </h3>
-                  <div className="space-y-2">
-                    {categoryPolicies.map((policy) => (
-                      <div
-                        key={policy.id}
-                        className="flex items-start space-x-3 p-3 rounded-lg hover:bg-muted/50 border border-transparent hover:border-border transition-colors"
-                      >
-                        <Checkbox
-                          id={policy.id}
-                          checked={selectedPolicyIds.has(policy.id)}
-                          onCheckedChange={() => handlePolicyToggle(policy.id)}
-                          disabled={isDirectorLocked}
-                        />
-                        <div className="grid gap-1.5 leading-none flex-1">
-                          <Label
-                            htmlFor={policy.id}
-                            className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
-                          >
-                            {policy.key}
-                          </Label>
-                          <p className="text-xs text-muted-foreground">
-                            {policy.description || `Allows users to ${policy.key.replace('.', ' ')}`}
-                          </p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
+            {!isDirectorLocked && (
+              <GroupedPolicySelector
+                policies={policyOptions}
+                selectedPolicyIds={selectedPolicyIds}
+                onSelectionChange={setSelectedPolicyIds}
+                disabled={isDirectorLocked}
+                showTemplates={true}
+              />
+            )}
 
             <div className="flex justify-end gap-4 pt-4 border-t">
               <Button variant="outline" onClick={() => setLocation("/roles")}>
