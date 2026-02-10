@@ -123,6 +123,10 @@ app.use((req, res, next) => {
 
       const { prisma } = await import("./lib/prisma");
 
+      // Launch: OTP DB cleanup job; replace with cron/worker later.
+      const { startOtpCleanup } = await import("./services/otp-cleanup.service");
+      startOtpCleanup();
+
       startAutoSync();
       const SALES_PIVOT_INTERVAL_MS = 2 * 60 * 60 * 1000;
       const runPivot = runSalesPivotRefresh;
@@ -139,6 +143,19 @@ app.use((req, res, next) => {
       }
 
       try {
+        // #region agent log
+        const path = await import("path");
+        const fs = await import("fs");
+        const debugPath = path.join(process.cwd(), ".cursor", "debug.log");
+        const fallbackPath = path.join(process.cwd(), "debug-startup.log");
+        const line = JSON.stringify({ location: "server/index.ts", message: "about to run initializePolicySync (seed not run from server)", data: {}, timestamp: Date.now(), hypothesisId: "H3" }) + "\n";
+        try {
+          fs.mkdirSync(path.dirname(debugPath), { recursive: true });
+          fs.appendFileSync(debugPath, line);
+        } catch (_) {
+          try { fs.appendFileSync(fallbackPath, line); } catch (_) {}
+        }
+        // #endregion
         await initializePolicySync();
       } catch (error: any) {
         console.error("[Server] Failed to sync policies:", error?.message ?? "unknown");

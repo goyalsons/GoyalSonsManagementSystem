@@ -2,8 +2,8 @@ import type { Express } from "express";
 import { prisma } from "../lib/prisma";
 import { getUserAuthInfo } from "../lib/authorization";
 import { sendOtpSms } from "../sms-service";
-import { replaceUserRoles } from "../lib/role-replacement";
 
+/** Ensure user has Employee role (e.g. for OTP login). Adds Employee if missing; does NOT remove other roles (e.g. Store Manager). */
 async function ensureEmployeeRole(userId: string): Promise<void> {
   const employeeRole = await prisma.role.findUnique({
     where: { name: "Employee" },
@@ -23,8 +23,16 @@ async function ensureEmployeeRole(userId: string): Promise<void> {
 
   if (existing) return;
 
-  // Single-role: replace any existing role with Employee (do not create a second role)
-  await replaceUserRoles(prisma, userId, employeeRole.id);
+  // Add Employee role without removing existing roles (so Store Manager / other assigned roles are preserved)
+  await prisma.userRole.create({
+    data: { userId, roleId: employeeRole.id },
+  }).catch(() => {
+    // Ignore unique violation if already added by race
+  });
+  await prisma.user.update({
+    where: { id: userId },
+    data: { policyVersion: { increment: 1 } },
+  });
 }
 
 function generateOtp(): string {

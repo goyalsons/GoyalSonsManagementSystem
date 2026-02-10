@@ -89,7 +89,7 @@ export default function PoliciesManagementPage() {
     if (!acc[g]) acc[g] = [];
     acc[g].push(p);
     return acc;
-  });
+  }, {});
 
   return (
     <PageGuard policy="VIEW_POLICIES">

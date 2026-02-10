@@ -15,7 +15,7 @@ export function registerUserAssignmentRoutes(app: Express): void {
   // POST /api/users/assign-role - Assign role to user
   app.post("/api/users/assign-role", requireAuth, requirePolicy(POLICIES.ADMIN_PANEL), async (req, res) => {
     try {
-      const { userId, roleId } = req.body;
+      const { userId, roleId, replaceExisting = true } = req.body;
 
       if (!userId || !roleId) {
         return res.status(400).json({ message: "User ID and Role ID are required" });
@@ -67,8 +67,24 @@ export function registerUserAssignmentRoutes(app: Express): void {
         return res.status(400).json({ message: lastDirectorCheck.message });
       }
 
-      // Single active role: remove all existing roles, add only the selected one
-      await replaceUserRoles(prisma, userId, roleId);
+      if (replaceExisting) {
+        // Replace all roles with this one (existing behaviour)
+        await replaceUserRoles(prisma, userId, roleId);
+      } else {
+        // Add this role without removing existing roles (e.g. keep Employee + add Store Manager)
+        const existing = await prisma.userRole.findUnique({
+          where: { userId_roleId: { userId, roleId } },
+        });
+        if (!existing) {
+          await prisma.userRole.create({
+            data: { userId, roleId },
+          });
+        }
+        await prisma.user.update({
+          where: { id: userId },
+          data: { policyVersion: { increment: 1 } },
+        });
+      }
       await invalidateSessionsForUser(userId);
 
       // Log role assignment

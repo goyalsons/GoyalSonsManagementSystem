@@ -110,6 +110,12 @@ export const PAGE_PERMISSIONS: Record<string, PagePermission> = {
     viewKeys: ["employees.view", "assigned-manager.view", "my-team.view"],
     manageKeys: [],
   },
+  /** No Policy page: shown when user has no other access; allow roles to explicitly grant it */
+  no_policy: {
+    label: "No Policy Page",
+    viewKeys: ["no_policy.view"],
+    manageKeys: [],
+  },
 };
 
 /** Order of pages for UI (matrix columns, selector list) */
@@ -125,6 +131,7 @@ export const PAGE_IDS = [
   "roles_policies",
   "admin_system",
   "audit",
+  "no_policy",
 ] as const;
 
 export type PageId = (typeof PAGE_IDS)[number];

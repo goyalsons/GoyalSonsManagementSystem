@@ -1,7 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { prisma } from "./prisma";
 import { getUserAuthInfo } from "./authorization";
-import { replaceUserRoles } from "./role-replacement";
 import { POLICIES, getAllPolicyKeys } from "../constants/policies";
 import * as crypto from "crypto";
 import { getSessionAuthSnapshot, putSessionAuthSnapshot } from "./auth-cache";
@@ -185,27 +184,25 @@ function getSessionId(req: Request): string | null {
   return sessionHeader ? String(sessionHeader) : null;
 }
 
-async function ensureUserHasRole(userId: string, roleName: string): Promise<boolean> {
-  const role = await prisma.role.upsert({
-    where: { name: roleName },
-    update: {},
-    create: { name: roleName },
-    select: { id: true },
-  });
-
-  const existing = await prisma.userRole.findUnique({
-    where: {
-      userId_roleId: {
-        userId,
-        roleId: role.id,
-      },
-    },
-    select: { userId: true },
-  });
-  if (existing) return false;
-
-  await replaceUserRoles(prisma, userId, role.id);
-  return true;
+/**
+ * True if the old middleware logic would have attempted to auto-assign Employee role.
+ * We no longer do this in middleware (only in OTP verification when creating a new user)
+ * to avoid wiping higher roles (e.g. Store Manager). Used for temporary logging only.
+ */
+function wouldHaveTriggeredEmployeeAutoAssign(
+  session: { loginType: string },
+  authInfo: {
+    roles: { name: string }[] | undefined;
+    policies: string[] | undefined;
+    employeeId: string | null;
+  }
+): boolean {
+  const hasNoRoles = !authInfo.roles || authInfo.roles.length === 0;
+  const hasNoPolicies = !authInfo.policies || authInfo.policies.length === 0;
+  const notDirector = !authInfo.roles?.some((r) => r.name === "Director");
+  const employeeSessionOrLinked =
+    session.loginType === "employee" || Boolean(authInfo.employeeId);
+  return Boolean(hasNoRoles && hasNoPolicies && notDirector && employeeSessionOrLinked);
 }
 
 /**
@@ -265,20 +262,33 @@ export async function loadUserFromSession(req: Request, res: Response, next: Nex
       return next();
     }
 
-    // If user has no roles at all, auto-attach Employee for employee sessions so they get default access.
-    // Do NOT add Employee when user already has other roles (e.g. Store Manager); respect admin's choice.
-    const hasNoRoles = !authInfo.roles || authInfo.roles.length === 0;
-    if (
-      hasNoRoles &&
-      (!authInfo.policies || authInfo.policies.length === 0) &&
-      !authInfo.roles?.some((r) => r.name === "Director") &&
-      (session.loginType === "employee" || Boolean(authInfo.employeeId))
-    ) {
-      const changed = await ensureUserHasRole(session.userId, "Employee");
-      if (changed) {
-        authInfo = await getUserAuthInfo(session.userId);
-      }
+    // RBAC must not mutate in session middleware (launch hotfix).
+    // When DISABLE_MIDDLEWARE_ROLE_AUTOFIX=true, any role autofix is skipped; we do not mutate roles here.
+    if (process.env.DISABLE_MIDDLEWARE_ROLE_AUTOFIX === "true") {
+      // Launch safety: explicitly no role mutation in middleware.
     }
+    const autoAssignWouldHaveTriggered = wouldHaveTriggeredEmployeeAutoAssign(
+      session,
+      authInfo
+    );
+    // TODO REMOVE AFTER LAUNCH
+    console.log("[RBAC DEBUG]", {
+      sessionId: session.id,
+      userId: session.userId,
+      loginType: session.loginType,
+      employeeId: authInfo.employeeId ?? null,
+      rolesCount: authInfo.roles?.length ?? 0,
+    });
+    // TODO REMOVE AFTER DEBUG: session load diagnostics (temporary, ~1 week)
+    console.log("[loadUserFromSession]", JSON.stringify({
+      userId: session.userId,
+      sessionId: session.id,
+      loginType: session.loginType,
+      rolesLength: authInfo.roles?.length ?? 0,
+      employeeId: authInfo.employeeId ?? null,
+      autoAssignTriggered: false,
+      autoAssignWouldHaveTriggered,
+    }));
 
     req.user = {
       ...authInfo,

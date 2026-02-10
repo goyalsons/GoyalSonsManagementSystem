@@ -54,6 +54,10 @@ SALES_API_MAX_REDIRECTS=20
 # Enable legacy behavior: auto-promote password/Google login users to Director (default: false)
 # When false, users get their actual DB roles. Use "Add Configuration" to create ID/password users with roles.
 ENABLE_PASSWORD_LOGIN_DIRECTOR_PROMOTION=false
+
+# Launch safety: when true, session middleware must never mutate user roles (no ensureUserHasRole / replaceUserRoles).
+# Set to true for production to prevent card-linked users (e.g. Store Manager) from being downgraded to Employee on re-login.
+DISABLE_MIDDLEWARE_ROLE_AUTOFIX=true
 ```
 
 ## How to Use

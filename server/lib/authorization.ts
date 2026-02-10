@@ -74,77 +74,6 @@ export async function getUserWithRoles(userId: string): Promise<UserWithRoles | 
   };
 }
 
-/**
- * Policies that are automatically granted to users who are assigned as managers
- * in the emp_manager table. Enables both their own data and team data.
- */
-const MANAGER_AUTO_POLICIES = [
-  // Own data (apna data)
-  "dashboard.view",
-  "attendance.history.view",  // Own task history
-  "attendance.self.view",     // My Attendance
-  "sales.self.view",          // My Sales
-  "requests.self.view",       // My Requests
-  "requests.create",          // Create requests
-  // Team data (team ka data)
-  "attendance.team.view",     // Team Attendance
-  "sales-staff.view",         // Team/Staff Sales (Sales Staff page)
-  "requests.team.view",       // Team Requests
-  "requests.approve",         // Approve/reject team requests
-];
-
-/**
- * Check if a user is an assigned manager in emp_manager table
- * Returns true if user has an active (non-extinct) manager assignment
- */
-async function isAssignedManager(userId: string): Promise<boolean> {
-  try {
-    // Get user's employee card number
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        employee: {
-          select: { cardNumber: true }
-        }
-      }
-    });
-
-    const cardNumber = user?.employee?.cardNumber;
-    
-    if (!cardNumber) {
-      console.log(`[isAssignedManager] User ${userId} has no cardNumber`);
-      return false;
-    }
-
-    // Normalize card number - trim whitespace and convert to string
-    const normalizedCardNumber = String(cardNumber).trim();
-    
-    console.log(`[isAssignedManager] Checking user ${userId} with cardNumber: "${normalizedCardNumber}"`);
-
-    // Check if this card number exists in emp_manager with active status
-    const managerRecord = await prisma.$queryRaw<Array<{ mid: string; mcardno: string }>>`
-      SELECT "mid", "mcardno" FROM "emp_manager"
-      WHERE TRIM("mcardno") = ${normalizedCardNumber}
-      AND "mis_extinct" = false
-      LIMIT 1
-    `;
-
-    console.log(`[isAssignedManager] Found manager records:`, managerRecord);
-
-    if (managerRecord.length > 0) {
-      console.log(`[isAssignedManager] User ${userId} IS an assigned manager (cardNo: ${normalizedCardNumber})`);
-      return true;
-    }
-    
-    console.log(`[isAssignedManager] User ${userId} is NOT an assigned manager`);
-    return false;
-  } catch (error) {
-    // If emp_manager table doesn't exist or any error, return false
-    console.error("[isAssignedManager] Error checking assigned manager status:", error);
-    return false;
-  }
-}
-
 export async function getUserPolicies(userId: string): Promise<string[]> {
   /**
    * Performance goals:
@@ -201,16 +130,7 @@ export async function getUserPolicies(userId: string): Promise<string[]> {
     }
   }
 
-  // Check if user is an assigned manager in emp_manager table
-  // If yes, add manager-specific policies automatically — unless user has restricted role (only no_policy.view)
-  const onlyNoPolicy = rolePolicies.length === 0 || (rolePolicies.length === 1 && rolePolicies[0] === "no_policy.view");
-  const isManager = await isAssignedManager(userId);
-  if (isManager && !onlyNoPolicy) {
-    // Merge manager policies with role policies (avoiding duplicates)
-    const allPolicies = new Set([...rolePolicies, ...MANAGER_AUTO_POLICIES]);
-    return Array.from(allPolicies);
-  }
-
+  // Assigned managers get only what their roles/policies grant; no extra auto-policies.
   return rolePolicies;
 }
 

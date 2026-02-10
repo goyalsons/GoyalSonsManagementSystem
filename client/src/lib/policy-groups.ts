@@ -175,6 +175,12 @@ export const POLICY_GROUPS_UI: PolicyGroup[] = [
       { label: "Assigned Manager / My Team", policyKeys: ["assigned-manager.view", "my-team.view"] },
     ],
   },
+  {
+    id: "no_policy",
+    label: "No Policy Page",
+    description: "Access the No Policy page (minimal-access / fallback page)",
+    items: [{ label: "View", policyKeys: ["no_policy.view"] }],
+  },
 ];
 
 /** Matrix column order (group ids) for Role Matrix table */

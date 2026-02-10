@@ -435,22 +435,11 @@ export default function RolesAssignedPage() {
 
         try {
           if (employee.user) {
-            // Employee has user account
-            if (data.replaceExisting) {
-              // Remove all existing roles first
-              const existingRoles = employee.user.roles || [];
-              for (const userRole of existingRoles) {
-                try {
-                  await apiDelete<any>(`/users/${employee.user.id}/roles/${userRole.role.id}`);
-                } catch (err) {
-                  console.error("Error removing role:", err);
-                }
-              }
-            }
-            // Assign new role with role's default policies
+            // Employee has user account — add or replace role via backend
             await apiPost<any>("/users/assign-role", {
               userId: employee.user.id,
               roleId: data.roleId,
+              replaceExisting: data.replaceExisting,
               policyIds: rolePolicyIds.length > 0 ? rolePolicyIds : undefined,
             });
           } else {

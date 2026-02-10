@@ -10,9 +10,28 @@
  * - Never deletes in production unless SEED_FORCE_SYNC=1
  */
 
+import path from "path";
+import fs from "fs";
 import { prisma } from "../lib/prisma";
 import { POLICY_REGISTRY } from "../../shared/policies";
 import { getDirectorRoleId } from "../lib/director-role";
+
+const DEBUG_LOG_PATH = path.join(process.cwd(), ".cursor", "debug.log");
+const DEBUG_LOG_FALLBACK = path.join(process.cwd(), "debug-startup.log");
+function logDebug(message: string, data: Record<string, unknown>, hypothesisId: string): void {
+  const line = JSON.stringify({ location: "policy-sync.service.ts", message, data, timestamp: Date.now(), hypothesisId }) + "\n";
+  try {
+    fs.mkdirSync(path.dirname(DEBUG_LOG_PATH), { recursive: true });
+    fs.appendFileSync(DEBUG_LOG_PATH, line);
+  } catch (_) {
+    try { fs.appendFileSync(DEBUG_LOG_FALLBACK, line); } catch (_) {}
+  }
+  fetch("http://127.0.0.1:7242/ingest/c087ed07-59b6-44a5-ba54-1326d588cb94", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ location: "policy-sync.service.ts", message, data, timestamp: Date.now(), hypothesisId }),
+  }).catch(() => {});
+}
 
 /**
  * Sync policies from shared registry to database
@@ -49,6 +68,11 @@ export async function syncPoliciesFromNavConfig(): Promise<{
 
     if (disallowedPolicies.length > 0) {
       const disallowedIds = disallowedPolicies.map((policy) => policy.id);
+      const sampleKeys = disallowedPolicies.slice(0, 10).map((p) => p.key);
+      // #region agent log
+      logDebug("removing disallowed policies", { count: disallowedPolicies.length, sampleKeys }, "H1");
+      console.log("[DEBUG H1] Removing disallowed policies: count=%s sampleKeys=%s", disallowedPolicies.length, sampleKeys.join(", "));
+      // #endregion
       const directorId = await getDirectorRoleId(prisma);
       await prisma.$transaction([
         prisma.rolePolicy.deleteMany({
@@ -192,9 +216,26 @@ async function removeRolePolicies(roleName: string, policyKeys: string[]): Promi
  * Initialize policy sync (called on server startup)
  */
 export async function initializePolicySync(): Promise<void> {
+  // #region agent log
   try {
+    const storeManagerBefore = await prisma.role.findUnique({
+      where: { name: "Store Manager" },
+      select: { id: true },
+    });
+    const countBefore = storeManagerBefore
+      ? await prisma.rolePolicy.count({ where: { roleId: storeManagerBefore.id } })
+      : null;
+    logDebug("policy sync started; Store Manager policy count before", { countBefore }, "H4");
+    console.log("[DEBUG H4] Store Manager policy count BEFORE sync:", countBefore);
+    // #endregion
+
     const result = await syncPoliciesFromNavConfig();
-    
+
+    // #region agent log
+    logDebug("syncPoliciesFromNavConfig result", { removed: result.removed, created: result.created, existing: result.existing }, "H1");
+    console.log("[DEBUG H1] sync result removed=%s created=%s existing=%s", result.removed, result.created, result.existing);
+    // #endregion
+
     if (result.errors.length > 0) {
       console.warn(`[Policy Sync] ⚠️  Completed with ${result.errors.length} errors`);
       result.errors.forEach(err => console.warn(`  - ${err}`));
@@ -209,6 +250,14 @@ export async function initializePolicySync(): Promise<void> {
     await ensureDirectorHasAllPolicies(prisma);
     // Employees should not see the /sales dashboard by default
     await removeRolePolicies("Employee", ["staff-sales.view"]);
+
+    // #region agent log
+    const countAfter = storeManagerBefore
+      ? await prisma.rolePolicy.count({ where: { roleId: storeManagerBefore.id } })
+      : null;
+    logDebug("policy sync finished; Store Manager policy count after", { countAfter, countBefore }, "H4");
+    console.log("[DEBUG H4] Store Manager policy count AFTER sync: %s (before=%s)", countAfter, countBefore);
+    // #endregion
   } catch (error: any) {
     console.error(`[Policy Sync] ❌ Fatal error during policy sync:`, error);
     throw error;
