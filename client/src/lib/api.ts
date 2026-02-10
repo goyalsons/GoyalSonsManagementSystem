@@ -278,6 +278,7 @@ export interface UsersListResponse {
     name: string;
     status: string;
     createdAt: string;
+    cardNumber: string | null;
     role: { id: string; name: string } | null;
   }>;
   total: number;

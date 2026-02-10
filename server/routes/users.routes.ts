@@ -28,6 +28,7 @@ export function registerUsersRoutes(app: Express): void {
             OR: [
               { email: { contains: search, mode: "insensitive" as const } },
               { name: { contains: search, mode: "insensitive" as const } },
+              { employee: { cardNumber: { contains: search, mode: "insensitive" } } },
             ],
           }
         : {};
@@ -44,6 +45,7 @@ export function registerUsersRoutes(app: Express): void {
             name: true,
             status: true,
             createdAt: true,
+            employee: { select: { cardNumber: true } },
             roles: {
               select: {
                 role: {
@@ -63,6 +65,7 @@ export function registerUsersRoutes(app: Express): void {
           name: u.name,
           status: u.status,
           createdAt: u.createdAt,
+          cardNumber: u.employee?.cardNumber ?? null,
           role: u.roles[0]?.role ?? null,
         })),
         total,

@@ -55,6 +55,12 @@ import { PageGuard } from "@/components/PageGuard";
 
 const PAGE_SIZE = 20;
 
+/** Show card number for employee (OTP) users; email for others. Fake emp-*@example.invalid never shown. */
+function userDisplayId(u: { cardNumber?: string | null; email: string }): string {
+  if (u.cardNumber) return u.cardNumber;
+  return u.email;
+}
+
 export default function UsersManagementPage() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
@@ -178,7 +184,7 @@ export default function UsersManagementPage() {
           <div className="relative flex-1 max-w-sm">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder="Search by email or name..."
+              placeholder="Search by name or card..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && setPage(1)}
@@ -199,7 +205,7 @@ export default function UsersManagementPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Email</TableHead>
+                  <TableHead>ID (Card / Email)</TableHead>
                   <TableHead>Name</TableHead>
                   <TableHead>Role</TableHead>
                   <TableHead>Status</TableHead>
@@ -217,7 +223,7 @@ export default function UsersManagementPage() {
                 ) : (
                   users.map((u) => (
                     <TableRow key={u.id}>
-                      <TableCell className="font-medium">{u.email}</TableCell>
+                      <TableCell className="font-medium">{userDisplayId(u)}</TableCell>
                       <TableCell>{u.name}</TableCell>
                       <TableCell>
                         {u.role ? (
@@ -380,7 +386,7 @@ export default function UsersManagementPage() {
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Edit User</DialogTitle>
-              <DialogDescription>Update name and status for {editUser?.email}</DialogDescription>
+              <DialogDescription>Update name and status for {editUser ? userDisplayId(editUser) : ""}</DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
               <div className="grid gap-2">
@@ -434,7 +440,7 @@ export default function UsersManagementPage() {
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Reset Password</DialogTitle>
-              <DialogDescription>Set a new password for {resetPasswordUser?.email}</DialogDescription>
+              <DialogDescription>Set a new password for {resetPasswordUser ? userDisplayId(resetPasswordUser) : ""}</DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
               <div className="grid gap-2">
@@ -479,7 +485,7 @@ export default function UsersManagementPage() {
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Change Role</DialogTitle>
-              <DialogDescription>Assign a new role to {roleUser?.email}</DialogDescription>
+              <DialogDescription>Assign a new role to {roleUser ? userDisplayId(roleUser) : ""}</DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
               <div className="grid gap-2">
