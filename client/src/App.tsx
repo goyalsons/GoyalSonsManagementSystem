@@ -218,6 +218,17 @@ function AuthenticatedRoutes() {
   );
 }
 
+function getDefaultLandingPath(policies?: string[]): string {
+  if (!policies?.length || (policies.length === 1 && policies[0] === "no_policy.view")) return "/no-policy";
+  const p = new Set(policies || []);
+  if (p.has("dashboard.view") || p.has("VIEW_DASHBOARD")) return "/";
+  if (p.has("attendance.history.view")) return "/attendance/history";
+  if (p.has("staff-sales.view") || p.has("sales-staff.view")) return "/sales-staff";
+  if (p.has("my-team.view")) return "/my-team";
+  if (p.has("requests.view")) return "/requests";
+  return "/";
+}
+
 function Router() {
   const [location, setLocation] = useLocation();
   const { user, isLoading } = useAuth();
@@ -237,9 +248,13 @@ function Router() {
     }
   }, [isLoading, user, location, setLocation]);
   
-  // Public route /login: if already authenticated, redirect to Dashboard (root)
+  // Public route /login: if already authenticated, redirect to first allowed page (not always /)
   if (location === "/login") {
-    if (!isLoading && user) return <Redirect to="/" />;
+    if (!isLoading && user) {
+      const policies = user.policies || [];
+      const landing = getDefaultLandingPath(policies);
+      return <Redirect to={landing} />;
+    }
     return <LoginPage />;
   }
   
@@ -272,9 +287,17 @@ function Router() {
     return <FullPageLoader />;
   }
 
-  // Root "/" when not authenticated → redirect to Login (so gms.goyalsons.com opens Login directly)
+  // Root "/" when not authenticated → redirect to Login
   if (location === "/" && !user) {
     return <Redirect to="/login" />;
+  }
+
+  // Root "/" when user has no dashboard access → redirect to first allowed page
+  if (location === "/" && user?.policies) {
+    const p = new Set(user.policies);
+    if (!p.has("dashboard.view") && !p.has("VIEW_DASHBOARD")) {
+      return <Redirect to={getDefaultLandingPath(user.policies)} />;
+    }
   }
 
   // Any other path when not authenticated → show login page (useEffect also syncs URL to /login)

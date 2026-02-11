@@ -41,6 +41,7 @@ export const POLICY_GROUPS_UI: PolicyGroup[] = [
     items: [
       { label: "Self", policyKeys: ["attendance.self.view", "attendance.history.view", "attendance.worklog.view", "VIEW_ATTENDANCE"] },
       { label: "Team", policyKeys: ["attendance.team.view"] },
+      { label: "Team Export", policyKeys: ["attendance.team.export"] },
       {
         label: "Full Timing",
         policyKeys: [

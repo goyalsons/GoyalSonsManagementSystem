@@ -6,6 +6,7 @@ import { registerSalesRoutes } from "./sales.routes";
 import { registerSalesStaffRoutes } from "./sales-staff.routes";
 import { registerLookupRoutes } from "./lookup.routes";
 import { registerEmpManagerRoutes } from "./emp-manager.routes";
+import { registerAttendanceVerificationRoutes } from "./attendance-verification.routes";
 import { registerHelpTicketsRoutes } from "./help-tickets.routes";
 import { registerAuthRoutes } from "./auth.routes";
 import { registerOtpRoutes } from "./otp.routes";
@@ -31,6 +32,7 @@ export async function registerRoutes(
   registerSalesStaffRoutes(app);
   registerLookupRoutes(app);
   registerEmpManagerRoutes(app);
+  registerAttendanceVerificationRoutes(app);
   registerHelpTicketsRoutes(app);
   
   // Register RBAC routes

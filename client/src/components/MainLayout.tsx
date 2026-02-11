@@ -156,8 +156,8 @@ const NavLink = React.memo(function NavLink({
 }) {
   const href = 'href' in item ? item.href : undefined;
   if (!href) return null;
-  
-  const isActive = location === href || (href !== "/" && location.startsWith(href));
+  // Sub-items: exact match only, so "Task History" and "My Work Log" don't both highlight on /attendance/history
+  const isActive = isSubItem ? location === href : (location === href || (href !== "/" && location.startsWith(href)));
   const IconComponent = item.icon;
   
   return (

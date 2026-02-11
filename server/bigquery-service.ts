@@ -1,4 +1,6 @@
 import { BigQuery } from "@google-cloud/bigquery";
+import fs from "fs";
+import path from "path";
 import dotenv from "dotenv";
 // Only load .env in local/dev. In production (Railway), env vars are injected.
 if (process.env.NODE_ENV !== "production") {
@@ -78,10 +80,16 @@ function loadCredentials(): {
   let raw = envValue.trim();
   console.log(`[BigQuery] Found credentials, length: ${raw.length} chars, starts with: ${raw.substring(0, 20)}...`);
 
-  // Railway-only: credentials must always be a JSON string in env (no file paths)
+  // Support file path for local dev (avoids env newline corruption). When value is a path to .json, load from file.
   if (!raw.startsWith("{")) {
-    console.error("[BigQuery] Credentials must be JSON string in env (no file paths allowed)");
-    throw new Error("BIGQUERY_CREDENTIALS must be a JSON string in environment variables. File paths are not supported.");
+    const resolvedPath = path.isAbsolute(raw) ? raw : path.resolve(process.cwd(), raw);
+    if (fs.existsSync(resolvedPath)) {
+      console.log(`[BigQuery] Loading credentials from file: ${resolvedPath}`);
+      raw = fs.readFileSync(resolvedPath, "utf8");
+    } else {
+      console.error("[BigQuery] Credentials must be JSON string or path to .json file");
+      throw new Error("BIGQUERY_CREDENTIALS must be a JSON string or path to a .json file. File not found: " + raw);
+    }
   }
 
   let credentials;
@@ -364,6 +372,20 @@ export async function getMemberAttendance(
   } catch (queryError: any) {
     const errorMessage = queryError?.message || String(queryError);
     console.error(`[BigQuery] ❌ Query execution failed:`, errorMessage);
+
+    // Detect JWT "reasonable timeframe" / invalid_grant - usually caused by system clock skew
+    const isJwtTimeframeError =
+      errorMessage.includes("invalid_grant") ||
+      errorMessage.includes("reasonable timeframe") ||
+      errorMessage.includes("short-lived token") ||
+      (errorMessage.includes("iat") && errorMessage.includes("exp"));
+
+    if (isJwtTimeframeError) {
+      const hint =
+        "Google rejected the JWT (often due to incorrect system clock). Sync your computer's date/time with the internet (NTP).";
+      throw new Error(`${hint} Original: ${errorMessage}`);
+    }
+
     // Don't log the full query or params to avoid exposing sensitive data
     throw new Error(`BigQuery query failed: ${errorMessage}`);
   }
@@ -424,16 +446,21 @@ export function isBigQueryConfigured(): boolean {
     
     console.log(`[BigQuery Config Check] ✅ Found credentials, length: ${envValue.length} chars`);
     
-    const trimmed = envValue.trim();
+    let trimmed = envValue.trim();
     
-    // Railway-only: must be JSON string; no file path fallback
+    // Support file path for local dev
     if (!trimmed.startsWith("{")) {
-      console.error(`[BigQuery Config Check] ❌ Credentials must be JSON string in environment (no file paths allowed)`);
-      return false;
+      const resolvedPath = path.isAbsolute(trimmed) ? trimmed : path.resolve(process.cwd(), trimmed);
+      if (fs.existsSync(resolvedPath)) {
+        trimmed = fs.readFileSync(resolvedPath, "utf8");
+      } else {
+        console.error(`[BigQuery Config Check] ❌ Credentials must be JSON string or path to existing .json file`);
+        return false;
+      }
     }
     
-    // It's a JSON string (expected format for Railway)
-    console.log(`[BigQuery Config Check] 📝 Parsing JSON string (starts with: ${trimmed.substring(0, 30)}...)`);
+    // It's a JSON string (or loaded from file)
+    console.log(`[BigQuery Config Check] 📝 Parsing JSON (starts with: ${trimmed.substring(0, 30)}...)`);
     try {
       const creds = JSON.parse(trimmed);
       const hasRequired = !!(creds.project_id && creds.client_email && creds.private_key);
@@ -506,8 +533,10 @@ export async function validateBigQueryCredentials(): Promise<{ valid: boolean; e
       
       return { 
         valid: false, 
-        error: errorMsg.includes('newline encoding') 
-          ? 'Private key has incorrect newline encoding. Ensure BIGQUERY_CREDENTIALS uses \\n for newlines.'
+        error: errorMsg.includes('invalid_grant') || errorMsg.includes('reasonable timeframe')
+          ? 'Google rejected the JWT - often caused by incorrect system clock. Sync your computer\'s date/time with the internet (NTP).'
+          : errorMsg.includes('newline encoding') 
+          ? 'Private key has incorrect newline encoding. Ensure BIGQUERY_CREDENTIALS uses \\n for newlines, or use a file path to a .json credentials file.'
           : errorMsg.includes('not set')
           ? 'BIGQUERY_CREDENTIALS environment variable is not set.'
           : errorMsg.includes('parse')

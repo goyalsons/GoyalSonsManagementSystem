@@ -13,6 +13,7 @@ export const POLICIES = {
   ATTENDANCE_HISTORY_VIEW: "attendance.history.view",
   ATTENDANCE_SELF_VIEW: "attendance.self.view",
   ATTENDANCE_TEAM_VIEW: "attendance.team.view",
+  ATTENDANCE_TEAM_EXPORT: "attendance.team.export",
   ATTENDANCE_WORKLOG_VIEW: "attendance.worklog.view",
   SALES_VIEW: "sales.view",
   SALES_SELF_VIEW: "sales.self.view",

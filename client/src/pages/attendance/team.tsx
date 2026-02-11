@@ -1,5 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ENABLE_TEAM_ATTENDANCE_CHECK_VIEW } from "@/config/feature-flags";
+import { TeamAttendanceCheckView } from "./TeamAttendanceCheckView";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -28,7 +30,8 @@ import {
   Loader2,
   Users,
   RefreshCw,
-  Search
+  Search,
+  ListChecks
 } from "lucide-react";
 import { apiGet } from "@/lib/api";
 import { encodeName } from "@/lib/utils";
@@ -153,6 +156,7 @@ export default function TeamAttendancePage() {
   const [searchMessage, setSearchMessage] = useState<"not_under_you" | "not_found" | null>(null);
   const [searching, setSearching] = useState(false);
   const [membersListOpen, setMembersListOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<"single" | "check">("single");
 
   // Check if user has team view permission
   const canViewTeam = hasPolicy("attendance.team.view");
@@ -324,20 +328,46 @@ export default function TeamAttendancePage() {
             View attendance records for your team members
           </p>
         </div>
-        <Button
-          variant="outline"
-          onClick={handleRefresh}
-          disabled={refetchingTeam}
-        >
-          {refetchingTeam ? (
-            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-          ) : (
-            <RefreshCw className="h-4 w-4 mr-2" />
+        <div className="flex gap-2">
+          {ENABLE_TEAM_ATTENDANCE_CHECK_VIEW && (
+            <div className="flex rounded-lg border p-1">
+              <button
+                type="button"
+                onClick={() => setViewMode("single")}
+                className={`px-3 py-1.5 text-sm rounded-md flex items-center gap-2 ${
+                  viewMode === "single" ? "bg-primary text-primary-foreground" : "hover:bg-muted"
+                }`}
+              >
+                <Calendar className="h-4 w-4" /> Single Member
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("check")}
+                className={`px-3 py-1.5 text-sm rounded-md flex items-center gap-2 ${
+                  viewMode === "check" ? "bg-primary text-primary-foreground" : "hover:bg-muted"
+                }`}
+              >
+                <ListChecks className="h-4 w-4" /> Check View
+              </button>
+            </div>
           )}
-          Refresh
-        </Button>
+          <Button variant="outline" onClick={handleRefresh} disabled={refetchingTeam}>
+            {refetchingTeam ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4 mr-2" />
+            )}
+            Refresh
+          </Button>
+        </div>
       </div>
 
+      {ENABLE_TEAM_ATTENDANCE_CHECK_VIEW && viewMode === "check" && (
+        <TeamAttendanceCheckView />
+      )}
+
+      {viewMode === "single" && (
+        <>
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card>
@@ -668,6 +698,9 @@ export default function TeamAttendancePage() {
             </p>
           </CardContent>
         </Card>
+      )}
+
+      </>
       )}
 
       <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>

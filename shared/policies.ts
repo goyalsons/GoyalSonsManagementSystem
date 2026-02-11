@@ -18,6 +18,7 @@ export const POLICY_REGISTRY: PolicyRecord[] = [
   { key: "attendance.history.view", description: "Access attendance history", category: "attendance" },
   { key: "attendance.self.view", description: "View own attendance", category: "attendance" },
   { key: "attendance.team.view", description: "View team attendance", category: "attendance" },
+  { key: "attendance.team.export", description: "Export team attendance check as Excel", category: "attendance" },
   { key: "attendance.worklog.view", description: "View attendance worklog", category: "attendance" },
   { key: "sales.view", description: "Access sales page", category: "sales" },
   { key: "sales.self.view", description: "View own sales", category: "sales" },

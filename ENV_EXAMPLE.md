@@ -60,6 +60,18 @@ ENABLE_PASSWORD_LOGIN_DIRECTOR_PROMOTION=false
 DISABLE_MIDDLEWARE_ROLE_AUTOFIX=true
 ```
 
+## BigQuery (optional – for Attendance History)
+
+```env
+# Option A: JSON string (for Railway/production). Use \n for newlines in private_key.
+BIGQUERY_CREDENTIALS='{"type":"service_account","project_id":"...","private_key":"-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----","client_email":"..."}'
+
+# Option B: File path (for local dev – avoids env newline corruption). Path can be absolute or relative to project root.
+# GOOGLE_APPLICATION_CREDENTIALS=./bigquery-credentials.json
+```
+
+**If you see "Invalid JWT / reasonable timeframe"**: Sync your system clock with the internet (NTP). Google rejects JWTs when the server clock is wrong.
+
 ## How to Use
 
 1. Create a `.env` file in the root directory

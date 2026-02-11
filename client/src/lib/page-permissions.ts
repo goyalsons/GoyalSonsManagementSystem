@@ -32,6 +32,7 @@ export const PAGE_PERMISSIONS: Record<string, PagePermission> = {
     ],
     manageKeys: [
       "attendance.team.view",
+      "attendance.team.export",
       "attendance.timing.absent.in.view",
       "attendance.timing.absent.out.view",
       "attendance.timing.present.in.view",

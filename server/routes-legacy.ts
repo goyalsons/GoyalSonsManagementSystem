@@ -1688,6 +1688,17 @@ export async function registerLegacyRoutes(
             error: "BIGQUERY_CONFIG_ERROR"
           });
         }
+
+        // JWT "reasonable timeframe" / invalid_grant - usually system clock skew
+        if (bqErrorMessage.includes("invalid_grant") ||
+            bqErrorMessage.includes("reasonable timeframe") ||
+            bqErrorMessage.includes("system clock") ||
+            bqErrorMessage.includes("short-lived token")) {
+          return res.status(503).json({
+            message: "BigQuery auth failed: Google rejected the JWT. This is often caused by incorrect system clock - sync your computer's date/time with the internet (NTP).",
+            error: "BIGQUERY_JWT_CLOCK_ERROR"
+          });
+        }
         
         // Re-throw to be caught by outer catch block
         throw bqError;
@@ -1708,11 +1719,22 @@ export async function registerLegacyRoutes(
           errorMessage.includes("BIGQUERY_CREDENTIALS") ||
           errorMessage.includes("credentials") ||
           errorMessage.includes("newline encoding") ||
-          errorName === "Error" && errorMessage.includes("BigQuery")) {
+          (errorName === "Error" && errorMessage.includes("BigQuery"))) {
         console.error("[Attendance History] BigQuery credentials error detected");
         return res.status(503).json({ 
           message: "BigQuery credentials error: Please check BIGQUERY_CREDENTIALS environment variable format. Private key may have incorrect newline encoding.",
           error: "BIGQUERY_CREDENTIALS_ERROR"
+        });
+      }
+
+      // JWT / system clock errors
+      if (errorMessage.includes("invalid_grant") ||
+          errorMessage.includes("reasonable timeframe") ||
+          errorMessage.includes("system clock") ||
+          errorMessage.includes("short-lived token")) {
+        return res.status(503).json({
+          message: "BigQuery auth failed: Google rejected the JWT. This is often caused by incorrect system clock - sync your computer's date/time with the internet (NTP).",
+          error: "BIGQUERY_JWT_CLOCK_ERROR"
         });
       }
       

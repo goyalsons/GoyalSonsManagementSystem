@@ -479,3 +479,18 @@ model EmpManager {
   @@index([mis_extinct])
   @@map("emp_manager")
 }
+
+model AttendanceVerification {
+  id               String   @id @default(cuid())
+  employeeId       String
+  date             DateTime @db.Date
+  status           String   // CORRECT | NOT_CORRECT
+  query            String?  // Reason when NOT_CORRECT
+  updatedByUserId  String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([employeeId, date])
+  @@index([employeeId])
+  @@index([date])
+}
