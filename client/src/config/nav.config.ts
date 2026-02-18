@@ -115,6 +115,30 @@ export const NAV_CONFIG: NavConfigItem[] = [
     policy: "attendance.team.view" 
   },
   { 
+    key: "attendance-check", 
+    label: "Attendance Check", 
+    path: "/attendance/check", 
+    policy: "attendance.team.verify" 
+  },
+  { 
+    key: "attendance-my-queries", 
+    label: "My Queries", 
+    path: "/attendance/my-queries", 
+    policy: "attendance.team.queries.view" 
+  },
+  { 
+    key: "hr-attendance-queries", 
+    label: "Attendance Queries", 
+    path: "/hr/attendance-queries", 
+    policy: "attendance.hr.view" 
+  },
+  { 
+    key: "attendance-team-verification-audit", 
+    label: "Verification Audit", 
+    path: "/attendance/team-verification-audit", 
+    policy: "attendance.team.verification.audit.view" 
+  },
+  { 
     key: "work-log", 
     label: "Work Log", 
     path: "/work-log", 

@@ -59,6 +59,13 @@ export default defineConfig({
   },
   server: {
     host: "0.0.0.0",
+    // When running vite alone (e.g. dev:client), proxy /api to backend so API calls get JSON not HTML
+    proxy: {
+      "/api": {
+        target: "http://127.0.0.1:5000",
+        changeOrigin: true,
+      },
+    },
   },
   optimizeDeps: {
     include: ['react', 'react-dom', 'wouter', '@tanstack/react-query'],

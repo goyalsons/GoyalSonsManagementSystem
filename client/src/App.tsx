@@ -43,6 +43,10 @@ const ManagerDashboardPage = lazy(() => import("@/pages/manager/dashboard"));
 const RequestsPage = lazy(() => import("@/pages/requests/index"));
 const TeamRequestsPage = lazy(() => import("@/pages/requests/team"));
 const TeamAttendancePage = lazy(() => import("@/pages/attendance/team"));
+const AttendanceCheckPage = lazy(() => import("@/pages/attendance/check"));
+const MyQueriesPage = lazy(() => import("@/pages/attendance/my-queries"));
+const HrAttendanceQueriesPage = lazy(() => import("@/pages/hr/attendance-queries"));
+const HrAttendanceQueryBatchDetailPage = lazy(() => import("@/pages/hr/attendance-queries/batch-detail"));
 const SalaryPage = lazy(() => import("@/pages/salary"));
 const NoPolicyPage = lazy(() => import("@/pages/no-policy"));
 const UsersManagementPage = lazy(() => import("@/pages/users-management"));
@@ -144,6 +148,18 @@ function AuthenticatedRoutes() {
           )} />
           <Route path="/attendance/team" component={() => (
             <PageGuard policy="attendance.team.view"><TeamAttendancePage /></PageGuard>
+          )} />
+          <Route path="/attendance/check" component={() => (
+            <PageGuard policy="attendance.team.verify"><AttendanceCheckPage /></PageGuard>
+          )} />
+          <Route path="/attendance/my-queries" component={() => (
+            <PageGuard policy="attendance.team.queries.view"><MyQueriesPage /></PageGuard>
+          )} />
+          <Route path="/hr/attendance-queries" component={() => (
+            <PageGuard policy="attendance.hr.view"><HrAttendanceQueriesPage /></PageGuard>
+          )} />
+          <Route path="/hr/attendance-queries/:batchId" component={() => (
+            <PageGuard policy="attendance.hr.view"><HrAttendanceQueryBatchDetailPage /></PageGuard>
           )} />
 
           <Route path="/integrations/fetched-data" component={() => (

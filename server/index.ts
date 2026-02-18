@@ -42,13 +42,14 @@ declare module "http" {
 
 app.use(
   express.json({
+    limit: "1024mb", // attendance verification batch save can be large (400+ entries)
     verify: (req, _res, buf) => {
       req.rawBody = buf;
     },
   }),
 );
 
-app.use(express.urlencoded({ extended: false }));
+app.use(express.urlencoded({ extended: false, limit: "5mb" }));
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -89,6 +90,12 @@ app.use((req, res, next) => {
 
 (async () => {
   await registerRoutes(httpServer, app);
+
+  // Unmatched API routes: return 404 JSON so client never gets HTML (e.g. from SPA fallback)
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    if (!req.originalUrl?.startsWith("/api/")) return next();
+    res.status(404).json({ message: "API route not found", path: req.originalUrl });
+  });
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

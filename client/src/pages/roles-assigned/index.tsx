@@ -767,22 +767,22 @@ export default function RolesAssignedPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header with Add/Delete Role Buttons */}
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <Link href="/employees">
+      {/* Header with Add/Delete Role Buttons - responsive for mobile */}
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <Link href="/employees" className="shrink-0">
             <Button variant="ghost" size="icon">
               <ArrowLeft className="h-4 w-4" />
             </Button>
           </Link>
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Roles Assigned</h1>
-            <p className="text-muted-foreground mt-1">
+          <div className="min-w-0">
+            <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Roles Assigned</h1>
+            <p className="text-muted-foreground mt-1 text-sm sm:text-base">
               Assign roles to employees and customize their permissions
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto shrink-0">
           {employeesWithoutUserCount > 0 && (
             <Button
               variant="outline"
@@ -804,14 +804,14 @@ export default function RolesAssignedPage() {
             onClick={() => setAddConfigOpen(true)}
             className="gap-2"
           >
-            <KeyRound className="h-4 w-4" />
+            <KeyRound className="h-4 w-4 shrink-0" />
             Add Configuration
           </Button>
           <Button
             onClick={handleAddRole}
             className="gap-2"
           >
-            <Plus className="h-4 w-4" />
+            <Plus className="h-4 w-4 shrink-0" />
             Add Role
           </Button>
         </div>
@@ -859,23 +859,23 @@ export default function RolesAssignedPage() {
               {/* Content removed as per user request */}
             </CardContent>
             <CardFooter className="border-t pt-4 bg-muted/20">
-              <div className="flex gap-2 w-full">
+              <div className="flex flex-col gap-2 w-full sm:flex-row">
                 <Button
                   variant="outline"
-                  className="flex-1 gap-2"
+                  className="flex-1 gap-2 min-w-0"
                   onClick={(e) => handleEditPolicies(role, e)}
                   disabled={role.name === "Director"}
                   title={role.name === "Director" ? "System role (locked)" : undefined}
                 >
-                  <Edit className="h-3 w-3" />
+                  <Edit className="h-3 w-3 shrink-0" />
                   Edit Policies
                 </Button>
                 <Button
                   variant="outline"
-                  className="flex-1 gap-2"
+                  className="flex-1 gap-2 min-w-0"
                   onClick={(e) => handleAddMembers(role, e)}
                 >
-                  <UserPlus className="h-3 w-3" />
+                  <UserPlus className="h-3 w-3 shrink-0" />
                   Add Members
                 </Button>
               </div>

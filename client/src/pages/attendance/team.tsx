@@ -1,7 +1,5 @@
-import { useState, useMemo } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ENABLE_TEAM_ATTENDANCE_CHECK_VIEW } from "@/config/feature-flags";
-import { TeamAttendanceCheckView } from "./TeamAttendanceCheckView";
+import { useState, useMemo, useCallback, useEffect } from "react";
+import { useQuery, useQueries, useQueryClient, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -22,19 +20,51 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { Textarea } from "@/components/ui/textarea";
 import { 
   Calendar, 
   ChevronLeft, 
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   AlertCircle,
   Loader2,
   Users,
   RefreshCw,
   Search,
-  ListChecks
+  List,
+  CheckCircle2,
+  XCircle,
+  Send,
+  Unlock,
 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 import { apiGet } from "@/lib/api";
-import { encodeName } from "@/lib/utils";
+import { encodeName, cn } from "@/lib/utils";
+import {
+  createOrLoadBatch,
+  getVerifications,
+  getSubmitContext,
+  getMyQueries,
+  saveVerifications,
+  submitBatch,
+  unsubmitBatch,
+  clearVerifications,
+} from "@/api/attendanceVerification.api";
+import type { VerificationStatus } from "@/api/attendanceVerification.types";
+import { CheckViewCard } from "./CheckViewCard";
+import { VerificationListCard } from "./VerificationListCard";
 
 interface AttendanceRecord {
   card_no: string;
@@ -144,9 +174,13 @@ function calculateSummary(records: AttendanceRecord[]) {
   return { present, absent, doubleAbsent, halfDay, missInOut, total: records.length };
 }
 
+type ViewMode = "single" | "check";
+
 export default function TeamAttendancePage() {
   const { user, hasPolicy } = useAuth();
+  const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [viewMode, setViewMode] = useState<ViewMode>("single");
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedMember, setSelectedMember] = useState<string>("all");
@@ -156,32 +190,42 @@ export default function TeamAttendancePage() {
   const [searchMessage, setSearchMessage] = useState<"not_under_you" | "not_found" | null>(null);
   const [searching, setSearching] = useState(false);
   const [membersListOpen, setMembersListOpen] = useState(false);
-  const [viewMode, setViewMode] = useState<"single" | "check">("single");
-
-  // Check if user has team view permission
+  const [expandedMemberIds, setExpandedMemberIds] = useState<Set<string>>(new Set());
+  const [selectedCheckMemberIds, setSelectedCheckMemberIds] = useState<Set<string>>(new Set());
+  const [submitModalOpen, setSubmitModalOpen] = useState(false);
+  const [verificationMap, setVerificationMap] = useState<Record<string, { status: VerificationStatus; query?: string }>>({});
+  const [pendingSave, setPendingSave] = useState<Record<string, { status: VerificationStatus; query?: string }>>({});
   const canViewTeam = hasPolicy("attendance.team.view");
+  const canVerify = hasPolicy("attendance.team.verify");
 
   const monthDate = useMemo(() => {
     const month = String(selectedMonth + 1).padStart(2, "0");
     return `${selectedYear}-${month}-01`;
   }, [selectedMonth, selectedYear]);
 
+  const { from: fromStr, to: toStr } = useMemo(() => {
+    const d = new Date(selectedYear, selectedMonth, 1);
+    const last = new Date(selectedYear, selectedMonth + 1, 0);
+    return {
+      from: d.toISOString().slice(0, 10),
+      to: last.toISOString().slice(0, 10),
+    };
+  }, [selectedMonth, selectedYear]);
+
   // Fetch team members using my-team API
-  const { data: teamResponse, isLoading: loadingTeam, isRefetching: refetchingTeam, refetch: refetchTeam } = useQuery({
+  const { data: teamResponse, isLoading: loadingTeam, isRefetching: refetchingTeam, refetch: refetchTeam } = useQuery<{ data?: TeamMember[] }>({
     queryKey: ["my-team-members"],
     queryFn: () => apiGet("/emp-manager/my-team"),
     enabled: canViewTeam,
   });
 
-  const teamMembers: TeamMember[] = teamResponse?.data || [];
+  const teamMembers: TeamMember[] = teamResponse?.data ?? [];
 
   // Fetch attendance for selected member or all team
   const { data: attendanceData, isLoading: loadingAttendance, refetch: refetchAttendance } = useQuery<AttendanceResponse>({
     queryKey: ["team-attendance", selectedMember, monthDate],
     queryFn: () => {
       if (selectedMember === "all") {
-        // For "all", we would need a different API endpoint
-        // For now, return empty - would need backend support for bulk attendance
         return Promise.resolve({ records: [], summary: { present: 0, absent: 0, halfDay: 0, leave: 0, total: 0 } });
       }
       return apiGet(`/attendance/history/${selectedMember}?month=${monthDate}`);
@@ -189,33 +233,95 @@ export default function TeamAttendancePage() {
     enabled: canViewTeam && selectedMember !== "all",
   });
 
-  // Minimum date: October 2025
-  const minDate = new Date(2025, 9, 1);
-  
-  const isMinDate = useMemo(() => {
-    let prevMonth = selectedMonth === 0 ? 11 : selectedMonth - 1;
-    let prevYear = selectedMonth === 0 ? selectedYear - 1 : selectedYear;
-    const prevDate = new Date(prevYear, prevMonth, 1);
-    return prevDate < minDate;
-  }, [selectedMonth, selectedYear]);
+  // Check View: batch and verifications
+  const [checkBatch, setCheckBatch] = useState<{ id: string; submittedAt?: string | null } | null>(null);
+  const createOrLoadMutation = useMutation({
+    mutationFn: () => createOrLoadBatch(monthDate),
+    onSuccess: (b) => setCheckBatch({ id: b.id, submittedAt: b.submittedAt ?? null }),
+    onError: () => setCheckBatch(null),
+  });
+
+  useEffect(() => {
+    if (viewMode === "check" && canVerify) {
+      createOrLoadMutation.mutate();
+    }
+  }, [viewMode, canVerify, monthDate]);
+
+  const { data: verificationsData } = useQuery({
+    queryKey: ["team-verifications", checkBatch?.id ?? "none", fromStr, toStr],
+    queryFn: () =>
+      getVerifications(checkBatch?.id ? { batchId: checkBatch.id } : { from: fromStr, to: toStr }),
+    enabled: (!!checkBatch?.id || !checkBatch) && viewMode === "check" && canVerify,
+  });
+
+  useEffect(() => {
+    if (verificationsData?.verifications) {
+      const next: Record<string, { status: VerificationStatus; query?: string }> = {};
+      for (const [k, v] of Object.entries(verificationsData.verifications)) {
+        next[k] = { status: v.status as VerificationStatus, query: v.query ?? undefined };
+      }
+      setVerificationMap(next);
+    }
+  }, [verificationsData]);
+
+  const attendanceQueries = useQueries({
+    queries: teamMembers.map((m) => ({
+      queryKey: ["team-attendance-check", m.cardNumber || m.id, monthDate],
+      queryFn: () => apiGet<AttendanceResponse>(`/attendance/history/${m.cardNumber || m.id}?month=${monthDate}`),
+      enabled: !!m.cardNumber && viewMode === "check" && !!checkBatch?.id,
+    })),
+  });
+
+  const memberAttendanceMap = useMemo(() => {
+    const map = new Map<string, AttendanceResponse>();
+    teamMembers.forEach((member, i) => {
+      const data = attendanceQueries[i]?.data;
+      if (data?.records) map.set(member.id, data);
+    });
+    return map;
+  }, [teamMembers, attendanceQueries]);
+
+  // BigQuery has data only for current + previous month; refresh when date may change
+  const [nowKey, setNowKey] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNowKey(Date.now()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+  const { prevMonth, prevYear, currMonth, currYear } = useMemo(() => {
+    const now = new Date();
+    const cm = now.getMonth();
+    const cy = now.getFullYear();
+    const pm = cm === 0 ? 11 : cm - 1;
+    const py = cm === 0 ? cy - 1 : cy;
+    return { prevMonth: pm, prevYear: py, currMonth: cm, currYear: cy };
+  }, [nowKey]);
+
+  const isSelectedInAllowedWindow = useMemo(
+    () =>
+      (selectedYear === prevYear && selectedMonth === prevMonth) ||
+      (selectedYear === currYear && selectedMonth === currMonth),
+    [selectedYear, selectedMonth, prevYear, prevMonth, currYear, currMonth]
+  );
+
+  const isMinDate = selectedYear === prevYear && selectedMonth === prevMonth;
+  const isMaxDate = selectedYear === currYear && selectedMonth === currMonth;
+
+  useEffect(() => {
+    if (isSelectedInAllowedWindow) return;
+    setSelectedMonth(currMonth);
+    setSelectedYear(currYear);
+  }, [isSelectedInAllowedWindow, currMonth, currYear]);
 
   const handlePrevMonth = () => {
     if (isMinDate) return;
-    if (selectedMonth === 0) {
-      setSelectedMonth(11);
-      setSelectedYear(selectedYear - 1);
-    } else {
-      setSelectedMonth(selectedMonth - 1);
-    }
+    setSelectedMonth(prevMonth);
+    setSelectedYear(prevYear);
   };
 
   const handleNextMonth = () => {
-    if (selectedMonth === 11) {
-      setSelectedMonth(0);
-      setSelectedYear(selectedYear + 1);
-    } else {
-      setSelectedMonth(selectedMonth + 1);
-    }
+    if (isMaxDate) return;
+    setSelectedMonth(currMonth);
+    setSelectedYear(currYear);
   };
 
   const handleRefresh = async () => {
@@ -225,7 +331,204 @@ export default function TeamAttendancePage() {
       await queryClient.invalidateQueries({ queryKey: ["team-attendance", selectedMember, monthDate] });
       await refetchAttendance();
     }
+    if (viewMode === "check") {
+      await queryClient.invalidateQueries({ queryKey: ["team-attendance-check"] });
+      await queryClient.invalidateQueries({ queryKey: ["team-verifications"] });
+      createOrLoadMutation.mutate();
+    }
   };
+
+  const getKey = (employeeId: string, dateStr: string) => `${employeeId}_${dateStr}`;
+  const getStatus = (employeeId: string, dateStr: string): VerificationStatus | null => {
+    const v = pendingSave[getKey(employeeId, dateStr)] ?? verificationMap[getKey(employeeId, dateStr)];
+    return v?.status ?? null;
+  };
+  const getQuery = (employeeId: string, dateStr: string): string => {
+    const v = pendingSave[getKey(employeeId, dateStr)] ?? verificationMap[getKey(employeeId, dateStr)];
+    return v?.query ?? "";
+  };
+  const setStatus = useCallback(
+    (employeeId: string, dateStr: string, status: VerificationStatus | null, query?: string) => {
+      const key = getKey(employeeId, dateStr);
+      if (status === null) {
+        setVerificationMap((prev) => {
+          const next = { ...prev };
+          delete next[key];
+          return next;
+        });
+        setPendingSave((prev) => {
+          const next = { ...prev };
+          delete next[key];
+          return next;
+        });
+      } else {
+        const entry = status === "NOT_CORRECT" && query !== undefined ? { status, query } : { status };
+        setVerificationMap((prev) => ({ ...prev, [key]: entry }));
+        setPendingSave((prev) => ({ ...prev, [key]: entry }));
+      }
+    },
+    []
+  );
+
+  const savePending = useCallback(async () => {
+    const keys = Object.keys(pendingSave);
+    if (keys.length === 0 || !checkBatch?.id || checkBatch.submittedAt) return;
+    try {
+      const updates = keys.map((key) => {
+        const parts = key.split("_");
+        const dateStr = parts.length >= 2 ? parts[parts.length - 1] : monthDate;
+        const employeeId = parts.length >= 2 ? parts.slice(0, -1).join("_") : key;
+        const v = pendingSave[key];
+        return {
+          employeeId,
+          date: dateStr,
+          status: v.status,
+          query: v.status === "NOT_CORRECT" ? (v.query ?? "") : null,
+        };
+      });
+      const unique = Array.from(new Map(updates.map((u) => [`${u.employeeId}_${u.date}`, u])).values());
+      await saveVerifications(checkBatch.id, unique);
+      setPendingSave({});
+      queryClient.invalidateQueries({ queryKey: ["team-verifications"] });
+    } catch (e: unknown) {
+      console.error("Save verifications failed:", e);
+    }
+  }, [pendingSave, checkBatch, monthDate, queryClient]);
+
+  const submitMutation = useMutation({
+    mutationFn: (batchId: string) => submitBatch(batchId),
+    onSuccess: () => {
+      setCheckBatch((b) => (b ? { ...b, submittedAt: new Date().toISOString() } : null));
+      queryClient.invalidateQueries({ queryKey: ["team-verifications", "my-queries"] });
+      queryClient.prefetchQuery({ queryKey: ["my-queries"] });
+    },
+  });
+
+  const unsubmitMutation = useMutation({
+    mutationFn: (batchId: string) => unsubmitBatch(batchId),
+    onSuccess: () => {
+      setCheckBatch((b) => (b ? { ...b, submittedAt: undefined } : null));
+      queryClient.invalidateQueries({ queryKey: ["team-verifications", "my-queries"] });
+    },
+  });
+
+  const doSubmit = useCallback(async () => {
+    if (!checkBatch?.id || checkBatch.submittedAt) return;
+    if (Object.keys(pendingSave).length > 0) await savePending();
+    await submitMutation.mutateAsync(checkBatch.id);
+    setSubmitModalOpen(false);
+  }, [checkBatch, pendingSave, savePending, submitMutation]);
+
+  const handleSubmitToHr = useCallback(() => setSubmitModalOpen(true), []);
+
+  const { data: submitContext } = useQuery({
+    queryKey: ["attendance-submit-context"],
+    queryFn: getSubmitContext,
+    enabled: submitModalOpen,
+  });
+
+  const { data: myQueriesData, refetch: refetchMyQueries, isError: myQueriesError } = useQuery({
+    queryKey: ["my-queries"],
+    queryFn: getMyQueries,
+    enabled: !!checkBatch?.submittedAt,
+  });
+  const currentBatch = useMemo(() => {
+    if (!checkBatch?.id || !myQueriesData?.batches) return undefined;
+    return myQueriesData.batches.find((x) => x.id === checkBatch.id);
+  }, [checkBatch?.id, myQueriesData?.batches]);
+  const currentBatchTickets = currentBatch?.tickets ?? undefined;
+  const verifierName = currentBatch?.createdBy?.name ?? submitContext?.managerName ?? user?.name ?? undefined;
+
+  // Submit to HO enable only when: selected month ke saare members check ho jaye (har member ke saare relevant dates CORRECT/NOT_CORRECT)
+  const canSubmit = useMemo(() => {
+    const merged = { ...verificationMap, ...pendingSave };
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const daysInMonth = new Date(selectedYear, selectedMonth + 1, 0).getDate();
+    for (const member of teamMembers) {
+      const resp = memberAttendanceMap.get(member.id);
+      if (!resp?.records?.length) continue;
+      for (let d = 1; d <= daysInMonth; d++) {
+        const dateStr = `${selectedYear}-${String(selectedMonth + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+        if (dateStr > todayStr) continue; // only require verification for past/today
+        const toYmd = (dt: unknown) => {
+          const s = typeof dt === "string" ? dt : (dt as { value?: string })?.value ?? "";
+          const d = new Date(s);
+          if (isNaN(d.getTime())) return s.slice(0, 10);
+          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        };
+        if (!resp.records.some((r) => toYmd(r.dt) === dateStr)) continue;
+        const key = getKey(member.id, dateStr);
+        const v = merged[key];
+        if (!v || (v.status !== "CORRECT" && v.status !== "NOT_CORRECT")) return false;
+        if (v.status === "NOT_CORRECT" && !(v.query ?? "").trim()) return false;
+      }
+    }
+    return true;
+  }, [teamMembers, memberAttendanceMap, verificationMap, pendingSave, selectedMonth, selectedYear]);
+
+  const submitSummary = useMemo(() => {
+    const merged = { ...verificationMap, ...pendingSave };
+    const monthLabel = new Date(selectedYear, selectedMonth).toLocaleString("en", { month: "long" }) + " " + selectedYear;
+    let verifiedMembers = 0;
+    let notCorrectCount = 0;
+    const seenMembers = new Set<string>();
+    for (const [key, v] of Object.entries(merged)) {
+      const parts = key.split("_");
+      const dateStr = parts.length >= 2 ? parts[parts.length - 1] : "";
+      if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) continue;
+      const employeeId = parts.slice(0, -1).join("_");
+      if (!seenMembers.has(employeeId)) {
+        seenMembers.add(employeeId);
+        verifiedMembers++;
+      }
+      if (v.status === "NOT_CORRECT") notCorrectCount++;
+    }
+    return { monthLabel, verifiedMembers, notCorrectCount };
+  }, [verificationMap, pendingSave, selectedMonth, selectedYear]);
+
+  const toggleExpand = (memberId: string) => {
+    setExpandedMemberIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(memberId)) next.delete(memberId);
+      else next.add(memberId);
+      return next;
+    });
+  };
+
+  const toggleSelectMember = (memberId: string) => {
+    setSelectedCheckMemberIds((prev) =>
+      prev.has(memberId) ? new Set() : new Set([memberId])
+    );
+  };
+
+  const toDateKeyTeam = (dt: string | unknown): string => {
+    const s = typeof dt === "string" ? dt : (dt as { value?: string })?.value ?? "";
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return String(s).slice(0, 10);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  };
+
+  const handleAllCorrect = useCallback(() => {
+    if (checkBatch?.submittedAt) return;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    let count = 0;
+    teamMembers.forEach((member) => {
+      const records = memberAttendanceMap.get(member.id)?.records ?? [];
+      records.forEach((r) => {
+        const dateStr = toDateKeyTeam(r.dt);
+        const d = new Date(dateStr);
+        if (!isNaN(d.getTime()) && d <= today) {
+          setStatus(member.id, dateStr, "CORRECT");
+          count++;
+        }
+      });
+    });
+    toast({ title: "All correct", description: `${count} dates marked as correct for all members.` });
+  }, [teamMembers, memberAttendanceMap, setStatus, checkBatch?.submittedAt, toast]);
+
+  const isCheckLocked = !!checkBatch?.submittedAt;
+  const isCheckLoading = createOrLoadMutation.isPending || attendanceQueries.some((q) => q.isLoading);
 
   const handleSearch = async () => {
     const q = searchInput.trim();
@@ -257,13 +560,11 @@ export default function TeamAttendancePage() {
 
   const recordsByDate = useMemo(() => {
     const map = new Map<string, AttendanceRecord>();
+    const toDateKey = (dt: unknown) => (typeof dt === "string" ? dt : (dt as { value?: string })?.value ?? "").slice(0, 10);
     if (attendanceData?.records) {
       attendanceData.records.forEach((record) => {
-        const dateStr =
-          typeof record.dt === "object" && record.dt !== null
-            ? (record.dt as { value?: string }).value
-            : record.dt;
-        map.set(String(dateStr ?? ""), record);
+        const key = toDateKey(record.dt);
+        if (key) map.set(key, record);
       });
     }
     return map;
@@ -316,7 +617,7 @@ export default function TeamAttendancePage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-3">
             <div className="h-9 w-9 rounded-lg bg-indigo-500 flex items-center justify-center">
@@ -328,30 +629,32 @@ export default function TeamAttendancePage() {
             View attendance records for your team members
           </p>
         </div>
-        <div className="flex gap-2">
-          {ENABLE_TEAM_ATTENDANCE_CHECK_VIEW && (
-            <div className="flex rounded-lg border p-1">
-              <button
-                type="button"
-                onClick={() => setViewMode("single")}
-                className={`px-3 py-1.5 text-sm rounded-md flex items-center gap-2 ${
-                  viewMode === "single" ? "bg-primary text-primary-foreground" : "hover:bg-muted"
-                }`}
-              >
-                <Calendar className="h-4 w-4" /> Single Member
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode("check")}
-                className={`px-3 py-1.5 text-sm rounded-md flex items-center gap-2 ${
-                  viewMode === "check" ? "bg-primary text-primary-foreground" : "hover:bg-muted"
-                }`}
-              >
-                <ListChecks className="h-4 w-4" /> Check View
-              </button>
-            </div>
-          )}
-          <Button variant="outline" onClick={handleRefresh} disabled={refetchingTeam}>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex rounded-lg border border-border p-0.5">
+            <Button
+              variant={viewMode === "single" ? "secondary" : "ghost"}
+              size="sm"
+              onClick={() => setViewMode("single")}
+              className="rounded-md"
+            >
+              <Calendar className="h-4 w-4 mr-2" />
+              Single Member
+            </Button>
+            <Button
+              variant={viewMode === "check" ? "secondary" : "ghost"}
+              size="sm"
+              onClick={() => canVerify && setViewMode("check")}
+              disabled={!canVerify}
+              className={cn(
+                "rounded-md",
+                viewMode === "check" && "bg-amber-100 dark:bg-amber-900/30"
+              )}
+            >
+              <List className="h-4 w-4 mr-2" />
+              Check View
+            </Button>
+          </div>
+          <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refetchingTeam}>
             {refetchingTeam ? (
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
             ) : (
@@ -362,12 +665,145 @@ export default function TeamAttendancePage() {
         </div>
       </div>
 
-      {ENABLE_TEAM_ATTENDANCE_CHECK_VIEW && viewMode === "check" && (
-        <TeamAttendanceCheckView />
-      )}
-
-      {viewMode === "single" && (
-        <>
+      {viewMode === "check" && canVerify ? (
+        <div className="space-y-6">
+          {!checkBatch?.id && createOrLoadMutation.isPending ? (
+            <Card>
+              <CardContent className="py-12 flex items-center justify-center gap-2">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                <span className="text-muted-foreground">Loading batch...</span>
+              </CardContent>
+            </Card>
+          ) : checkBatch?.id ? (
+            <>
+              <CheckViewCard
+                teamMembers={teamMembers}
+                selectedMonth={selectedMonth}
+                selectedYear={selectedYear}
+                isMinDate={isMinDate}
+                isMaxDate={isMaxDate}
+                handlePrevMonth={handlePrevMonth}
+                handleNextMonth={handleNextMonth}
+                memberAttendanceMap={memberAttendanceMap}
+                expandedMemberIds={expandedMemberIds}
+                selectedCheckMemberIds={selectedCheckMemberIds}
+                toggleExpand={toggleExpand}
+                toggleSelectMember={toggleSelectMember}
+                getStatus={getStatus}
+                getQuery={getQuery}
+                setStatus={setStatus}
+                batch={checkBatch}
+                isLocked={isCheckLocked}
+                isLoading={isCheckLoading}
+                savePending={savePending}
+                pendingSave={pendingSave}
+              />
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleAllCorrect}
+                    disabled={teamMembers.length === 0 || isCheckLocked}
+                    className="gap-2 border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30"
+                  >
+                    <CheckCircle2 className="h-4 w-4" />
+                    All correct
+                  </Button>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="inline-block">
+                          <Button
+                            size="sm"
+                            onClick={handleSubmitToHr}
+                            disabled={submitMutation.isPending || !canSubmit}
+                            className="gap-2"
+                          >
+                            {submitMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                            Submit to HO
+                          </Button>
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {!canSubmit ? "Verify all dates before submitting" : "Submit batch to HR"}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                  {isCheckLocked && checkBatch?.id && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => unsubmitMutation.mutate(checkBatch.id)}
+                      disabled={unsubmitMutation.isPending}
+                    >
+                      {unsubmitMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Unlock className="h-4 w-4 mr-2" />}
+                      Reopen
+                    </Button>
+                  )}
+                </div>
+              </div>
+              {checkBatch?.submittedAt && (
+              <VerificationListCard
+                teamMembers={teamMembers}
+                verificationMap={verificationMap}
+                pendingSave={pendingSave}
+                submittedTickets={currentBatchTickets ?? (submitSummary.notCorrectCount === 0 ? [] : undefined)}
+                submittedBatchInfo={{ monthStart: monthDate, submittedAt: checkBatch.submittedAt }}
+                verifierName={verifierName}
+                onDismiss={() => void refetchMyQueries()}
+                onDelete={() => unsubmitMutation.mutate(checkBatch!.id)}
+                submittedTicketsError={myQueriesError}
+                onRetry={() => void refetchMyQueries()}
+                onClear={async () => {
+                  if (!checkBatch?.id || checkBatch.submittedAt) return;
+                  try {
+                    await clearVerifications(checkBatch.id);
+                    setVerificationMap({});
+                    setPendingSave({});
+                    queryClient.invalidateQueries({ queryKey: ["team-verifications"] });
+                    toast({ title: "Cleared", description: "Verification list cleared from database." });
+                  } catch (e) {
+                    toast({ title: "Failed to clear", description: (e as Error).message, variant: "destructive" });
+                  }
+                }}
+              />
+              )}
+            </>
+          ) : null}
+          <Dialog open={submitModalOpen} onOpenChange={setSubmitModalOpen}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Submit to HO</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 text-sm">
+                <p className="text-muted-foreground">Review and confirm submission (prefilled):</p>
+                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5">
+                  <dt className="text-muted-foreground">Month</dt>
+                  <dd className="font-medium">{submitSummary.monthLabel}</dd>
+                  <dt className="text-muted-foreground">Members verified</dt>
+                  <dd className="font-medium">{submitSummary.verifiedMembers}</dd>
+                  <dt className="text-muted-foreground">Not correct (queries)</dt>
+                  <dd className="font-medium">{submitSummary.notCorrectCount}</dd>
+                  <dt className="text-muted-foreground">Manager Name</dt>
+                  <dd className="font-medium">{submitContext?.managerName ?? "—"}</dd>
+                  <dt className="text-muted-foreground">Card No</dt>
+                  <dd className="font-mono">{submitContext?.managerCardNo ?? "—"}</dd>
+                  <dt className="text-muted-foreground">Unit No</dt>
+                  <dd className="font-medium">{submitContext?.managerUnitNo ?? "—"}</dd>
+                </dl>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setSubmitModalOpen(false)}>Cancel</Button>
+                <Button onClick={() => doSubmit()} disabled={submitMutation.isPending}>
+                  {submitMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Submit"}
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        </div>
+      ) : (
+      <>
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card>
@@ -482,32 +918,24 @@ export default function TeamAttendancePage() {
           <div className="flex flex-wrap gap-4">
             <div>
               <Label className="text-sm text-muted-foreground">Month</Label>
-              <Select value={String(selectedMonth)} onValueChange={(v) => setSelectedMonth(Number(v))}>
-                <SelectTrigger className="w-32 mt-1">
+              <Select
+                value={`${selectedYear}-${selectedMonth}`}
+                onValueChange={(v) => {
+                  const [y, m] = v.split("-").map(Number);
+                  setSelectedYear(y);
+                  setSelectedMonth(m);
+                }}
+              >
+                <SelectTrigger className="w-36 mt-1">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {MONTHS.map((month, index) => (
-                    <SelectItem key={month} value={String(index)}>
-                      {month}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div>
-              <Label className="text-sm text-muted-foreground">Year</Label>
-              <Select value={String(selectedYear)} onValueChange={(v) => setSelectedYear(Number(v))}>
-                <SelectTrigger className="w-24 mt-1">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {YEARS.map((year) => (
-                    <SelectItem key={year} value={String(year)}>
-                      {year}
-                    </SelectItem>
-                  ))}
+                  <SelectItem value={`${prevYear}-${prevMonth}`}>
+                    {MONTHS[prevMonth]} {prevYear}
+                  </SelectItem>
+                  <SelectItem value={`${currYear}-${currMonth}`}>
+                    {MONTHS[currMonth]} {currYear}
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -565,7 +993,7 @@ export default function TeamAttendancePage() {
                 <span className="font-medium text-foreground min-w-[120px] text-center text-sm">
                   {MONTHS[selectedMonth]} {selectedYear}
                 </span>
-                <Button variant="outline" size="icon" onClick={handleNextMonth} className="h-8 w-8">
+                <Button variant="outline" size="icon" onClick={handleNextMonth} disabled={isMaxDate} className="h-8 w-8">
                   <ChevronRight className="h-4 w-4" />
                 </Button>
               </div>

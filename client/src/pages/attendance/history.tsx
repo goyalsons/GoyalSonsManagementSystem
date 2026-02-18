@@ -30,10 +30,8 @@ import {
   XCircle,
   MinusCircle,
   Loader2,
-  HelpCircle
 } from "lucide-react";
 import { apiGet } from "@/lib/api";
-import { HelpTicketForm } from "@/components/HelpTicketForm";
 import { encodeName } from "@/lib/utils";
 
 interface AttendanceRecord {
@@ -224,7 +222,6 @@ export default function AttendanceHistoryPage() {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedRecord, setSelectedRecord] = useState<AttendanceRecord | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const [helpTicketOpen, setHelpTicketOpen] = useState(false);
 
   // Auto-load data when a card number is available
   useEffect(() => {
@@ -919,37 +916,11 @@ export default function AttendanceHistoryPage() {
                     <div className="font-medium text-foreground">{selectedRecord.entry_type || "-"}</div>
                   </div>
                 </div>
-                <div className="pt-4 border-t border-border">
-                  <Button
-                    onClick={() => setHelpTicketOpen(true)}
-                    variant="outline"
-                    className="w-full"
-                  >
-                    <HelpCircle className="h-4 w-4 mr-2" />
-                    Raise Help Ticket
-                  </Button>
-                </div>
               </div>
             );
           })()}
         </DialogContent>
       </Dialog>
-      
-      <HelpTicketForm
-        open={helpTicketOpen}
-        onOpenChange={setHelpTicketOpen}
-        relatedData={selectedRecord ? {
-          date: selectedRecord.dt,
-          status: selectedRecord.STATUS,
-          remarks: selectedRecord.status_remarks,
-          inTime: selectedRecord.t_in || selectedRecord.result_t_in,
-          outTime: selectedRecord.t_out || selectedRecord.result_t_out,
-          branch: selectedRecord.branch_code,
-          entryType: selectedRecord.entry_type,
-          correctionReason: selectedRecord.CORRECTION_REASON,
-        } : undefined}
-        defaultSubject={selectedRecord ? `Attendance Issue - ${selectedRecord.dt} (${selectedRecord.STATUS})` : ""}
-      />
     </div>
   );
 }

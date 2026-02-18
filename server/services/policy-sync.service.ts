@@ -7,7 +7,7 @@
  * Rules:
  * - Policies are immutable (key never changes)
  * - Only creates missing policies; optionally removes disallowed (non-production)
- * - Never deletes in production unless SEED_FORCE_SYNC=1
+ * - In production: NO destructive operations unless SEED_FORCE_SYNC=1 or POLICY_SYNC_REMOVE_DISALLOWED=1
  */
 
 import path from "path";
@@ -37,10 +37,10 @@ function logDebug(message: string, data: Record<string, unknown>, hypothesisId: 
  * Sync policies from shared registry to database
  *
  * 1. Uses POLICY_REGISTRY as allowlist
- * 2. Removes policies not in registry (if destructive allowed)
+ * 2. Removes policies not in registry (only if allowDestructive)
  * 3. Creates missing policies
  */
-export async function syncPoliciesFromNavConfig(): Promise<{
+export async function syncPoliciesFromNavConfig(allowDestructive: boolean): Promise<{
   total: number;
   created: number;
   existing: number;
@@ -59,7 +59,7 @@ export async function syncPoliciesFromNavConfig(): Promise<{
 
   console.log(`[Policy Sync] Starting sync of ${policies.length} policies from NAV_CONFIG...`);
 
-  // Remove any policies that are not in the allowlist (never touch Director role)
+  // Remove any policies that are not in the allowlist (only if allowDestructive; never touch Director role)
   try {
     const disallowedPolicies = await prisma.policy.findMany({
       where: { key: { notIn: Array.from(allowedPolicyKeys) } },
@@ -67,27 +67,31 @@ export async function syncPoliciesFromNavConfig(): Promise<{
     });
 
     if (disallowedPolicies.length > 0) {
-      const disallowedIds = disallowedPolicies.map((policy) => policy.id);
-      const sampleKeys = disallowedPolicies.slice(0, 10).map((p) => p.key);
-      // #region agent log
-      logDebug("removing disallowed policies", { count: disallowedPolicies.length, sampleKeys }, "H1");
-      console.log("[DEBUG H1] Removing disallowed policies: count=%s sampleKeys=%s", disallowedPolicies.length, sampleKeys.join(", "));
-      // #endregion
-      const directorId = await getDirectorRoleId(prisma);
-      await prisma.$transaction([
-        prisma.rolePolicy.deleteMany({
-          where: {
-            policyId: { in: disallowedIds },
-            ...(directorId ? { roleId: { not: directorId } } : {}),
-          },
-        }),
-        prisma.policy.deleteMany({
-          where: { id: { in: disallowedIds } },
-        }),
-      ]);
+      if (allowDestructive) {
+        const disallowedIds = disallowedPolicies.map((policy) => policy.id);
+        const sampleKeys = disallowedPolicies.slice(0, 10).map((p) => p.key);
+        // #region agent log
+        logDebug("removing disallowed policies", { count: disallowedPolicies.length, sampleKeys }, "H1");
+        console.log("[DEBUG H1] Removing disallowed policies: count=%s sampleKeys=%s", disallowedPolicies.length, sampleKeys.join(", "));
+        // #endregion
+        const directorId = await getDirectorRoleId(prisma);
+        await prisma.$transaction([
+          prisma.rolePolicy.deleteMany({
+            where: {
+              policyId: { in: disallowedIds },
+              ...(directorId ? { roleId: { not: directorId } } : {}),
+            },
+          }),
+          prisma.policy.deleteMany({
+            where: { id: { in: disallowedIds } },
+          }),
+        ]);
 
-      result.removed = disallowedPolicies.length;
-      console.log(`[Policy Sync] 🧹 Removed ${disallowedPolicies.length} disallowed policies`);
+        result.removed = disallowedPolicies.length;
+        console.log(`[Policy Sync] 🧹 Removed ${disallowedPolicies.length} disallowed policies`);
+      } else {
+        console.log(`[Policy Sync] ⏭️ Skipping removal of ${disallowedPolicies.length} disallowed policies (destructive sync disabled)`);
+      }
     }
   } catch (error: any) {
     const errorMsg = `Failed to remove disallowed policies: ${error.message}`;
@@ -183,7 +187,8 @@ async function ensureDefaultRolePolicies(): Promise<void> {
   ]);
 }
 
-async function removeRolePolicies(roleName: string, policyKeys: string[]): Promise<void> {
+async function removeRolePolicies(roleName: string, policyKeys: string[], allowDestructive: boolean): Promise<void> {
+  if (!allowDestructive) return;
   const { DIRECTOR_ROLE_NAME } = await import("../lib/director-role");
   if (roleName === DIRECTOR_ROLE_NAME) return; // Director policies are immutable
   const role = await prisma.role.findUnique({
@@ -214,8 +219,23 @@ async function removeRolePolicies(roleName: string, policyKeys: string[]): Promi
 
 /**
  * Initialize policy sync (called on server startup)
+ *
+ * Production-safe: destructive operations (deleteMany) are skipped unless
+ * SEED_FORCE_SYNC=1 or POLICY_SYNC_REMOVE_DISALLOWED=1.
  */
 export async function initializePolicySync(): Promise<void> {
+  const isProduction = process.env.NODE_ENV === "production";
+  const allowDestructive =
+    !isProduction ||
+    process.env.SEED_FORCE_SYNC === "1" ||
+    process.env.POLICY_SYNC_REMOVE_DISALLOWED === "1";
+
+  if (allowDestructive) {
+    console.log("[Policy Sync] ⚠️ Destructive sync enabled. Proceeding with deletions.");
+  } else {
+    console.log("[Policy Sync] 🔒 Destructive sync disabled in production. Skipping deletions.");
+  }
+
   // #region agent log
   try {
     const storeManagerBefore = await prisma.role.findUnique({
@@ -229,7 +249,7 @@ export async function initializePolicySync(): Promise<void> {
     console.log("[DEBUG H4] Store Manager policy count BEFORE sync:", countBefore);
     // #endregion
 
-    const result = await syncPoliciesFromNavConfig();
+    const result = await syncPoliciesFromNavConfig(allowDestructive);
 
     // #region agent log
     logDebug("syncPoliciesFromNavConfig result", { removed: result.removed, created: result.created, existing: result.existing }, "H1");
@@ -248,8 +268,8 @@ export async function initializePolicySync(): Promise<void> {
     // Director must always have ALL policies (immutable)
     const { ensureDirectorHasAllPolicies } = await import("../lib/director-role");
     await ensureDirectorHasAllPolicies(prisma);
-    // Employees should not see the /sales dashboard by default
-    await removeRolePolicies("Employee", ["staff-sales.view"]);
+    // Employees should not see the /sales dashboard by default (only when destructive allowed)
+    await removeRolePolicies("Employee", ["staff-sales.view"], allowDestructive);
 
     // #region agent log
     const countAfter = storeManagerBefore

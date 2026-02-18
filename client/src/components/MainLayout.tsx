@@ -105,11 +105,13 @@ const navItems: NavItem[] = [
     label: "My Team", 
     policy: getPolicyForPath("/my-team"),
     subItems: [
-      { href: "/attendance/team", icon: CalendarCheck, label: "Team Attendance" },
+      { href: "/attendance/team", icon: CalendarCheck, label: "Team Attendance Check View" },
+      { href: "/attendance/my-queries", icon: ClipboardList, label: "My Queries" },
       { href: "/manager/team-sales-staff", icon: TrendingUp, label: "Team Sales" },
       { href: "/requests/team", icon: HelpCircle, label: "Team Requests" },
     ]
   },
+  { href: "/hr/attendance-queries", icon: ClipboardList, label: "HR Attendance Queries", policy: getPolicyForPath("/hr/attendance-queries") },
   { href: "/assigned-manager", icon: UserCheck, label: "Assigned Manager", policy: getPolicyForPath("/assigned-manager") },
   { 
     icon: Settings2, 

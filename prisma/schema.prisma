@@ -25,26 +25,27 @@ model OrgUnit {
 }
 
 model User {
-  id                  String         @id @default(uuid())
-  name                String
-  email               String         @unique
-  phone               String?
-  passwordHash        String?        // nullable for Google OAuth–only users
-  status              String         @default("active")
-  createdAt           DateTime       @default(now())
-  updatedAt           DateTime       @updatedAt
-  orgUnitId           String?
-  employeeId          String?        @unique
-  policyVersion       Int            @default(1)
-  announcements       Announcement[]
-  auditLogs           AuditLog[]
-  helpTicketsResolved HelpTicket[]
-  sessions            Session[]
-  tasksCreated        Task[]
-  employee            Employee?      @relation(fields: [employeeId], references: [id])
-  orgUnit             OrgUnit?       @relation(fields: [orgUnitId], references: [id])
-  roles               UserRole[]
-  settings            UserSettings?
+  id                            String                      @id @default(uuid())
+  name                          String
+  email                         String                      @unique
+  phone                         String?
+  passwordHash                  String?                     // nullable for Google OAuth–only users
+  status                        String                      @default("active")
+  createdAt                     DateTime                    @default(now())
+  updatedAt                     DateTime                    @updatedAt
+  orgUnitId                     String?
+  employeeId                    String?                     @unique
+  policyVersion                 Int                         @default(1)
+  announcements                 Announcement[]
+  auditLogs                     AuditLog[]
+  helpTicketsResolved           HelpTicket[]
+  sessions                      Session[]
+  tasksCreated                  Task[]
+  attendanceVerificationBatches AttendanceVerificationBatch[]
+  employee                      Employee?                   @relation(fields: [employeeId], references: [id])
+  orgUnit                       OrgUnit?                    @relation(fields: [orgUnitId], references: [id])
+  roles                         UserRole[]
+  settings                      UserSettings?
 }
 
 model Role {
@@ -480,17 +481,39 @@ model EmpManager {
   @@map("emp_manager")
 }
 
-model AttendanceVerification {
-  id               String   @id @default(cuid())
-  employeeId       String
-  date             DateTime @db.Date
-  status           String   // CORRECT | NOT_CORRECT
-  query            String?  // Reason when NOT_CORRECT
-  updatedByUserId  String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+model AttendanceVerificationBatch {
+  id             String                  @id @default(cuid())
+  monthStart     DateTime                @db.Date
+  createdByUserId String?
+  createdAt      DateTime                @default(now())
+  notes          String?
+  submittedAt    DateTime?
+  verifications  AttendanceVerification[]
+  createdBy      User?                   @relation(fields: [createdByUserId], references: [id])
 
-  @@unique([employeeId, date])
+  @@index([monthStart])
+  @@index([createdByUserId])
+}
+
+model AttendanceVerification {
+  id                    String                     @id @default(cuid())
+  batchId               String
+  employeeId            String
+  date                  DateTime                   @db.Date
+  status                String                     // CORRECT | NOT_CORRECT
+  query                 String?                    // Reason when NOT_CORRECT (manager)
+  hrStatus              String?                    // IN_PROGRESS | NEED_INFO | RESOLVED | REJECTED
+  hrRemark              String?                    // HR response
+  reraiseRemark         String?                    // Manager re-raise remark
+  dismissedByManagerAt  DateTime?                  // Manager removed from list (soft-hide, audit kept)
+  updatedByUserId       String?
+  createdAt             DateTime                   @default(now())
+  updatedAt             DateTime                   @updatedAt
+  batch                 AttendanceVerificationBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@unique([batchId, employeeId, date])
   @@index([employeeId])
   @@index([date])
+  @@index([batchId])
+  @@index([batchId, status])
 }

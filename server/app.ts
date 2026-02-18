@@ -18,12 +18,13 @@ const app = express();
 
 app.use(
   express.json({
+    limit: "5mb", // attendance verification batch save can be large (400+ entries)
     verify: (req: any, _res, buf) => {
       req.rawBody = buf;
     },
   }),
 );
-app.use(express.urlencoded({ extended: false }));
+app.use(express.urlencoded({ extended: false, limit: "5mb" }));
 
 /** Build and return the app with all routes. Used by server/index.ts and API tests. */
 export async function createApp() {
