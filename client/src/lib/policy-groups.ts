@@ -74,6 +74,7 @@ export const POLICY_GROUPS_UI: PolicyGroup[] = [
       { label: "Staff", policyKeys: ["sales.staff.view", "sales-staff.view", "staff-sales.view"] },
       { label: "Store", policyKeys: ["sales.store.view"] },
       { label: "Dashboard", policyKeys: ["sales.dashboard.view"] },
+      { label: "Current Month Sales + Attendance", policyKeys: ["sales.attendance.current-month.view"] },
     ],
   },
   {

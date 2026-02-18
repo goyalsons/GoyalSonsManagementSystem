@@ -35,6 +35,7 @@ const LogoutAllSessionsPage = lazy(() => import("@/pages/admin/logout-all-sessio
 const FetchedDataPage = lazy(() => import("@/pages/integrations/fetched-data"));
 const SalesPage = lazy(() => import("@/pages/sales/index"));
 const SalesUnitPage = lazy(() => import("@/pages/sales/unit"));
+const CurrentMonthSalesAttendancePage = lazy(() => import("@/pages/sales/current-month-attendance"));
 const SalesStaffPage = lazy(() => import("@/pages/sales-staff"));
 const AssignedManagerPage = lazy(() => import("@/pages/assigned-manager"));
 const TeamTaskHistoryPage = lazy(() => import("@/pages/manager/team-task-history"));
@@ -171,6 +172,9 @@ function AuthenticatedRoutes() {
           )} />
           <Route path="/sales/unit/:unitName" component={() => (
             <PageGuard policy="staff-sales.view"><SalesUnitPage /></PageGuard>
+          )} />
+          <Route path="/sales/current-month-attendance" component={() => (
+            <PageGuard policy="sales.attendance.current-month.view"><CurrentMonthSalesAttendancePage /></PageGuard>
           )} />
           <Route path="/sales-staff" component={() => (
             <PageGuard policy="sales-staff.view"><SalesStaffPage /></PageGuard>

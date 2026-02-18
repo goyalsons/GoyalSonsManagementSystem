@@ -284,7 +284,8 @@ async function main() {
         }));
 
       if (rolePolicies.length > 0) {
-        if (isDirector) {
+        // Do NOT delete Director role policies – DB trigger prevents it (immutable). Use createMany only.
+        if (!isDirector) {
           await prisma.rolePolicy.deleteMany({ where: { roleId: role.id } });
         }
         await prisma.rolePolicy.createMany({

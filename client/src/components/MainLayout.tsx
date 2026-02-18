@@ -84,6 +84,7 @@ const navItems: NavItem[] = [
       { href: "/attendance/history", icon: History, label: "Task History" },
       { href: "/sales", icon: TrendingUp, label: "Sales" },
       { href: "/sales-staff", icon: BarChart3, label: "Sales Staff" },
+      { href: "/sales/current-month-attendance", icon: CalendarCheck, label: "Current Month Sales & Attendance" },
     ]
   },
   { 

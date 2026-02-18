@@ -181,6 +181,12 @@ export const NAV_CONFIG: NavConfigItem[] = [
     policy: "sales.staff.view" 
   },
   { 
+    key: "sales-attendance-current-month", 
+    label: "Current Month Sales & Attendance", 
+    path: "/sales/current-month-attendance", 
+    policy: "sales.attendance.current-month.view" 
+  },
+  { 
     key: "integrations", 
     label: "Integrations", 
     path: "/integrations", 

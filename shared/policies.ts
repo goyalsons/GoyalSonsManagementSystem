@@ -31,6 +31,7 @@ export const POLICY_REGISTRY: PolicyRecord[] = [
   { key: "sales.staff.view", description: "View staff sales", category: "sales" },
   { key: "sales.dashboard.view", description: "Access sales dashboard", category: "sales" },
   { key: "sales.store.view", description: "View store sales", category: "sales" },
+  { key: "sales.attendance.current-month.view", description: "View current month sales and attendance together", category: "sales" },
   { key: "sales-staff.view", description: "Access sales staff page", category: "sales" },
   { key: "staff-sales.view", description: "Access staff sales", category: "sales" },
   { key: "admin.panel", description: "Access admin panel", category: "admin" },

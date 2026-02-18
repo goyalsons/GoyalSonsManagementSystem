@@ -214,6 +214,7 @@ function calculateSummary(records: AttendanceRecord[]) {
 export default function AttendanceHistoryPage() {
   const { user, hasPolicy } = useAuth();
   const employeeCardNo = user?.employeeCardNo;
+  const restrictToCurrentMonth = hasPolicy("sales.attendance.current-month.view");
   const hasEmployeeCardNo = Boolean(employeeCardNo);
   
   const [cardNo, setCardNo] = useState("");
@@ -230,6 +231,20 @@ export default function AttendanceHistoryPage() {
       setSearchCardNo(employeeCardNo);
     }
   }, [employeeCardNo]);
+
+  // When restrictToCurrentMonth, force selection to current month if user has past selected
+  useEffect(() => {
+    if (!restrictToCurrentMonth) return;
+    const curr = new Date();
+    const selDate = new Date(selectedYear, selectedMonth, 1);
+    selDate.setHours(0, 0, 0, 0);
+    const currStart = new Date(curr.getFullYear(), curr.getMonth(), 1);
+    currStart.setHours(0, 0, 0, 0);
+    if (selDate < currStart) {
+      setSelectedMonth(curr.getMonth());
+      setSelectedYear(curr.getFullYear());
+    }
+  }, [restrictToCurrentMonth, selectedMonth, selectedYear]);
 
   const monthDate = useMemo(() => {
     const month = String(selectedMonth + 1).padStart(2, "0");
@@ -294,15 +309,16 @@ export default function AttendanceHistoryPage() {
     return cells;
   }, [selectedMonth, selectedYear, recordsByDate]);
 
-  // Minimum date: October 2025 (month index 9, since months are 0-indexed)
-  const minDate = new Date(2025, 9, 1); // October is month 9 (0-indexed)
-  minDate.setHours(0, 0, 0, 0); // Normalize to start of day
+  // When restrictToCurrentMonth (sales.attendance.current-month.view), lock to current month only
+  const now = new Date();
+  const minDate = restrictToCurrentMonth
+    ? new Date(now.getFullYear(), now.getMonth(), 1)
+    : new Date(2025, 9, 1); // October 2025
+  minDate.setHours(0, 0, 0, 0);
   
   const isMinDate = useMemo(() => {
-    // Check if going to previous month would be before minimum date
     let prevMonth: number;
     let prevYear: number;
-    
     if (selectedMonth === 0) {
       prevMonth = 11;
       prevYear = selectedYear - 1;
@@ -310,12 +326,16 @@ export default function AttendanceHistoryPage() {
       prevMonth = selectedMonth - 1;
       prevYear = selectedYear;
     }
-    
     const prevDate = new Date(prevYear, prevMonth, 1);
     prevDate.setHours(0, 0, 0, 0);
-    // Disable if previous month would be before October 2025
     return prevDate < minDate;
-  }, [selectedMonth, selectedYear]);
+  }, [selectedMonth, selectedYear, minDate]);
+
+  const isMaxDate = useMemo(() => {
+    if (!restrictToCurrentMonth) return false;
+    const curr = new Date();
+    return selectedMonth === curr.getMonth() && selectedYear === curr.getFullYear();
+  }, [restrictToCurrentMonth, selectedMonth, selectedYear]);
 
   const handlePrevMonth = () => {
     if (isMinDate) return; // Don't allow navigation before minimum date
@@ -459,12 +479,9 @@ export default function AttendanceHistoryPage() {
                       newDate.setHours(0, 0, 0, 0);
                       if (newDate >= minDate) {
                         setSelectedYear(newYear);
-                      } else {
-                        // If selected month would be before min date, set to October (month 9)
+                      } else if (!restrictToCurrentMonth) {
                         setSelectedYear(newYear);
-                        if (newYear === 2025) {
-                          setSelectedMonth(9); // October
-                        }
+                        if (newYear === 2025) setSelectedMonth(9); // October
                       }
                     }}
                   >
@@ -472,11 +489,16 @@ export default function AttendanceHistoryPage() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {YEARS.map((year) => (
-                        <SelectItem key={year} value={String(year)}>
-                          {year}
-                        </SelectItem>
-                      ))}
+                      {YEARS.map((year) => {
+                        const yearDate = new Date(year, selectedMonth, 1);
+                        yearDate.setHours(0, 0, 0, 0);
+                        const isDisabled = yearDate < minDate;
+                        return (
+                          <SelectItem key={year} value={String(year)} disabled={isDisabled}>
+                            {year}
+                          </SelectItem>
+                        );
+                      })}
                     </SelectContent>
                   </Select>
                 </div>
@@ -562,7 +584,13 @@ export default function AttendanceHistoryPage() {
                   <span className="font-medium text-foreground min-w-[120px] text-center text-sm">
                     {MONTHS[selectedMonth]} {selectedYear}
                   </span>
-                  <Button variant="outline" size="icon" onClick={handleNextMonth} className="h-8 w-8">
+                  <Button 
+                    variant="outline" 
+                    size="icon" 
+                    onClick={handleNextMonth} 
+                    disabled={isMaxDate}
+                    className="h-8 w-8"
+                  >
                     <ChevronRight className="h-4 w-4" />
                   </Button>
                 </div>

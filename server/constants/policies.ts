@@ -20,6 +20,7 @@ export const POLICIES = {
   ATTENDANCE_HR_RESOLVE: "attendance.hr.resolve",
   ATTENDANCE_TEAM_VERIFICATION_AUDIT_VIEW: "attendance.team.verification.audit.view",
   ATTENDANCE_TEAM_VERIFICATION_AUDIT_EXPORT: "attendance.team.verification.audit.export",
+  SALES_ATTENDANCE_CURRENT_MONTH_VIEW: "sales.attendance.current-month.view",
   ATTENDANCE_WORKLOG_VIEW: "attendance.worklog.view",
   SALES_VIEW: "sales.view",
   SALES_SELF_VIEW: "sales.self.view",
