@@ -268,8 +268,10 @@ async function main() {
     const existingCount = await prisma.rolePolicy.count({
       where: { roleId: role.id },
     });
+    const seedPolicyCount = policyKeys?.length ?? 0;
 
-    if (existingCount > 0 && !isDirector) {
+    // Preserve UI changes only for roles that have a non-empty policy set in seed (e.g. HR). For roles with 0 policies in seed (Employee, MDO, etc.), always reset to 0 so seed doesn’t leave help_ticket etc. behind.
+    if (existingCount > 0 && !isDirector && seedPolicyCount > 0) {
       console.log(`✅ Role "${role.name}" already has ${existingCount} policies – skipping (preserve UI changes)`);
       continue;
     }
@@ -292,6 +294,12 @@ async function main() {
           data: rolePolicies,
           skipDuplicates: true,
         });
+      }
+    } else if (!isDirector) {
+      // Roles with no policies in seed (Employee, MDO, DME, Manager, etc.) – clear any UI-added policies so seed resets them
+      await prisma.rolePolicy.deleteMany({ where: { roleId: role.id } });
+      if (existingCount > 0) {
+        console.log(`✅ Role "${role.name}" reset to 0 policies (seed default)`);
       }
     }
 
