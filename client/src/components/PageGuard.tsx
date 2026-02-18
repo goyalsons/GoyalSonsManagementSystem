@@ -19,10 +19,11 @@ import { Button } from "@/components/ui/button";
 interface PageGuardProps {
   children: React.ReactNode;
   policy?: string; // Optional explicit policy, otherwise uses path from location
+  policies?: string[]; // Alternative: allow if user has ANY of these
   fallback?: React.ReactNode; // Custom fallback UI
 }
 
-export function PageGuard({ children, policy, fallback }: PageGuardProps) {
+export function PageGuard({ children, policy, policies, fallback }: PageGuardProps) {
   const [location] = useLocation();
   const { user, hasPolicy, isLoading } = useAuth();
 
@@ -50,11 +51,15 @@ export function PageGuard({ children, policy, fallback }: PageGuardProps) {
     return <>{children}</>;
   }
 
-  // Determine policy to check
-  const requiredPolicy = policy || getPolicyForPath(location);
+  // Determine policy to check: explicit policy, or any of policies[], or path-based
+  const requiredPolicy = policy ?? (policies ? null : getPolicyForPath(location));
+  const allowedByPolicy = requiredPolicy !== null && hasPolicy(requiredPolicy);
+  const allowedByPolicies = Array.isArray(policies) && policies.length > 0 && policies.some((p) => hasPolicy(p));
+  const hasAccess = allowedByPolicy || allowedByPolicies;
 
-  // If no policy is mapped for this route, deny access
-  if (requiredPolicy === null) {
+  // If no policy is mapped for this route (path-based and no mapping), deny access
+  const pathPolicy = getPolicyForPath(location);
+  if (!policy && !policies && pathPolicy === null) {
     return (
       <div className="flex items-center justify-center min-h-[400px] p-4">
         <Card className="w-full max-w-md">
@@ -81,8 +86,8 @@ export function PageGuard({ children, policy, fallback }: PageGuardProps) {
     );
   }
 
-  // Check if user has the required policy
-  if (!hasPolicy(requiredPolicy)) {
+  // Check if user has the required policy (or any of policies[])
+  if (!hasAccess) {
     // Use custom fallback if provided
     if (fallback) {
       return <>{fallback}</>;
@@ -106,8 +111,16 @@ export function PageGuard({ children, policy, fallback }: PageGuardProps) {
               <div className="flex items-start gap-2 p-3 bg-muted rounded-lg">
                 <AlertCircle className="h-5 w-5 text-muted-foreground mt-0.5 shrink-0" />
                 <div className="text-sm text-muted-foreground">
-                  <p className="font-medium mb-1">Required Policy:</p>
-                  <code className="text-xs bg-background px-2 py-1 rounded">{requiredPolicy}</code>
+                  <p className="font-medium mb-1">{policies?.length ? "Required (one of):" : "Required Policy:"}</p>
+                  {policies?.length ? (
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {policies.map((p) => (
+                        <code key={p} className="text-xs bg-background px-2 py-1 rounded">{p}</code>
+                      ))}
+                    </div>
+                  ) : (
+                    <code className="text-xs bg-background px-2 py-1 rounded">{requiredPolicy}</code>
+                  )}
                 </div>
               </div>
               <Button 

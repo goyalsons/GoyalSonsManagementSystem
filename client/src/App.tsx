@@ -35,7 +35,6 @@ const LogoutAllSessionsPage = lazy(() => import("@/pages/admin/logout-all-sessio
 const FetchedDataPage = lazy(() => import("@/pages/integrations/fetched-data"));
 const SalesPage = lazy(() => import("@/pages/sales/index"));
 const SalesUnitPage = lazy(() => import("@/pages/sales/unit"));
-const CurrentMonthSalesAttendancePage = lazy(() => import("@/pages/sales/current-month-attendance"));
 const SalesStaffPage = lazy(() => import("@/pages/sales-staff"));
 const AssignedManagerPage = lazy(() => import("@/pages/assigned-manager"));
 const TeamTaskHistoryPage = lazy(() => import("@/pages/manager/team-task-history"));
@@ -142,10 +141,10 @@ function AuthenticatedRoutes() {
             <PageGuard policy="attendance.worklog.view"><FillAttendancePage /></PageGuard>
           )} />
           <Route path="/attendance/history" component={() => (
-            <PageGuard policy="attendance.history.view"><AttendanceHistoryPage /></PageGuard>
+            <PageGuard policies={["attendance.history.view", "sales.attendance.current-month.view"]}><AttendanceHistoryPage /></PageGuard>
           )} />
           <Route path="/work-log" component={() => (
-            <PageGuard policy="attendance.history.view"><AttendanceHistoryPage /></PageGuard>
+            <PageGuard policies={["attendance.history.view", "sales.attendance.current-month.view"]}><AttendanceHistoryPage /></PageGuard>
           )} />
           <Route path="/attendance/team" component={() => (
             <PageGuard policy="attendance.team.view"><TeamAttendancePage /></PageGuard>
@@ -172,9 +171,6 @@ function AuthenticatedRoutes() {
           )} />
           <Route path="/sales/unit/:unitName" component={() => (
             <PageGuard policy="staff-sales.view"><SalesUnitPage /></PageGuard>
-          )} />
-          <Route path="/sales/current-month-attendance" component={() => (
-            <PageGuard policy="sales.attendance.current-month.view"><CurrentMonthSalesAttendancePage /></PageGuard>
           )} />
           <Route path="/sales-staff" component={() => (
             <PageGuard policy="sales-staff.view"><SalesStaffPage /></PageGuard>
