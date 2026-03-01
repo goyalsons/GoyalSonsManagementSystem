@@ -27,6 +27,7 @@ import {
   saveVerifications,
   submitBatch,
   unsubmitBatch,
+  deleteBatch,
   clearVerifications,
 } from "@/api/attendanceVerification.api";
 import type { TeamMember, AttendanceResponse, VerificationStatus } from "@/api/attendanceVerification.types";
@@ -232,6 +233,19 @@ export default function AttendanceCheckPage() {
     },
     onError: (e: Error) => {
       toast({ title: "Failed to reopen", description: e.message, variant: "destructive" });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (batchId: string) => deleteBatch(batchId),
+    onSuccess: () => {
+      setBatch(null);
+      queryClient.invalidateQueries({ queryKey: ["team-verifications", "my-queries"] });
+      createOrLoadMutation.mutate();
+      toast({ title: "Deleted", description: "Batch removed. HR will no longer see it." });
+    },
+    onError: (e: Error) => {
+      toast({ title: "Failed to delete", description: e.message, variant: "destructive" });
     },
   });
 
@@ -479,7 +493,7 @@ export default function AttendanceCheckPage() {
             submittedBatchInfo={{ monthStart: monthStartStr, submittedAt: batch.submittedAt! }}
             verifierName={verifierName}
             onDismiss={refetchMyQueries}
-            onDelete={() => unsubmitMutation.mutate(batch!.id)}
+            onDelete={() => deleteMutation.mutate(batch!.id)}
             submittedTicketsError={myQueriesError}
             onRetry={() => void refetchMyQueries()}
             onClear={async () => {

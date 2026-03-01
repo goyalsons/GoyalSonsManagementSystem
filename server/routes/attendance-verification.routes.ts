@@ -93,11 +93,13 @@ export function registerAttendanceVerificationRoutes(app: Express) {
             message: "monthStart (YYYY-MM-DD) is required",
           });
         }
-        const d = new Date(monthStart);
-        if (isNaN(d.getTime())) {
-          return res.status(400).json({ message: "Invalid monthStart format" });
+        const parts = monthStart.split("-").map(Number);
+        const y = parts[0],
+          m = parts[1];
+        if (!y || !m || m < 1 || m > 12) {
+          return res.status(400).json({ message: "Invalid monthStart format (use YYYY-MM-DD)" });
         }
-        const firstDay = new Date(d.getFullYear(), d.getMonth(), 1);
+        const firstDay = new Date(y, m - 1, 1);
 
         const batch = await prisma.attendanceVerificationBatch.create({
           data: {
@@ -370,9 +372,12 @@ export function registerAttendanceVerificationRoutes(app: Express) {
         if (!userId) return res.status(401).json({ message: "Unauthorized" });
         const { monthStart, notes } = req.body as { monthStart?: string; notes?: string };
         if (!monthStart) return res.status(400).json({ message: "monthStart (YYYY-MM-DD) is required" });
-        const d = new Date(monthStart);
-        if (isNaN(d.getTime())) return res.status(400).json({ message: "Invalid monthStart format" });
-        const firstDay = new Date(d.getFullYear(), d.getMonth(), 1);
+        const parts = monthStart.split("-").map(Number);
+        const y = parts[0],
+          m = parts[1];
+        if (!y || !m || m < 1 || m > 12)
+          return res.status(400).json({ message: "Invalid monthStart format (use YYYY-MM-DD)" });
+        const firstDay = new Date(y, m - 1, 1);
         const batch = await prisma.attendanceVerificationBatch.create({
           data: { monthStart: firstDay, createdByUserId: userId, notes: notes || null },
           select: { id: true, monthStart: true, createdAt: true, notes: true, submittedAt: true },
@@ -415,6 +420,28 @@ export function registerAttendanceVerificationRoutes(app: Express) {
       } catch (err: any) {
         console.error("[Verification Batches] Submit error:", err);
         return res.status(500).json({ message: err?.message || "Failed to submit batch" });
+      }
+    }
+  );
+
+  // DELETE /api/attendance/verification-batches/:id - Permanently delete batch (manager only, own batch)
+  app.delete(
+    "/api/attendance/verification-batches/:id",
+    requireAuth,
+    requirePolicy("attendance.team.verify"),
+    async (req, res) => {
+      try {
+        const { id: batchId } = req.params;
+        const batch = await prisma.attendanceVerificationBatch.findUnique({ where: { id: batchId } });
+        if (!batch) return res.status(404).json({ message: "Batch not found" });
+        if (batch.createdByUserId !== (req as any).user?.id) {
+          return res.status(403).json({ message: "You can only delete your own batch" });
+        }
+        await prisma.attendanceVerificationBatch.delete({ where: { id: batchId } });
+        return res.json({ success: true });
+      } catch (err: any) {
+        console.error("[Verification Batches] DELETE error:", err);
+        return res.status(500).json({ message: err?.message || "Failed to delete" });
       }
     }
   );
@@ -860,9 +887,12 @@ export function registerAttendanceVerificationRoutes(app: Express) {
         if (!monthStart) {
           return res.status(400).json({ message: "monthStart (YYYY-MM-DD) required" });
         }
-        const d = new Date(monthStart);
-        if (isNaN(d.getTime())) return res.status(400).json({ message: "Invalid monthStart" });
-        const firstDay = new Date(d.getFullYear(), d.getMonth(), 1);
+        const parts = monthStart.split("-").map(Number);
+        const y = parts[0],
+          m = parts[1];
+        if (!y || !m || m < 1 || m > 12)
+          return res.status(400).json({ message: "Invalid monthStart (use YYYY-MM-DD)" });
+        const firstDay = new Date(y, m - 1, 1);
         const userId = (req as any).user?.id;
         const batch = await prisma.attendanceVerificationBatch.findFirst({
           where: { monthStart: firstDay, createdByUserId: userId ?? undefined },

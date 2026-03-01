@@ -214,7 +214,8 @@ function calculateSummary(records: AttendanceRecord[]) {
 export default function AttendanceHistoryPage() {
   const { user, hasPolicy } = useAuth();
   const employeeCardNo = user?.employeeCardNo;
-  const restrictToCurrentMonth = hasPolicy("sales.attendance.current-month.view");
+  const restrictToCurrentMonth =
+    hasPolicy("sales.attendance.current-month.view") && !hasPolicy("attendance.history.view");
   const hasEmployeeCardNo = Boolean(employeeCardNo);
   
   const [cardNo, setCardNo] = useState("");

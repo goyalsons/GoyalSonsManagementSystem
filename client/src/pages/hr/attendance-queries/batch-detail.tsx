@@ -54,6 +54,13 @@ export default function HrAttendanceQueryBatchDetailPage() {
   const queryClient = useQueryClient();
   const canResolve = hasPolicy("attendance.hr.resolve");
   const [selectedTicket, setSelectedTicket] = useState<(HrQueryTicket & { createdByName?: string }) | null>(null);
+  const [selectedMember, setSelectedMember] = useState<{
+    employeeId: string;
+    employeeName: string;
+    cardNumber: string;
+    query: string;
+    ticketIds: string[];
+  } | null>(null);
   const [drawerStatus, setDrawerStatus] = useState<HrStatus | "">("");
   const [drawerRemark, setDrawerRemark] = useState("");
 
@@ -64,15 +71,27 @@ export default function HrAttendanceQueryBatchDetailPage() {
   });
 
   const resolveMutation = useMutation({
-    mutationFn: ({ ticketId, hrStatus, hrRemark }: { ticketId: string; hrStatus: HrStatus; hrRemark: string }) =>
-      resolveHrQuery(ticketId, hrStatus, hrRemark),
+    mutationFn: async ({
+      ticketIds,
+      hrStatus,
+      hrRemark,
+    }: {
+      ticketIds: string[];
+      hrStatus: HrStatus;
+      hrRemark: string;
+    }) => {
+      for (const ticketId of ticketIds) {
+        await resolveHrQuery(ticketId, hrStatus, hrRemark);
+      }
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["hr-query-batch", batchId] });
       queryClient.invalidateQueries({ queryKey: ["hr-queries"] });
       setSelectedTicket(null);
+      setSelectedMember(null);
       setDrawerStatus("");
       setDrawerRemark("");
-      toast({ title: "Updated", description: "Ticket status and remark saved." });
+      toast({ title: "Updated", description: "Status and remark saved." });
     },
     onError: (e: Error) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
   });
@@ -81,13 +100,25 @@ export default function HrAttendanceQueryBatchDetailPage() {
   const needsRemark = drawerStatus === "NEED_INFO" || drawerStatus === "RESOLVED" || drawerStatus === "REJECTED";
 
   const handleOpenDrawer = (ticket: HrQueryTicket, createdByName: string) => {
+    setSelectedMember(null);
     setSelectedTicket({ ...ticket, createdByName });
     setDrawerStatus((ticket.hrStatus as HrStatus) || "");
     setDrawerRemark(ticket.hrRemark ?? "");
   };
 
+  const handleOpenMemberDrawer = (
+    member: { employeeId: string; employeeName: string; cardNumber: string; query: string },
+    ticketIds: string[],
+    initialStatus: HrStatus
+  ) => {
+    setSelectedTicket(null);
+    setSelectedMember({ ...member, ticketIds });
+    setDrawerStatus(initialStatus);
+    setDrawerRemark("");
+  };
+
   const handleResolve = () => {
-    if (!selectedTicket || !drawerStatus) {
+    if (!drawerStatus) {
       toast({ title: "Select status", variant: "destructive" });
       return;
     }
@@ -95,12 +126,24 @@ export default function HrAttendanceQueryBatchDetailPage() {
       toast({ title: "Remark required for this status", variant: "destructive" });
       return;
     }
-    resolveMutation.mutate({
-      ticketId: selectedTicket.id,
-      hrStatus: drawerStatus as HrStatus,
-      hrRemark: drawerRemark.trim(),
-    });
+    if (selectedTicket) {
+      resolveMutation.mutate({
+        ticketIds: [selectedTicket.id],
+        hrStatus: drawerStatus as HrStatus,
+        hrRemark: drawerRemark.trim(),
+      });
+    } else if (selectedMember && selectedMember.ticketIds.length > 0) {
+      resolveMutation.mutate({
+        ticketIds: selectedMember.ticketIds,
+        hrStatus: drawerStatus as HrStatus,
+        hrRemark: drawerRemark.trim(),
+      });
+    } else {
+      toast({ title: "Nothing selected", variant: "destructive" });
+    }
   };
+
+  const drawerOpen = !!selectedTicket || !!selectedMember;
 
   if (!batchId) return null;
   if (isLoading || !batch) {
@@ -134,7 +177,88 @@ export default function HrAttendanceQueryBatchDetailPage() {
           </div>
         </CardHeader>
         <CardContent>
-          {batch.tickets.length > 0 ? (
+          {(batch.members?.length ?? 0) > 0 ? (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Card No</TableHead>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Correct dates</TableHead>
+                  <TableHead>Not correct date</TableHead>
+                  <TableHead>Query</TableHead>
+                  {canResolve && <TableHead className="w-[140px]">Actions</TableHead>}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {batch.members!.map((m) => {
+                  const hasNotCorrect = m.notCorrectDates && m.notCorrectDates !== "—";
+                  const ticketIds =
+                    hasNotCorrect && batch.tickets
+                      ? batch.tickets.filter((t) => t.employeeId === m.employeeId).map((t) => t.id)
+                      : [];
+                  return (
+                    <TableRow key={m.employeeId}>
+                      <TableCell className="font-mono text-sm">{m.cardNumber}</TableCell>
+                      <TableCell className="font-medium">{m.employeeName}</TableCell>
+                      <TableCell className="text-muted-foreground">{m.correctDates}</TableCell>
+                      <TableCell className="text-muted-foreground">{m.notCorrectDates}</TableCell>
+                      <TableCell className="max-w-[220px] truncate text-muted-foreground" title={m.query}>
+                        {m.query}
+                      </TableCell>
+                      {canResolve && (
+                        <TableCell>
+                          {hasNotCorrect && ticketIds.length > 0 ? (
+                            <div className="flex gap-1">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-emerald-600 border-emerald-200 hover:bg-emerald-50"
+                                onClick={() =>
+                                  handleOpenMemberDrawer(
+                                    {
+                                      employeeId: m.employeeId,
+                                      employeeName: m.employeeName,
+                                      cardNumber: m.cardNumber,
+                                      query: m.query ?? "",
+                                    },
+                                    ticketIds,
+                                    "RESOLVED"
+                                  )
+                                }
+                              >
+                                Resolve
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-rose-600 border-rose-200 hover:bg-rose-50"
+                                onClick={() =>
+                                  handleOpenMemberDrawer(
+                                    {
+                                      employeeId: m.employeeId,
+                                      employeeName: m.employeeName,
+                                      cardNumber: m.cardNumber,
+                                      query: m.query ?? "",
+                                    },
+                                    ticketIds,
+                                    "REJECTED"
+                                  )
+                                }
+                              >
+                                Reject
+                              </Button>
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                      )}
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          ) : batch.tickets.length > 0 ? (
             <Table>
               <TableHeader>
                 <TableRow>
@@ -177,55 +301,54 @@ export default function HrAttendanceQueryBatchDetailPage() {
                 ))}
               </TableBody>
             </Table>
-          ) : (batch.members?.length ?? 0) > 0 ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Card No</TableHead>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Correct dates</TableHead>
-                  <TableHead>Not correct date</TableHead>
-                  <TableHead>Query</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {batch.members!.map((m) => (
-                  <TableRow key={m.employeeId}>
-                    <TableCell className="font-mono text-sm">{m.cardNumber}</TableCell>
-                    <TableCell className="font-medium">{m.employeeName}</TableCell>
-                    <TableCell className="text-muted-foreground">{m.correctDates}</TableCell>
-                    <TableCell className="text-muted-foreground">{m.notCorrectDates}</TableCell>
-                    <TableCell className="max-w-[220px] truncate text-muted-foreground" title={m.query}>
-                      {m.query}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
           ) : (
             <div className="py-12 text-center text-muted-foreground">No items in this submission.</div>
           )}
         </CardContent>
       </Card>
 
-      <Sheet open={!!selectedTicket} onOpenChange={(open) => !open && setSelectedTicket(null)}>
+      <Sheet
+        open={drawerOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedTicket(null);
+            setSelectedMember(null);
+          }
+        }}
+      >
         <SheetContent side="right" className="overflow-y-auto sm:max-w-md">
           <SheetHeader>
-            <SheetTitle>Ticket details</SheetTitle>
+            <SheetTitle>{selectedMember ? "Member – Resolve/Reject" : "Ticket details"}</SheetTitle>
           </SheetHeader>
-          {selectedTicket && (
+          {(selectedTicket || selectedMember) && (
             <div className="mt-6 space-y-4">
               <div className="grid grid-cols-2 gap-2 text-sm">
-                <div><span className="text-muted-foreground">Employee:</span> {selectedTicket.employeeName}</div>
-                <div><span className="text-muted-foreground">Card:</span> {selectedTicket.cardNumber}</div>
-                <div><span className="text-muted-foreground">Date:</span> {selectedTicket.date}</div>
-                <div><span className="text-muted-foreground">Manager:</span> {selectedTicket.createdByName ?? "—"}</div>
+                <div>
+                  <span className="text-muted-foreground">Employee:</span>{" "}
+                  {selectedTicket?.employeeName ?? selectedMember?.employeeName}
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Card:</span>{" "}
+                  {selectedTicket?.cardNumber ?? selectedMember?.cardNumber}
+                </div>
+                {selectedTicket && (
+                  <div>
+                    <span className="text-muted-foreground">Date:</span> {selectedTicket.date}
+                  </div>
+                )}
+                {selectedTicket && (
+                  <div>
+                    <span className="text-muted-foreground">Manager:</span> {selectedTicket.createdByName ?? "—"}
+                  </div>
+                )}
               </div>
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Manager query</p>
-                <p className="text-sm mt-1 p-2 rounded bg-muted">{selectedTicket.query ?? "—"}</p>
+                <p className="text-sm mt-1 p-2 rounded bg-muted">
+                  {selectedTicket?.query ?? selectedMember?.query ?? "—"}
+                </p>
               </div>
-              {selectedTicket.reraiseRemark && (
+              {selectedTicket?.reraiseRemark && (
                 <div>
                   <p className="text-sm font-medium text-muted-foreground">Re-raise remark</p>
                   <p className="text-sm mt-1 p-2 rounded bg-muted">{selectedTicket.reraiseRemark}</p>
@@ -264,7 +387,7 @@ export default function HrAttendanceQueryBatchDetailPage() {
             </div>
           )}
           <SheetFooter>
-            {canResolve && selectedTicket && (
+            {canResolve && (selectedTicket || selectedMember) && (
               <Button
                 onClick={handleResolve}
                 disabled={resolveMutation.isPending || !drawerStatus || (needsRemark && !drawerRemark.trim())}

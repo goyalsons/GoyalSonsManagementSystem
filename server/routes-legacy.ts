@@ -1029,6 +1029,28 @@ export async function registerLegacyRoutes(
     }
   });
 
+  // DELETE /api/attendance/verification-batches/:id - Permanently delete batch (manager only)
+  app.delete(
+    "/api/attendance/verification-batches/:id",
+    requireAuth,
+    requirePolicy("attendance.team.verify"),
+    async (req, res) => {
+      try {
+        const { id: batchId } = req.params;
+        const batch = await prisma.attendanceVerificationBatch.findUnique({ where: { id: batchId } });
+        if (!batch) return res.status(404).json({ message: "Batch not found" });
+        if (batch.createdByUserId !== (req as any).user?.id) {
+          return res.status(403).json({ message: "You can only delete your own batch" });
+        }
+        await prisma.attendanceVerificationBatch.delete({ where: { id: batchId } });
+        return res.json({ success: true });
+      } catch (err: any) {
+        console.error("[Verification Batches] DELETE error:", err);
+        return res.status(500).json({ message: err?.message || "Failed to delete" });
+      }
+    }
+  );
+
   // Today's attendance with present/absent status for all employees
   // Priority: 1. Local Prisma DB (real-time synced), 2. BigQuery (historical/backup)
   app.get("/api/attendance/today", requireAuth, requirePolicy("attendance.history.view"), async (req, res) => {

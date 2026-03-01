@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPatch } from "@/lib/api";
+import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
 import type {
   VerificationBatch,
   VerificationUpdate,
@@ -57,6 +57,11 @@ export async function unsubmitBatch(batchId: string) {
     `${PREFIX}/verification-batches/${batchId}/unsubmit`,
     {}
   );
+}
+
+/** Permanently delete batch (manager only). HR list will no longer show it. */
+export async function deleteBatch(batchId: string) {
+  return apiDelete<{ success: boolean }>(`${PREFIX}/verification-batches/${batchId}`);
 }
 
 /** Get verifications for batch or date range */

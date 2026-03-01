@@ -60,6 +60,7 @@ import {
   saveVerifications,
   submitBatch,
   unsubmitBatch,
+  deleteBatch,
   clearVerifications,
 } from "@/api/attendanceVerification.api";
 import type { VerificationStatus } from "@/api/attendanceVerification.types";
@@ -412,6 +413,19 @@ export default function TeamAttendancePage() {
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: (batchId: string) => deleteBatch(batchId),
+    onSuccess: () => {
+      setCheckBatch(null);
+      queryClient.invalidateQueries({ queryKey: ["team-verifications", "my-queries"] });
+      createOrLoadMutation.mutate();
+      toast({ title: "Deleted", description: "Batch removed. HR will no longer see it." });
+    },
+    onError: (e: Error) => {
+      toast({ title: "Failed to delete", description: e.message, variant: "destructive" });
+    },
+  });
+
   const doSubmit = useCallback(async () => {
     if (!checkBatch?.id || checkBatch.submittedAt) return;
     if (Object.keys(pendingSave).length > 0) await savePending();
@@ -752,7 +766,7 @@ export default function TeamAttendancePage() {
                 submittedBatchInfo={{ monthStart: monthDate, submittedAt: checkBatch.submittedAt }}
                 verifierName={verifierName}
                 onDismiss={() => void refetchMyQueries()}
-                onDelete={() => unsubmitMutation.mutate(checkBatch!.id)}
+                onDelete={() => deleteMutation.mutate(checkBatch!.id)}
                 submittedTicketsError={myQueriesError}
                 onRetry={() => void refetchMyQueries()}
                 onClear={async () => {
