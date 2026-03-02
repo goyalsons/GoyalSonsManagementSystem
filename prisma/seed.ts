@@ -146,7 +146,7 @@ async function main() {
       update: {
         description: policy.description,
         category: policy.category,
-        isActive: true, // Ensure all canonical policies are active
+        isActive: true,
       },
       create: {
         ...policy,
@@ -268,10 +268,9 @@ async function main() {
     const existingCount = await prisma.rolePolicy.count({
       where: { roleId: role.id },
     });
-    const seedPolicyCount = policyKeys?.length ?? 0;
 
-    // Preserve UI changes only for roles that have a non-empty policy set in seed (e.g. HR). For roles with 0 policies in seed (Employee, MDO, etc.), always reset to 0 so seed doesn’t leave help_ticket etc. behind.
-    if (existingCount > 0 && !isDirector && seedPolicyCount > 0) {
+    // Preserve UI changes: if the role already has policies in DB, don't overwrite (except Director which always gets all).
+    if (existingCount > 0 && !isDirector) {
       console.log(`✅ Role "${role.name}" already has ${existingCount} policies – skipping (preserve UI changes)`);
       continue;
     }
@@ -286,7 +285,6 @@ async function main() {
         }));
 
       if (rolePolicies.length > 0) {
-        // Do NOT delete Director role policies – DB trigger prevents it (immutable). Use createMany only.
         if (!isDirector) {
           await prisma.rolePolicy.deleteMany({ where: { roleId: role.id } });
         }
@@ -294,12 +292,6 @@ async function main() {
           data: rolePolicies,
           skipDuplicates: true,
         });
-      }
-    } else if (!isDirector) {
-      // Roles with no policies in seed (Employee, MDO, DME, Manager, etc.) – clear any UI-added policies so seed resets them
-      await prisma.rolePolicy.deleteMany({ where: { roleId: role.id } });
-      if (existingCount > 0) {
-        console.log(`✅ Role "${role.name}" reset to 0 policies (seed default)`);
       }
     }
 
