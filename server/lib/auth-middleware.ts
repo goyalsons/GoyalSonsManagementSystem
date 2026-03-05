@@ -11,7 +11,7 @@ declare global {
       user?: {
         id: string;
         name: string;
-        email: string;
+        email: string | null;
         orgUnitId: string | null;
         roles: { id: string; name: string }[];
         policies: string[];

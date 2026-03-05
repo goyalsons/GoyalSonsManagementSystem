@@ -269,12 +269,13 @@ export interface UsersListParams {
   page?: number;
   limit?: number;
   search?: string;
+  credentialsOnly?: boolean;
 }
 
 export interface UsersListResponse {
   users: Array<{
     id: string;
-    email: string;
+    email: string | null;
     name: string;
     status: string;
     createdAt: string;
@@ -293,6 +294,7 @@ export const usersApi = {
     if (params?.page != null) q.set("page", String(params.page));
     if (params?.limit != null) q.set("limit", String(params.limit));
     if (params?.search) q.set("search", params.search);
+    if (params?.credentialsOnly) q.set("credentialsOnly", "true");
     return apiGet<UsersListResponse>(`/users?${q.toString()}`);
   },
   getAll: () => apiGet<UsersListResponse>("/users?limit=1000").then((r) => r.users),
@@ -308,8 +310,8 @@ export const usersApi = {
     apiDelete<any>(`/users/${userId}/roles/${roleId}`),
   updateRolePermissions: (data: { userId: string; roleId: string; policyIds: string[] }) =>
     apiPost<any>("/users/update-role-permissions", data),
-  createCredentials: (data: { email: string; password: string; name?: string; roleId: string }) =>
-    apiPost<{ success: boolean; user: { id: string; name: string; email: string }; role: { id: string; name: string } }>(
+  createCredentials: (data: { email: string; password: string; name?: string; roleId: string; employeeCardNo?: string }) =>
+    apiPost<{ success: boolean; user: { id: string; name: string; email: string; employeeId?: string }; role: { id: string; name: string }; linkedEmployee?: { cardNumber: string; name: string } | null }>(
       "/users/create-credentials",
       data
     ),

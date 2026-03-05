@@ -880,15 +880,14 @@ export async function registerLegacyRoutes(
         return res.status(400).json({ message: "This employee already has a user account" });
       }
 
-      // Use a reserved non-routable domain to avoid generating real company emails
-      const email = employee.companyEmail || employee.personalEmail || `${employee.cardNumber || employee.id}@example.invalid`;
-
-      const emailExists = await prisma.user.findUnique({
-        where: { email },
-      });
-
-      if (emailExists) {
-        return res.status(400).json({ message: "An account with this email already exists" });
+      const realEmail = employee.companyEmail || employee.personalEmail || null;
+      let email: string | null = null;
+      if (realEmail) {
+        const emailExists = await prisma.user.findUnique({ where: { email: realEmail } });
+        if (emailExists) {
+          return res.status(400).json({ message: "An account with this email already exists" });
+        }
+        email = realEmail;
       }
 
       const user = await (prisma as any).user.create({
@@ -2703,23 +2702,19 @@ export async function registerLegacyRoutes(
           // Role tables removed - no need to assign roles
           const fullName = [employee.firstName, employee.lastName].filter(n => n && n !== ".").join(" ");
           
-          let email = employee.companyEmail || employee.personalEmail;
-          if (!email) {
-            email = `emp-${employee.id.slice(0, 8)}@example.invalid`;
-          }
-          
-          const existingEmailUser = await prisma.user.findUnique({
-            where: { email },
-          });
-          
-          if (existingEmailUser) {
-            email = `emp-${employee.id}@example.invalid`;
+          const realEmail = employee.companyEmail || employee.personalEmail || null;
+          let email: string | null = null;
+          if (realEmail) {
+            const existingEmailUser = await prisma.user.findUnique({ where: { email: realEmail } });
+            if (!existingEmailUser) {
+              email = realEmail;
+            }
           }
           
           user = await prisma.user.create({
             data: {
               name: fullName,
-              email: email,
+              email,
               phone: employee.phone,
               passwordHash: "otp-only-user",
               employeeId: employee.id,
@@ -3095,23 +3090,19 @@ export async function registerLegacyRoutes(
           // Role tables removed - no need to assign roles
           const fullName = [employee.firstName, employee.lastName].filter(n => n && n !== ".").join(" ");
           
-          let email = employee.companyEmail || employee.personalEmail;
-          if (!email) {
-            email = `emp-${employee.cardNumber}@example.invalid`;
+          const realEmail = employee.companyEmail || employee.personalEmail || null;
+          let email: string | null = null;
+          if (realEmail) {
+            const existingEmailUser = await prisma.user.findUnique({ where: { email: realEmail } });
+            if (!existingEmailUser) {
+              email = realEmail;
+            }
           }
-          
-          const existingEmailUser = await prisma.user.findUnique({
-            where: { email },
-          });
-          
-          if (existingEmailUser) {
-            email = `emp-${employee.id}@example.invalid`;
-          }
-          
+
           user = await prisma.user.create({
             data: {
               name: fullName,
-              email: email,
+              email,
               phone: employee.phone,
               passwordHash: "otp-only-user",
               employeeId: employee.id,
@@ -3919,17 +3910,20 @@ export async function registerLegacyRoutes(
               });
               if (employeeRecord && !employeeRecord.user) {
                 const fullName = [employeeRecord.firstName, employeeRecord.lastName].filter(Boolean).join(" ").trim() || "Employee";
-                let email = employeeRecord.companyEmail || employeeRecord.personalEmail || `emp-${employeeRecord.cardNumber}@example.invalid`;
-                const existingByEmail = await prisma.user.findUnique({ where: { email: email.trim().toLowerCase() } });
-                if (existingByEmail) {
-                  email = `emp-${employeeRecord.id}@example.invalid`;
+                const realEmail = employeeRecord.companyEmail || employeeRecord.personalEmail || null;
+                let email: string | null = null;
+                if (realEmail) {
+                  const existingByEmail = await prisma.user.findUnique({ where: { email: realEmail.trim().toLowerCase() } });
+                  if (!existingByEmail) {
+                    email = realEmail.trim().toLowerCase();
+                  }
                 }
                 const employeeRole = await prisma.role.findUnique({ where: { name: "Employee" }, select: { id: true } });
                 if (employeeRole) {
                   const user = await prisma.user.create({
                     data: {
                       name: fullName,
-                      email: email.trim().toLowerCase(),
+                      email,
                       passwordHash: hashPassword("sync-created"),
                       employeeId: employeeRecord.id,
                       orgUnitId: employeeRecord.orgUnitId,

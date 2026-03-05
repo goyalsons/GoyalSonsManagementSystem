@@ -27,7 +27,7 @@ model OrgUnit {
 model User {
   id                            String                      @id @default(uuid())
   name                          String
-  email                         String                      @unique
+  email                         String?                     @unique
   phone                         String?
   passwordHash                  String?                     // nullable for Google OAuth–only users
   status                        String                      @default("active")

@@ -161,24 +161,19 @@ export function registerOtpRoutes(app: Express): void {
         try {
           const fullName = [employee.firstName, employee.lastName].filter(n => n && n !== ".").join(" ");
           
-          let email = employee.companyEmail || employee.personalEmail;
-          if (!email) {
-            // Use a reserved non-routable domain to avoid generating real company emails
-            email = `emp-${employee.id.slice(0, 8)}@example.invalid`;
-          }
-          
-          const existingEmailUser = await prisma.user.findUnique({
-            where: { email },
-          });
-          
-          if (existingEmailUser) {
-            email = `emp-${employee.id}@example.invalid`;
+          const realEmail = employee.companyEmail || employee.personalEmail || null;
+          let email: string | null = null;
+          if (realEmail) {
+            const existingEmailUser = await prisma.user.findUnique({ where: { email: realEmail } });
+            if (!existingEmailUser) {
+              email = realEmail;
+            }
           }
           
           user = await prisma.user.create({
             data: {
               name: fullName,
-              email: email,
+              email,
               phone: employee.phone,
               passwordHash: "otp-only-user",
               employeeId: employee.id,
@@ -532,24 +527,19 @@ export function registerOtpRoutes(app: Express): void {
         try {
           const fullName = [employee.firstName, employee.lastName].filter(n => n && n !== ".").join(" ");
           
-          let email = employee.companyEmail || employee.personalEmail;
-          if (!email) {
-            // Use a reserved non-routable domain to avoid generating real company emails
-            email = `emp-${employee.cardNumber}@example.invalid`;
-          }
-          
-          const existingEmailUser = await prisma.user.findUnique({
-            where: { email },
-          });
-          
-          if (existingEmailUser) {
-            email = `emp-${employee.id}@example.invalid`;
+          const realEmail = employee.companyEmail || employee.personalEmail || null;
+          let email: string | null = null;
+          if (realEmail) {
+            const existingEmailUser = await prisma.user.findUnique({ where: { email: realEmail } });
+            if (!existingEmailUser) {
+              email = realEmail;
+            }
           }
           
           user = await prisma.user.create({
             data: {
               name: fullName,
-              email: email,
+              email,
               phone: employee.phone,
               passwordHash: "otp-only-user",
               employeeId: employee.id,

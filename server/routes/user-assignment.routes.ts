@@ -262,7 +262,7 @@ export function registerUserAssignmentRoutes(app: Express): void {
   app.post("/api/users/create-credentials", requireAuth, requirePolicy(POLICIES.CREATE_USER), async (req, res) => {
     try {
 
-      const { email, password, name, roleId } = req.body;
+      const { email, password, name, roleId, employeeCardNo } = req.body;
 
       if (!email || typeof email !== "string") {
         return res.status(400).json({ message: "Email is required" });
@@ -288,10 +288,33 @@ export function registerUserAssignmentRoutes(app: Express): void {
         return res.status(404).json({ message: "Role not found" });
       }
 
-      const existingUser = await prisma.user.findUnique({
-        where: { email: normalizedEmail },
-        select: { id: true, name: true },
-      });
+      let linkedEmployee: { id: string; orgUnitId: string | null; firstName: string; lastName: string | null } | null = null;
+      let alreadyLinkedUser: { id: string; email: string | null; name: string } | null = null;
+      if (employeeCardNo && typeof employeeCardNo === "string") {
+        linkedEmployee = await prisma.employee.findUnique({
+          where: { cardNumber: employeeCardNo.trim() },
+          select: { id: true, orgUnitId: true, firstName: true, lastName: true },
+        });
+        if (!linkedEmployee) {
+          return res.status(404).json({ message: `Employee with card number "${employeeCardNo}" not found` });
+        }
+        alreadyLinkedUser = await prisma.user.findUnique({
+          where: { employeeId: linkedEmployee.id },
+          select: { id: true, email: true, name: true },
+        });
+        if (alreadyLinkedUser && alreadyLinkedUser.email && alreadyLinkedUser.email !== normalizedEmail) {
+          return res.status(400).json({
+            message: `This employee card is already linked to user "${alreadyLinkedUser.email}"`,
+          });
+        }
+      }
+
+      const existingUser = alreadyLinkedUser
+        ? { id: alreadyLinkedUser.id, name: alreadyLinkedUser.name }
+        : await prisma.user.findUnique({
+            where: { email: normalizedEmail },
+            select: { id: true, name: true },
+          });
 
       let userId: string;
 
@@ -304,20 +327,26 @@ export function registerUserAssignmentRoutes(app: Express): void {
         await prisma.user.update({
           where: { id: existingUser.id },
           data: {
+            email: normalizedEmail,
             passwordHash: hashPassword(password),
             name: (name && String(name).trim()) || existingUser.name,
+            ...(linkedEmployee ? { employeeId: linkedEmployee.id, orgUnitId: linkedEmployee.orgUnitId } : {}),
           },
         });
         userId = existingUser.id;
         await invalidateSessionsForUser(userId);
       } else {
-        const displayName = (name && String(name).trim()) || normalizedEmail.split("@")[0] || "User";
+        const employeeName = linkedEmployee
+          ? [linkedEmployee.firstName, linkedEmployee.lastName].filter(Boolean).join(" ").trim()
+          : null;
+        const displayName = (name && String(name).trim()) || employeeName || normalizedEmail.split("@")[0] || "User";
         const user = await prisma.user.create({
           data: {
             name: displayName,
             email: normalizedEmail,
             passwordHash: hashPassword(password),
             status: "active",
+            ...(linkedEmployee ? { employeeId: linkedEmployee.id, orgUnitId: linkedEmployee.orgUnitId } : {}),
           },
         });
         userId = user.id;
@@ -326,13 +355,14 @@ export function registerUserAssignmentRoutes(app: Express): void {
 
       const user = await prisma.user.findUnique({
         where: { id: userId },
-        select: { id: true, name: true, email: true },
+        select: { id: true, name: true, email: true, employeeId: true },
       });
 
       res.json({
         success: true,
-        user: { id: user!.id, name: user!.name, email: user!.email },
+        user: { id: user!.id, name: user!.name, email: user!.email, employeeId: user!.employeeId },
         role: { id: role.id, name: role.name },
+        linkedEmployee: linkedEmployee ? { cardNumber: employeeCardNo, name: [linkedEmployee.firstName, linkedEmployee.lastName].filter(Boolean).join(" ") } : null,
       });
     } catch (error) {
       console.error("Create credentials error:", error);
@@ -367,15 +397,18 @@ export function registerUserAssignmentRoutes(app: Express): void {
       for (const emp of employeesWithoutUser) {
         try {
           const fullName = [emp.firstName, emp.lastName].filter(Boolean).join(" ").trim() || "Employee";
-          let email = emp.companyEmail || emp.personalEmail || `emp-${emp.cardNumber}@example.invalid`;
-          const existingByEmail = await prisma.user.findUnique({ where: { email: email.trim().toLowerCase() } });
-          if (existingByEmail) {
-            email = `emp-${emp.id}@example.invalid`;
+          const realEmail = emp.companyEmail || emp.personalEmail || null;
+          let email: string | null = null;
+          if (realEmail) {
+            const existingByEmail = await prisma.user.findUnique({ where: { email: realEmail.trim().toLowerCase() } });
+            if (!existingByEmail) {
+              email = realEmail.trim().toLowerCase();
+            }
           }
           const user = await prisma.user.create({
             data: {
               name: fullName,
-              email: email.trim().toLowerCase(),
+              email,
               passwordHash: hashPassword("sync-created"),
               employeeId: emp.id,
               orgUnitId: emp.orgUnitId,

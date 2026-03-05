@@ -21,17 +21,21 @@ export function registerUsersRoutes(app: Express): void {
       const page = Math.max(1, parseInt(String(req.query.page), 10) || 1);
       const limit = Math.min(MAX_PAGE_SIZE, Math.max(1, parseInt(String(req.query.limit), 10) || DEFAULT_PAGE_SIZE));
       const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
+      const credentialsOnly = req.query.credentialsOnly === "true";
       const skip = (page - 1) * limit;
 
-      const where = search
-        ? {
-            OR: [
-              { email: { contains: search, mode: "insensitive" as const } },
-              { name: { contains: search, mode: "insensitive" as const } },
-              { employee: { cardNumber: { contains: search, mode: "insensitive" } } },
-            ],
-          }
-        : {};
+      const where: any = {};
+      if (credentialsOnly) {
+        where.email = { not: null };
+        where.passwordHash = { not: null, notIn: ["otp-only-user"] };
+      }
+      if (search) {
+        where.OR = [
+          { email: { contains: search, mode: "insensitive" } },
+          { name: { contains: search, mode: "insensitive" } },
+          { employee: { cardNumber: { contains: search, mode: "insensitive" } } },
+        ];
+      }
 
       const [users, total] = await Promise.all([
         prisma.user.findMany({

@@ -455,17 +455,20 @@ async function syncApiSource(routeId: string): Promise<void> {
             });
             if (employeeRecord && !employeeRecord.user) {
               const fullName = [employeeRecord.firstName, employeeRecord.lastName].filter(Boolean).join(" ").trim() || "Employee";
-              let email = employeeRecord.companyEmail || employeeRecord.personalEmail || `emp-${employeeRecord.cardNumber}@example.invalid`;
-              const existingByEmail = await prisma.user.findUnique({ where: { email: email.trim().toLowerCase() } });
-              if (existingByEmail) {
-                email = `emp-${employeeRecord.id}@example.invalid`;
+              const realEmail = employeeRecord.companyEmail || employeeRecord.personalEmail || null;
+              let email: string | null = null;
+              if (realEmail) {
+                const existingByEmail = await prisma.user.findUnique({ where: { email: realEmail.trim().toLowerCase() } });
+                if (!existingByEmail) {
+                  email = realEmail.trim().toLowerCase();
+                }
               }
               const employeeRole = await prisma.role.findUnique({ where: { name: "Employee" }, select: { id: true } });
               if (employeeRole) {
                 const user = await prisma.user.create({
                   data: {
                     name: fullName,
-                    email: email.trim().toLowerCase(),
+                    email,
                     passwordHash: hashPassword("sync-created"),
                     employeeId: employeeRecord.id,
                     orgUnitId: employeeRecord.orgUnitId,
