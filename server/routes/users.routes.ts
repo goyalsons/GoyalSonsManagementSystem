@@ -94,8 +94,8 @@ export function registerUsersRoutes(app: Express): void {
       const v = validateUUID(id);
       if (!v.valid) return res.status(400).json({ message: v.error });
 
-      const { name, status } = req.body;
-      const data: { name?: string; status?: string } = {};
+      const { name, status, employeeCardNo } = req.body;
+      const data: { name?: string; status?: string; employeeId?: string | null; orgUnitId?: string | null } = {};
       if (name !== undefined) {
         const trimmed = typeof name === "string" ? name.trim() : "";
         if (!trimmed) return res.status(400).json({ message: "Name cannot be empty" });
@@ -106,8 +106,24 @@ export function registerUsersRoutes(app: Express): void {
           return res.status(400).json({ message: "Status must be active or disabled" });
         data.status = status;
       }
+
+      if (employeeCardNo !== undefined) {
+        if (employeeCardNo) {
+          const emp = await prisma.employee.findUnique({
+            where: { cardNumber: employeeCardNo },
+            select: { id: true, orgUnitId: true },
+          });
+          if (!emp) return res.status(400).json({ message: `Employee with card ${employeeCardNo} not found` });
+          data.employeeId = emp.id;
+          data.orgUnitId = emp.orgUnitId;
+        } else {
+          data.employeeId = null;
+          data.orgUnitId = null;
+        }
+      }
+
       if (Object.keys(data).length === 0) {
-        return res.status(400).json({ message: "Provide name and/or status to update" });
+        return res.status(400).json({ message: "Provide name, status, or employeeCardNo to update" });
       }
 
       const selfId = req.user!.id;

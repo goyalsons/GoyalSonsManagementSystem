@@ -114,6 +114,9 @@ export default function RolesAssignedPage() {
   const [editConfigPassword, setEditConfigPassword] = useState("");
   const [editConfigRoleId, setEditConfigRoleId] = useState("");
   const [showEditPassword, setShowEditPassword] = useState(false);
+  const [editConfigCardNo, setEditConfigCardNo] = useState("");
+  const [editCardSearch, setEditCardSearch] = useState("");
+  const [editCardDropdownOpen, setEditCardDropdownOpen] = useState(false);
 
   // Add Configuration Dialog State
   const [addConfigOpen, setAddConfigOpen] = useState(false);
@@ -617,6 +620,22 @@ export default function RolesAssignedPage() {
       .slice(0, 50);
   }, [allActiveEmployees, configCardSearch]);
 
+  const editCardFilteredEmployees = useMemo(() => {
+    if (!allActiveEmployees.length) return [];
+    const q = editCardSearch.toLowerCase().trim();
+    return allActiveEmployees
+      .filter((emp: Employee) => !!emp.cardNumber)
+      .filter((emp: Employee) => {
+        if (!q) return true;
+        const fullName = `${emp.firstName} ${emp.lastName || ""}`.toLowerCase();
+        return (
+          emp.cardNumber!.toLowerCase().includes(q) ||
+          fullName.includes(q)
+        );
+      })
+      .slice(0, 50);
+  }, [allActiveEmployees, editCardSearch]);
+
   const allNewRolePolicyIds = filteredNewRolePolicies.map((p: Policy) => p.id);
   const allNewRolePoliciesSelected = allNewRolePolicyIds.length > 0 && allNewRolePolicyIds.every((id) => newRolePolicies.has(id));
 
@@ -757,9 +776,12 @@ export default function RolesAssignedPage() {
 
   // Edit configuration user mutation
   const editConfigMutation = useMutation({
-    mutationFn: async ({ userId, name, password, roleId }: { userId: string; name?: string; password?: string; roleId?: string }) => {
+    mutationFn: async ({ userId, name, password, roleId, employeeCardNo }: { userId: string; name?: string; password?: string; roleId?: string; employeeCardNo?: string }) => {
       const promises: Promise<any>[] = [];
-      if (name) promises.push(usersApi.update(userId, { name }));
+      const updateData: any = {};
+      if (name) updateData.name = name;
+      if (employeeCardNo !== undefined) updateData.employeeCardNo = employeeCardNo;
+      if (Object.keys(updateData).length > 0) promises.push(usersApi.update(userId, updateData));
       if (password) promises.push(usersApi.resetPassword(userId, password));
       if (roleId) promises.push(usersApi.updateRole(userId, roleId));
       return Promise.all(promises);
@@ -780,18 +802,21 @@ export default function RolesAssignedPage() {
     setEditConfigEmail(user.email || "");
     setEditConfigPassword("");
     setEditConfigRoleId(user.role?.id || "");
+    setEditConfigCardNo(user.cardNumber || "");
+    setEditCardSearch("");
     setShowEditPassword(false);
     setEditConfigOpen(true);
   };
 
   const handleEditConfigSubmit = () => {
     if (!editConfigUserId) return;
-    const updates: any = {};
-    if (editConfigName) updates.name = editConfigName;
-    if (editConfigPassword) updates.password = editConfigPassword;
-    if (editConfigRoleId) updates.roleId = editConfigRoleId;
-    updates.userId = editConfigUserId;
-    editConfigMutation.mutate(updates);
+    editConfigMutation.mutate({
+      userId: editConfigUserId,
+      name: editConfigName || undefined,
+      password: editConfigPassword || undefined,
+      roleId: editConfigRoleId || undefined,
+      employeeCardNo: editConfigCardNo,
+    });
   };
 
   // Backfill: Create User + Employee role for employees without a linked user
@@ -2009,6 +2034,78 @@ export default function RolesAssignedPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            <div>
+              <Label>Employee Card No</Label>
+              <Popover open={editCardDropdownOpen} onOpenChange={setEditCardDropdownOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-full justify-between font-normal mt-1">
+                    {editConfigCardNo ? (
+                      <span className="truncate">
+                        {editConfigCardNo}
+                        {(() => {
+                          const emp = allActiveEmployees.find((e: Employee) => e.cardNumber === editConfigCardNo);
+                          return emp ? ` — ${emp.firstName} ${emp.lastName || ""}` : "";
+                        })()}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">Search & select card no</span>
+                    )}
+                    <CreditCard className="h-4 w-4 opacity-50 shrink-0 ml-2" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[350px] p-0" align="start">
+                  <Command shouldFilter={false}>
+                    <CommandInput
+                      placeholder="Search by card no or name..."
+                      value={editCardSearch}
+                      onValueChange={setEditCardSearch}
+                    />
+                    <CommandList>
+                      <CommandEmpty>No employees found.</CommandEmpty>
+                      <CommandGroup>
+                        {editConfigCardNo && (
+                          <CommandItem
+                            onSelect={() => {
+                              setEditConfigCardNo("");
+                              setEditCardSearch("");
+                              setEditCardDropdownOpen(false);
+                            }}
+                          >
+                            <X className="mr-2 h-4 w-4 text-muted-foreground" />
+                            <span className="text-muted-foreground">Clear selection</span>
+                          </CommandItem>
+                        )}
+                        {editCardFilteredEmployees.map((emp: Employee) => (
+                          <CommandItem
+                            key={emp.id}
+                            onSelect={() => {
+                              setEditConfigCardNo(emp.cardNumber!);
+                              if (!editConfigName.trim()) {
+                                setEditConfigName(`${emp.firstName} ${emp.lastName || ""}`.trim());
+                              }
+                              setEditCardSearch("");
+                              setEditCardDropdownOpen(false);
+                            }}
+                          >
+                            <CreditCard className="mr-2 h-4 w-4 text-muted-foreground shrink-0" />
+                            <div className="flex flex-col min-w-0">
+                              <span className="font-medium truncate">{emp.cardNumber}</span>
+                              <span className="text-xs text-muted-foreground truncate">
+                                {emp.firstName} {emp.lastName || ""}
+                                {emp.department ? ` · ${emp.department.name}` : ""}
+                              </span>
+                            </div>
+                            {editConfigCardNo === emp.cardNumber && (
+                              <CheckSquare className="ml-auto h-4 w-4 text-primary shrink-0" />
+                            )}
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
             <div>
               <Label>Email (ID)</Label>
               <Input value={editConfigEmail} disabled className="mt-1 bg-muted" />
