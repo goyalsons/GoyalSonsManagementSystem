@@ -238,8 +238,8 @@ export function CheckViewCard(props: CheckViewCardProps) {
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* Left: member list */}
-          <div className="lg:col-span-1 space-y-1 max-h-[min(70vh,500px)] overflow-y-auto rounded-lg border border-border p-2">
+          {/* Left: member list — compact height on mobile/tablet so attendance shows right below */}
+          <div className="lg:col-span-1 space-y-1 max-h-[min(40vh,260px)] lg:max-h-[min(70vh,500px)] overflow-y-auto rounded-lg border border-border p-2">
             {teamMembers.map((member) => {
               const fullName = `${member.firstName} ${member.lastName || ""}`.trim() || "—";
               const expanded = expandedMemberIds.has(member.id);
