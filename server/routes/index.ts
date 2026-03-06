@@ -2,6 +2,8 @@ import type { Express } from "express";
 import type { Server } from "http";
 import passport from "passport";
 import { loadUserFromSession } from "../lib/auth-middleware";
+import { requireAuth, requirePolicy } from "../lib/auth-middleware";
+import { prisma } from "../lib/prisma";
 import { registerSalesRoutes } from "./sales.routes";
 import { registerSalesStaffRoutes } from "./sales-staff.routes";
 import { registerLookupRoutes } from "./lookup.routes";
@@ -22,6 +24,24 @@ export async function registerRoutes(
   app.use(passport.initialize());
   
   app.use(loadUserFromSession);
+
+  const hrDeleteBatch = async (req: any, res: any) => {
+    try {
+      const batchId = req.params.batchId;
+      const batch = await prisma.attendanceVerificationBatch.findUnique({ where: { id: batchId } });
+      if (!batch) return res.status(404).json({ message: "Batch not found" });
+      await prisma.attendanceVerificationBatch.delete({ where: { id: batchId } });
+      return res.json({ success: true });
+    } catch (err: any) {
+      console.error("[HR Query Batch] DELETE error:", err);
+      return res.status(500).json({ message: err?.message || "Failed to delete" });
+    }
+  };
+
+  // DELETE /api/attendance/hr/queries/batch/:batchId - HR delete submission
+  app.delete("/api/attendance/hr/queries/batch/:batchId", requireAuth, requirePolicy("attendance.hr.resolve"), hrDeleteBatch);
+  // POST fallback (some proxies don't forward DELETE)
+  app.post("/api/attendance/hr/queries/batch/:batchId/delete", requireAuth, requirePolicy("attendance.hr.resolve"), hrDeleteBatch);
   
   // Register authentication and OTP routes
   registerAuthRoutes(app);

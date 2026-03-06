@@ -109,9 +109,9 @@ export async function getHrQueryBatch(batchId: string) {
   return apiGet<{ batch: HrQueryBatch }>(`${PREFIX}/hr/queries/batch/${batchId}`);
 }
 
-/** HR: permanently delete a submission batch */
+/** HR: permanently delete a submission batch (POST used so proxies always forward it) */
 export async function deleteHrQueryBatch(batchId: string) {
-  return apiDelete<{ success: boolean }>(`${PREFIX}/hr/queries/batch/${batchId}`);
+  return apiPost<{ success: boolean }>(`${PREFIX}/hr/queries/batch/${batchId}/delete`, {});
 }
 
 /** HR: list batches (per-submission cards) with optional filters */
