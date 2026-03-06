@@ -648,6 +648,25 @@ export function registerAttendanceVerificationRoutes(app: Express) {
     }
   );
 
+  // DELETE /api/attendance/hr/queries/batch/:batchId - HR: permanently delete a submission batch
+  app.delete(
+    "/api/attendance/hr/queries/batch/:batchId",
+    requireAuth,
+    requirePolicy("attendance.hr.resolve"),
+    async (req, res) => {
+      try {
+        const { batchId } = req.params;
+        const batch = await prisma.attendanceVerificationBatch.findUnique({ where: { id: batchId } });
+        if (!batch) return res.status(404).json({ message: "Batch not found" });
+        await prisma.attendanceVerificationBatch.delete({ where: { id: batchId } });
+        return res.json({ success: true });
+      } catch (err: any) {
+        console.error("[HR Query Batch] DELETE error:", err);
+        return res.status(500).json({ message: err?.message || "Failed to delete" });
+      }
+    }
+  );
+
   // GET /api/attendance/hr/queries - HR: batches with manager info + nested tickets (per-submission cards)
   app.get(
     "/api/attendance/hr/queries",

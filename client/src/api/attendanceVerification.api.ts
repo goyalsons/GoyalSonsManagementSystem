@@ -109,6 +109,11 @@ export async function getHrQueryBatch(batchId: string) {
   return apiGet<{ batch: HrQueryBatch }>(`${PREFIX}/hr/queries/batch/${batchId}`);
 }
 
+/** HR: permanently delete a submission batch */
+export async function deleteHrQueryBatch(batchId: string) {
+  return apiDelete<{ success: boolean }>(`${PREFIX}/hr/queries/batch/${batchId}`);
+}
+
 /** HR: list batches (per-submission cards) with optional filters */
 export async function getHrQueries(params?: {
   month?: string;

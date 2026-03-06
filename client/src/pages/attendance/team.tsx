@@ -44,7 +44,6 @@ import {
   RefreshCw,
   Search,
   List,
-  CheckCircle2,
   XCircle,
   Send,
   Unlock,
@@ -522,25 +521,6 @@ export default function TeamAttendancePage() {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   };
 
-  const handleAllCorrect = useCallback(() => {
-    if (checkBatch?.submittedAt) return;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    let count = 0;
-    teamMembers.forEach((member) => {
-      const records = memberAttendanceMap.get(member.id)?.records ?? [];
-      records.forEach((r) => {
-        const dateStr = toDateKeyTeam(r.dt);
-        const d = new Date(dateStr);
-        if (!isNaN(d.getTime()) && d <= today) {
-          setStatus(member.id, dateStr, "CORRECT");
-          count++;
-        }
-      });
-    });
-    toast({ title: "All correct", description: `${count} dates marked as correct for all members.` });
-  }, [teamMembers, memberAttendanceMap, setStatus, checkBatch?.submittedAt, toast]);
-
   const isCheckLocked = !!checkBatch?.submittedAt;
   const isCheckLoading = createOrLoadMutation.isPending || attendanceQueries.some((q) => q.isLoading);
 
@@ -714,16 +694,6 @@ export default function TeamAttendancePage() {
               />
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handleAllCorrect}
-                    disabled={teamMembers.length === 0 || isCheckLocked}
-                    className="gap-2 border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30"
-                  >
-                    <CheckCircle2 className="h-4 w-4" />
-                    All correct
-                  </Button>
                   <TooltipProvider>
                     <Tooltip>
                       <TooltipTrigger asChild>

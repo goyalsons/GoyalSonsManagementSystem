@@ -84,14 +84,15 @@ export default function HrAttendanceQueryBatchDetailPage() {
         await resolveHrQuery(ticketId, hrStatus, hrRemark);
       }
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["hr-query-batch", batchId] });
       queryClient.invalidateQueries({ queryKey: ["hr-queries"] });
       setSelectedTicket(null);
       setSelectedMember(null);
       setDrawerStatus("");
       setDrawerRemark("");
-      toast({ title: "Updated", description: "Status and remark saved." });
+      const isClear = variables.hrStatus === "RESOLVED" && (variables.hrRemark === "Cleared" || !variables.hrRemark.trim());
+      toast({ title: isClear ? "Cleared" : "Updated", description: isClear ? "Query cleared." : "Status and remark saved." });
     },
     onError: (e: Error) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
   });
@@ -109,12 +110,22 @@ export default function HrAttendanceQueryBatchDetailPage() {
   const handleOpenMemberDrawer = (
     member: { employeeId: string; employeeName: string; cardNumber: string; query: string },
     ticketIds: string[],
-    initialStatus: HrStatus
+    initialStatus: HrStatus | ""
   ) => {
     setSelectedTicket(null);
     setSelectedMember({ ...member, ticketIds });
     setDrawerStatus(initialStatus);
     setDrawerRemark("");
+  };
+
+  /** One-click clear: mark as RESOLVED; backend requires a remark so we send a default */
+  const handleClear = (ticketIds: string[]) => {
+    if (ticketIds.length === 0) return;
+    resolveMutation.mutate({
+      ticketIds,
+      hrStatus: "RESOLVED",
+      hrRemark: "Cleared",
+    });
   };
 
   const handleResolve = () => {
@@ -192,62 +203,33 @@ export default function HrAttendanceQueryBatchDetailPage() {
               <TableBody>
                 {batch.members!.map((m) => {
                   const hasNotCorrect = m.notCorrectDates && m.notCorrectDates !== "—";
-                  const ticketIds =
-                    hasNotCorrect && batch.tickets
-                      ? batch.tickets.filter((t) => t.employeeId === m.employeeId).map((t) => t.id)
-                      : [];
+                  const memberTickets = batch.tickets?.filter((t) => t.employeeId === m.employeeId) ?? [];
+                  const ticketIds = hasNotCorrect ? memberTickets.map((t) => t.id) : [];
+                  const allResolved = ticketIds.length > 0 && memberTickets.every((t) => t.hrStatus === "RESOLVED");
                   return (
                     <TableRow key={m.employeeId}>
                       <TableCell className="font-mono text-sm">{m.cardNumber}</TableCell>
                       <TableCell className="font-medium">{m.employeeName}</TableCell>
                       <TableCell className="text-muted-foreground">{m.correctDates}</TableCell>
                       <TableCell className="text-muted-foreground">{m.notCorrectDates}</TableCell>
-                      <TableCell className="max-w-[220px] truncate text-muted-foreground" title={m.query}>
-                        {m.query}
+                      <TableCell className="max-w-[220px] truncate text-muted-foreground" title={allResolved ? "Cleared" : m.query}>
+                        {allResolved ? <span className="text-emerald-600 font-medium">Cleared</span> : m.query}
                       </TableCell>
                       {canResolve && (
                         <TableCell>
                           {hasNotCorrect && ticketIds.length > 0 ? (
-                            <div className="flex gap-1">
+                            allResolved ? (
+                              <span className="text-emerald-600 font-medium text-sm">Cleared</span>
+                            ) : (
                               <Button
                                 size="sm"
                                 variant="outline"
-                                className="text-emerald-600 border-emerald-200 hover:bg-emerald-50"
-                                onClick={() =>
-                                  handleOpenMemberDrawer(
-                                    {
-                                      employeeId: m.employeeId,
-                                      employeeName: m.employeeName,
-                                      cardNumber: m.cardNumber,
-                                      query: m.query ?? "",
-                                    },
-                                    ticketIds,
-                                    "RESOLVED"
-                                  )
-                                }
+                                disabled={resolveMutation.isPending}
+                                onClick={() => handleClear(ticketIds)}
                               >
-                                Resolve
+                                {resolveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Clear"}
                               </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="text-rose-600 border-rose-200 hover:bg-rose-50"
-                                onClick={() =>
-                                  handleOpenMemberDrawer(
-                                    {
-                                      employeeId: m.employeeId,
-                                      employeeName: m.employeeName,
-                                      cardNumber: m.cardNumber,
-                                      query: m.query ?? "",
-                                    },
-                                    ticketIds,
-                                    "REJECTED"
-                                  )
-                                }
-                              >
-                                Reject
-                              </Button>
-                            </div>
+                            )
                           ) : (
                             <span className="text-muted-foreground">—</span>
                           )}
@@ -292,9 +274,10 @@ export default function HrAttendanceQueryBatchDetailPage() {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => handleOpenDrawer(ticket, batch.managerName)}
+                        disabled={resolveMutation.isPending}
+                        onClick={() => handleClear([ticket.id])}
                       >
-                        Resolve
+                        {resolveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Clear"}
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -318,7 +301,7 @@ export default function HrAttendanceQueryBatchDetailPage() {
       >
         <SheetContent side="right" className="overflow-y-auto sm:max-w-md">
           <SheetHeader>
-            <SheetTitle>{selectedMember ? "Member – Resolve/Reject" : "Ticket details"}</SheetTitle>
+            <SheetTitle>{selectedMember ? "Member – Clear" : "Ticket – Clear"}</SheetTitle>
           </SheetHeader>
           {(selectedTicket || selectedMember) && (
             <div className="mt-6 space-y-4">
@@ -392,7 +375,7 @@ export default function HrAttendanceQueryBatchDetailPage() {
                 onClick={handleResolve}
                 disabled={resolveMutation.isPending || !drawerStatus || (needsRemark && !drawerRemark.trim())}
               >
-                {resolveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
+                {resolveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Clear"}
               </Button>
             )}
           </SheetFooter>

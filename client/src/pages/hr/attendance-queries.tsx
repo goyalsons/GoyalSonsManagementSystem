@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,9 +10,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Link } from "wouter";
-import { ClipboardList, Loader2, ChevronRight } from "lucide-react";
-import { getHrQueries } from "@/api/attendanceVerification.api";
+import { ClipboardList, Loader2, ChevronRight, Trash2 } from "lucide-react";
+import { useAuth } from "@/lib/auth-context";
+import { useToast } from "@/hooks/use-toast";
+import { getHrQueries, deleteHrQueryBatch } from "@/api/attendanceVerification.api";
 import type { HrQueryBatch, HrStatus } from "@/api/attendanceVerification.types";
 
 const HR_STATUSES: HrStatus[] = ["IN_PROGRESS", "NEED_INFO", "RESOLVED", "REJECTED"];
@@ -22,9 +34,26 @@ const MONTHS = [
 ];
 
 export default function HrAttendanceQueriesPage() {
+  const { hasPolicy } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [monthFilter, setMonthFilter] = useState<string>("");
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [searchFilter, setSearchFilter] = useState("");
+  const [deleteBatchId, setDeleteBatchId] = useState<string | null>(null);
+
+  const canDelete = hasPolicy("attendance.hr.resolve");
+  const deleteMutation = useMutation({
+    mutationFn: (batchId: string) => deleteHrQueryBatch(batchId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["hr-queries"] });
+      setDeleteBatchId(null);
+      toast({ title: "Deleted", description: "Submission has been permanently deleted." });
+    },
+    onError: (e: Error) => {
+      toast({ title: "Failed to delete", description: e.message, variant: "destructive" });
+    },
+  });
 
   const monthParam = useMemo(() => {
     if (!monthFilter) return undefined;
@@ -166,17 +195,34 @@ export default function HrAttendanceQueriesPage() {
                       {displayDate} · {batch.tickets.length} item{batch.tickets.length !== 1 ? "s" : ""}
                     </div>
                   </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="mt-auto gap-1.5 w-full"
-                    asChild
-                  >
-                    <Link href={`/hr/attendance-queries/${batch.id}`}>
-                      <ChevronRight className="h-4 w-4" />
-                      Open
-                    </Link>
-                  </Button>
+                  <div className="mt-auto flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="flex-1 gap-1.5"
+                      asChild
+                    >
+                      <Link href={`/hr/attendance-queries/${batch.id}`}>
+                        <ChevronRight className="h-4 w-4" />
+                        Open
+                      </Link>
+                    </Button>
+                    {canDelete && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-destructive border-destructive/50 hover:bg-destructive/10"
+                        disabled={deleteMutation.isPending}
+                        onClick={() => setDeleteBatchId(batch.id)}
+                      >
+                        {deleteMutation.isPending && deleteBatchId === batch.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-4 w-4" />
+                        )}
+                      </Button>
+                    )}
+                  </div>
                 </CardHeader>
               </Card>
             );
@@ -184,6 +230,30 @@ export default function HrAttendanceQueriesPage() {
         </div>
       )}
 
+      <AlertDialog open={!!deleteBatchId} onOpenChange={(open) => { if (!open) setDeleteBatchId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this submission?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete this attendance query submission. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (deleteBatchId) {
+                  deleteMutation.mutate(deleteBatchId);
+                  setDeleteBatchId(null);
+                }
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
