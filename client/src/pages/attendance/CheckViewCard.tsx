@@ -123,6 +123,13 @@ export function CheckViewCard(props: CheckViewCardProps) {
     toggleSelectMember(memberId);
     if (!currentlySelected) {
       toggleExpand(memberId);
+      // On mobile / tablet, automatically scroll attendance panel into view
+      if (typeof window !== "undefined" && window.innerWidth < 1024) {
+        const panel = document.getElementById("team-attendance-panel");
+        if (panel) {
+          panel.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      }
     }
   };
 
@@ -285,7 +292,10 @@ export function CheckViewCard(props: CheckViewCardProps) {
           </div>
 
           {/* Right: attendance dates for selected member */}
-          <div className="lg:col-span-2 min-h-[200px] rounded-lg border border-border p-3 bg-muted/20">
+          <div
+            className="lg:col-span-2 min-h-[200px] rounded-lg border border-border p-3 bg-muted/20"
+            id="team-attendance-panel"
+          >
             {!viewMemberId ? (
               <div className="flex flex-col items-center justify-center py-12 text-muted-foreground text-sm gap-2">
                 <User className="h-10 w-10 opacity-50" />
