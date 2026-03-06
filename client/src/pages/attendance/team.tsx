@@ -886,30 +886,42 @@ export default function TeamAttendancePage() {
                     disabled={searching}
                     className="w-full"
                   />
-                  {membersListOpen && teamMembers.length > 0 && (
-                    <div
-                      className="absolute top-full left-0 right-0 mt-1 z-50 rounded-md border bg-popover text-popover-foreground shadow-md max-h-[min(20rem,70vh)] overflow-y-auto"
-                      onMouseDown={(e) => e.preventDefault()}
-                    >
-                      <div className="p-2 text-xs text-muted-foreground border-b">Your team members</div>
-                      {teamMembers.map((member) => (
-                        <button
-                          key={member.id}
-                          type="button"
-                          className="w-full px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground rounded-sm flex items-center justify-between"
-                          onMouseDown={() => {
-                            setSelectedMember(member.cardNumber || member.id);
-                            setSearchInput("");
-                            setSearchMessage(null);
-                            setMembersListOpen(false);
-                          }}
-                        >
-                          <span>{member.firstName} {member.lastName || ""}</span>
-                          <span className="text-muted-foreground font-mono text-xs">{member.cardNumber || "—"}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                  {membersListOpen && teamMembers.length > 0 && (() => {
+                    const q = searchInput.toLowerCase().trim();
+                    const filtered = q
+                      ? teamMembers.filter((m) => {
+                          const fullName = `${m.firstName} ${m.lastName || ""}`.toLowerCase();
+                          return fullName.includes(q) || (m.cardNumber || "").toLowerCase().includes(q);
+                        })
+                      : teamMembers;
+                    if (filtered.length === 0) return null;
+                    return (
+                      <div
+                        className="absolute top-full left-0 right-0 mt-1 z-50 rounded-md border bg-popover text-popover-foreground shadow-md max-h-[min(20rem,70vh)] overflow-y-auto"
+                        onMouseDown={(e) => e.preventDefault()}
+                      >
+                        <div className="p-2 text-xs text-muted-foreground border-b">
+                          {q ? `${filtered.length} match${filtered.length !== 1 ? "es" : ""}` : "Your team members"}
+                        </div>
+                        {filtered.map((member) => (
+                          <button
+                            key={member.id}
+                            type="button"
+                            className="w-full px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground rounded-sm flex items-center justify-between"
+                            onMouseDown={() => {
+                              setSelectedMember(member.cardNumber || member.id);
+                              setSearchInput("");
+                              setSearchMessage(null);
+                              setMembersListOpen(false);
+                            }}
+                          >
+                            <span>{member.firstName} {member.lastName || ""}</span>
+                            <span className="text-muted-foreground font-mono text-xs">{member.cardNumber || "—"}</span>
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  })()}
                 </div>
                 <Button type="button" onClick={handleSearch} disabled={searching || !searchInput.trim()}>
                   {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
