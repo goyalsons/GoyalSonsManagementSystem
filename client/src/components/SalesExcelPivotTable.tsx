@@ -228,6 +228,7 @@ export default function SalesExcelPivotTable({
   const [selectedSmno, setSelectedSmno] = useState<number | "all">(
     defaultSmno !== null ? defaultSmno : "all"
   );
+  const [salesmanSearch, setSalesmanSearch] = useState("");
 
   // Update selectedSmno when defaultSmno changes (for employee mode)
   useEffect(() => {
@@ -320,7 +321,7 @@ export default function SalesExcelPivotTable({
         <div className="flex flex-wrap items-center gap-3">
           {/* Salesman Filter - Only for MDO */}
           {effectiveShowSalesmanFilter ? (
-            <DropdownMenu>
+            <DropdownMenu onOpenChange={(open) => { if (!open) setSalesmanSearch(""); }}>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" className="flex items-center gap-2 min-w-[200px] justify-between">
                   <div className="flex items-center gap-2">
@@ -335,41 +336,71 @@ export default function SalesExcelPivotTable({
                   <ChevronDown className="h-4 w-4 text-slate-400 flex-shrink-0" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="max-h-[300px] overflow-y-auto w-[280px]">
-                <DropdownMenuItem
-                  onClick={() => setSelectedSmno("all")}
-                  className={selectedSmno === "all" ? "bg-indigo-50 text-indigo-700" : ""}
-                >
-                  <div className="flex items-center gap-2 w-full">
-                    <Badge variant="outline" className="font-mono text-xs px-1.5">
-                      ALL
-                    </Badge>
-                    <span className="truncate flex-1">{allowedSmnos != null ? "All (Team)" : "All Salesmen"}</span>
-                    <Badge variant="secondary" className="text-xs">
-                      {data.length} records
-                    </Badge>
+              <DropdownMenuContent align="start" className="w-[300px] p-0">
+                <div className="p-2 border-b sticky top-0 bg-popover z-10">
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                    <input
+                      className="w-full rounded-md border border-input bg-background px-8 py-1.5 text-sm outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
+                      placeholder="Search by name or card no..."
+                      value={salesmanSearch}
+                      onChange={(e) => setSalesmanSearch(e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => e.stopPropagation()}
+                    />
                   </div>
-                </DropdownMenuItem>
-                {availableSalesmen.map((salesman) => {
-                  const count = data.filter((d) => d.smno === salesman.smno).length;
-                  return (
+                </div>
+                <div className="max-h-[260px] overflow-y-auto">
+                  {!salesmanSearch.trim() && (
                     <DropdownMenuItem
-                      key={salesman.smno}
-                      onClick={() => setSelectedSmno(salesman.smno)}
-                      className={selectedSmno === salesman.smno ? "bg-indigo-50 text-indigo-700" : ""}
+                      onClick={() => setSelectedSmno("all")}
+                      className={selectedSmno === "all" ? "bg-indigo-50 text-indigo-700" : ""}
                     >
                       <div className="flex items-center gap-2 w-full">
                         <Badge variant="outline" className="font-mono text-xs px-1.5">
-                          {salesman.smno}
+                          ALL
                         </Badge>
-                        <span className="truncate flex-1">{salesman.sm}</span>
+                        <span className="truncate flex-1">{allowedSmnos != null ? "All (Team)" : "All Salesmen"}</span>
                         <Badge variant="secondary" className="text-xs">
-                          {count}
+                          {data.length} records
                         </Badge>
                       </div>
                     </DropdownMenuItem>
-                  );
-                })}
+                  )}
+                  {(() => {
+                    const q = salesmanSearch.toLowerCase().trim();
+                    const filtered = q
+                      ? availableSalesmen.filter((s) => s.sm.toLowerCase().includes(q) || String(s.smno).includes(q))
+                      : availableSalesmen;
+                    if (filtered.length === 0) {
+                      return (
+                        <div className="py-4 text-center text-sm text-muted-foreground">
+                          No salesman found
+                        </div>
+                      );
+                    }
+                    return filtered.map((salesman) => {
+                      const count = data.filter((d) => d.smno === salesman.smno).length;
+                      return (
+                        <DropdownMenuItem
+                          key={salesman.smno}
+                          onClick={() => setSelectedSmno(salesman.smno)}
+                          className={selectedSmno === salesman.smno ? "bg-indigo-50 text-indigo-700" : ""}
+                        >
+                          <div className="flex items-center gap-2 w-full">
+                            <Badge variant="outline" className="font-mono text-xs px-1.5">
+                              {salesman.smno}
+                            </Badge>
+                            <span className="truncate flex-1">{salesman.sm}</span>
+                            <Badge variant="secondary" className="text-xs">
+                              {count}
+                            </Badge>
+                          </div>
+                        </DropdownMenuItem>
+                      );
+                    });
+                  })()}
+                </div>
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
