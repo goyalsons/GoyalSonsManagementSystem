@@ -182,6 +182,33 @@ function getStatusStyle(status: string): StatusStyle {
   return { bgColor: "var(--muted)", dots: [] };
 }
 
+function isHalfDayStatus(status: string): boolean {
+  const s = (status || "").toUpperCase().trim();
+  return s === "HALFDAY" || s === "HALF DAY" || s.includes("HALF");
+}
+
+function isDoubleAbsentStatus(status: string): boolean {
+  const s = (status || "").toUpperCase().trim();
+  // BigQuery sometimes returns short forms like "DOUBLE A"
+  return s === "DOUBLE ABSENT" || s === "DOUBLE A" || (s.includes("DOUBLE") && s.includes("ABSENT"));
+}
+
+function isVerificationPendingForRecord(record: AttendanceRecord): boolean {
+  const halfOrDoubleAbsent = isHalfDayStatus(record.STATUS) || isDoubleAbsentStatus(record.STATUS);
+  if (!halfOrDoubleAbsent) return false;
+
+  const crrStatus = (record.crr_status || "").toUpperCase().trim();
+  const crrApproval = (record.crr_approval || "").toUpperCase().trim();
+  const remarks = (record.status_remarks || "").toUpperCase().trim();
+  const joined = `${crrStatus} ${crrApproval} ${remarks}`.trim();
+
+  // If any field explicitly contains "PEND" treat as pending.
+  if (joined.includes("PEND")) return true;
+
+  // If correction/approval fields are empty, treat as pending (typical for unverified rows).
+  return !crrStatus && !crrApproval;
+}
+
 /**
  * Calculate summary counts from BigQuery records based on STATUS field
  */
@@ -787,6 +814,11 @@ export default function AttendanceHistoryPage() {
                           </Badge>
                         );
                       })()}
+                      {isVerificationPendingForRecord(selectedRecord) && (
+                        <div className="text-[11px] text-muted-foreground font-medium mt-1">
+                          Verification Pending
+                        </div>
+                      )}
                     </div>
                   </div>
                   {selectedRecord.CORRECTION_REASON && (
