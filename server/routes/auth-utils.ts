@@ -3,17 +3,11 @@ import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import { prisma } from "../lib/prisma";
 import { hashPassword } from "../lib/auth-middleware";
 
-// MDO email whitelist
-const getAllowedGoogleEmails = (): string[] => {
-  if (process.env.ALLOWED_GOOGLE_EMAILS) {
-    return process.env.ALLOWED_GOOGLE_EMAILS.split(",")
-      .map(email => email.trim().toLowerCase())
-      .filter(email => email.length > 0);
-  }
-  return [];
-};
-
-const MDO_EMAIL_WHITELIST = getAllowedGoogleEmails();
+function normalizeEmail(email: unknown): string | null {
+  if (typeof email !== "string") return null;
+  const norm = email.trim().toLowerCase();
+  return norm ? norm : null;
+}
 
 // Helper functions for OAuth configuration
 export const getBaseUrl = () => {
@@ -86,53 +80,32 @@ export function initializeGoogleOAuth(): boolean {
       callbackURL: callbackURL,
     }, async (accessToken: string, refreshToken: string, profile: any, done: any) => {
       try {
-        const email = profile.emails?.[0]?.value?.toLowerCase();
+        const email = normalizeEmail(profile.emails?.[0]?.value);
         if (!email) {
           console.error("[Google OAuth] ❌ No email found in Google profile");
           return done(null, false, { message: "No email found in Google profile" });
         }
         
         console.log(`[Google OAuth] 🔍 Authenticating user: ${email}`);
-        
-        const isAllowedEmail = MDO_EMAIL_WHITELIST.includes(email);
-        if (!isAllowedEmail) {
-          console.warn(`[Google OAuth] ❌ Access denied for email: ${email}. Email not in whitelist.`);
-          console.warn(`[Google OAuth]    Allowed emails: ${MDO_EMAIL_WHITELIST.join(", ")}`);
-          return done(null, false, { 
-            message: "Access denied. Your email is not authorized to sign in with Google." 
-          });
-        }
-        
-        let user = await prisma.user.findUnique({
+
+        const user = await prisma.user.findUnique({
           where: { email },
+          select: { id: true, email: true, name: true, status: true },
         });
-        
+
         if (!user) {
-          const passwordHash = hashPassword(`google_oauth_${Date.now()}_${Math.random()}`);
-          user = await prisma.user.create({
-            data: {
-              email,
-              name: profile.displayName || profile.name?.givenName || email.split("@")[0],
-              passwordHash,
-              status: "active",
-            },
+          console.warn(`[Google OAuth] ❌ No user exists for email: ${email}`);
+          return done(null, false, {
+            message: "No account found for this email. Please ask admin to create configuration first.",
           });
-          const defaultRole = await prisma.role.findUnique({
-            where: { name: "MDO" },
-            select: { id: true },
-          });
-          if (defaultRole) {
-            await prisma.userRole.upsert({
-              where: { userId_roleId: { userId: user.id, roleId: defaultRole.id } },
-              update: {},
-              create: { userId: user.id, roleId: defaultRole.id },
-            });
-          }
-          console.log(`[Google OAuth] ✅ Created new MDO user via Google OAuth: ${email}`);
-        } else {
-          console.log(`[Google OAuth] ✅ Found existing user: ${email}`);
         }
-        
+
+        if (user.status !== "active") {
+          console.warn(`[Google OAuth] ❌ Inactive account blocked for email: ${email}`);
+          return done(null, false, { message: "Account is inactive" });
+        }
+
+        console.log(`[Google OAuth] ✅ Matched existing user by email: ${email}`);
         return done(null, user);
       } catch (error) {
         console.error("[Google OAuth] ❌ Strategy callback error:", error);

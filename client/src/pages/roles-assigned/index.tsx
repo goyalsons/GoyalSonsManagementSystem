@@ -743,8 +743,12 @@ export default function RolesAssignedPage() {
 
   // Configuration list: fetch credential-based users
   const { data: configUsersData, isLoading: configUsersLoading } = useQuery({
-    queryKey: ["users", "credentials", configListSearch],
-    queryFn: () => usersApi.getList({ limit: 100, credentialsOnly: true, search: configListSearch || undefined }),
+    // Do NOT use `credentialsOnly: true` here.
+    // Some users may be linked via employeeId but have `email/passwordHash` null.
+    // We still need them to appear when searching by `cardNumber`, otherwise conflicts
+    // like "card already linked" cannot be resolved from the UI.
+    queryKey: ["users", "all", configListSearch],
+    queryFn: () => usersApi.getList({ limit: 200, credentialsOnly: false, search: configListSearch || undefined }),
     enabled: configListOpen,
     staleTime: 10000,
   });
@@ -776,11 +780,26 @@ export default function RolesAssignedPage() {
 
   // Edit configuration user mutation
   const editConfigMutation = useMutation({
-    mutationFn: async ({ userId, name, password, roleId, employeeCardNo }: { userId: string; name?: string; password?: string; roleId?: string; employeeCardNo?: string }) => {
+    mutationFn: async ({
+      userId,
+      name,
+      password,
+      roleId,
+      employeeCardNo,
+      email,
+    }: {
+      userId: string;
+      name?: string;
+      password?: string;
+      roleId?: string;
+      employeeCardNo?: string;
+      email?: string | null;
+    }) => {
       const promises: Promise<any>[] = [];
       const updateData: any = {};
       if (name) updateData.name = name;
       if (employeeCardNo !== undefined) updateData.employeeCardNo = employeeCardNo;
+      if (email !== undefined) updateData.email = email;
       if (Object.keys(updateData).length > 0) promises.push(usersApi.update(userId, updateData));
       if (password) promises.push(usersApi.resetPassword(userId, password));
       if (roleId) promises.push(usersApi.updateRole(userId, roleId));
@@ -810,12 +829,14 @@ export default function RolesAssignedPage() {
 
   const handleEditConfigSubmit = () => {
     if (!editConfigUserId) return;
+    const trimmedEmail = editConfigEmail.trim();
     editConfigMutation.mutate({
       userId: editConfigUserId,
       name: editConfigName || undefined,
       password: editConfigPassword || undefined,
       roleId: editConfigRoleId || undefined,
       employeeCardNo: editConfigCardNo,
+      email: trimmedEmail ? trimmedEmail : undefined,
     });
   };
 
@@ -2108,7 +2129,12 @@ export default function RolesAssignedPage() {
             </div>
             <div>
               <Label>Email (ID)</Label>
-              <Input value={editConfigEmail} disabled className="mt-1 bg-muted" />
+              <Input
+                value={editConfigEmail}
+                onChange={(e) => setEditConfigEmail(e.target.value)}
+                placeholder="Enter email"
+                className="mt-1"
+              />
             </div>
             <div>
               <Label>Display Name</Label>

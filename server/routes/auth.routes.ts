@@ -95,10 +95,14 @@ export function registerAuthRoutes(app: Express): void {
           }
           
           const userEmail = user.email?.toLowerCase();
-          const loginType = "mdo";
 
-          // Whitelisted Google users always get Director (single-role).
-          await assignDirectorIfAllowed(user.id);
+          // Do NOT auto-assign/override roles on Google login.
+          // Access must come from whatever role is already configured for this user.
+          const dbUser = await prisma.user.findUnique({
+            where: { id: user.id },
+            select: { employeeId: true },
+          });
+          const loginType = dbUser?.employeeId ? "employee" : "mdo";
 
           const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000);
           const session = await prisma.session.create({

@@ -451,9 +451,9 @@ async function syncApiSource(routeId: string): Promise<void> {
           try {
             const employeeRecord = await prisma.employee.findUnique({
               where: { cardNumber: emp["CARD_NO"] },
-              include: { user: true },
+              include: { users: true },
             });
-            if (employeeRecord && !employeeRecord.user) {
+            if (employeeRecord && !(employeeRecord.users?.[0])) {
               const fullName = [employeeRecord.firstName, employeeRecord.lastName].filter(Boolean).join(" ").trim() || "Employee";
               const realEmail = employeeRecord.companyEmail || employeeRecord.personalEmail || null;
               let email: string | null = null;

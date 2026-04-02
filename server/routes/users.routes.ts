@@ -94,8 +94,8 @@ export function registerUsersRoutes(app: Express): void {
       const v = validateUUID(id);
       if (!v.valid) return res.status(400).json({ message: v.error });
 
-      const { name, status, employeeCardNo } = req.body;
-      const data: { name?: string; status?: string; employeeId?: string | null; orgUnitId?: string | null } = {};
+      const { name, status, employeeCardNo, email } = req.body;
+      const data: { name?: string; status?: string; employeeId?: string | null; orgUnitId?: string | null; email?: string | null } = {};
       if (name !== undefined) {
         const trimmed = typeof name === "string" ? name.trim() : "";
         if (!trimmed) return res.status(400).json({ message: "Name cannot be empty" });
@@ -108,17 +108,54 @@ export function registerUsersRoutes(app: Express): void {
       }
 
       if (employeeCardNo !== undefined) {
-        if (employeeCardNo) {
-          const emp = await prisma.employee.findUnique({
-            where: { cardNumber: employeeCardNo },
-            select: { id: true, orgUnitId: true },
-          });
-          if (!emp) return res.status(400).json({ message: `Employee with card ${employeeCardNo} not found` });
-          data.employeeId = emp.id;
-          data.orgUnitId = emp.orgUnitId;
-        } else {
+        // Only update employeeId when caller explicitly provides a non-null, non-empty card number.
+        // This avoids unnecessary employeeId=null updates (which can trigger unique/index edge-cases).
+        if (employeeCardNo === null || employeeCardNo === "") {
+          // Explicit clear request from UI -> unlink credentials from this user.
           data.employeeId = null;
           data.orgUnitId = null;
+        } else {
+          const trimmedCardNo = typeof employeeCardNo === "string" ? employeeCardNo.trim() : employeeCardNo;
+          const emp = await prisma.employee.findUnique({
+            where: { cardNumber: trimmedCardNo },
+            select: { id: true, orgUnitId: true },
+          });
+          if (!emp) return res.status(400).json({ message: `Employee with card ${trimmedCardNo} not found` });
+
+          // Prevent assigning an employee card to a different user
+          // (otherwise Prisma throws P2002 on the partial unique index for employeeId).
+          const conflictingUser = await prisma.user.findFirst({
+            where: { employeeId: emp.id, NOT: { id } },
+            select: { id: true, name: true, email: true },
+          });
+          if (conflictingUser) {
+            return res.status(400).json({
+              message: `Employee card ${trimmedCardNo} is already linked to another user.`,
+              conflictUser: { id: conflictingUser.id, name: conflictingUser.name, email: conflictingUser.email },
+            });
+          }
+          data.employeeId = emp.id;
+          data.orgUnitId = emp.orgUnitId;
+        }
+      }
+
+      if (email !== undefined) {
+        const trimmedEmail = typeof email === "string" ? email.trim() : null;
+        // If caller passes empty string -> clear email.
+        // (multiple NULL emails are allowed by Postgres unique index)
+        data.email = trimmedEmail && trimmedEmail.length > 0 ? trimmedEmail : null;
+        if (data.email !== null) {
+          // Prevent assigning an email already used by another user.
+          const conflictingUser = await prisma.user.findFirst({
+            where: { email: data.email, NOT: { id } },
+            select: { id: true, name: true, email: true },
+          });
+          if (conflictingUser) {
+            return res.status(400).json({
+              message: `Email ${data.email} is already linked to another user.`,
+              conflictUser: { id: conflictingUser.id, name: conflictingUser.name, email: conflictingUser.email },
+            });
+          }
         }
       }
 
@@ -147,6 +184,20 @@ export function registerUsersRoutes(app: Express): void {
       res.json(updated);
     } catch (error) {
       console.error("Update user error:", error);
+      // Fallback: even if our pre-check misses, map P2002 to a clear client error.
+      const code = (error as any)?.code;
+      if (code === "P2002") {
+        const target = (error as any)?.meta?.target;
+        const field = Array.isArray(target) ? target[0] : undefined;
+        if (field === "email") {
+          return res.status(400).json({
+            message: "Email is already linked to another user.",
+          });
+        }
+        return res.status(400).json({
+          message: "Employee card is already linked to another user.",
+        });
+      }
       res.status(500).json({ message: "Failed to update user" });
     }
   });

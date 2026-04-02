@@ -298,7 +298,7 @@ export const usersApi = {
     return apiGet<UsersListResponse>(`/users?${q.toString()}`);
   },
   getAll: () => apiGet<UsersListResponse>("/users?limit=1000").then((r) => r.users),
-  update: (id: string, data: { name?: string; status?: string; employeeCardNo?: string }) =>
+  update: (id: string, data: { name?: string; status?: string; employeeCardNo?: string | null; email?: string | null }) =>
     apiPatch<any>(`/users/${id}`, data),
   resetPassword: (id: string, newPassword: string) =>
     apiPatch<{ message: string }>(`/users/${id}/password`, { newPassword }),

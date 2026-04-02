@@ -146,10 +146,10 @@ export function registerOtpRoutes(app: Express): void {
             { secondaryPhone: { contains: searchPhone } },
           ],
         },
-        include: { user: true, orgUnit: true },
+        include: { users: true, orgUnit: true },
       });
 
-      let user = employee?.user;
+      let user = employee?.users?.[0];
       
       if (!user) {
         user = await prisma.user.findFirst({
@@ -483,7 +483,7 @@ export function registerOtpRoutes(app: Express): void {
             { cardNumber: employeeCode.toString() },
           ],
         },
-        include: { user: true, orgUnit: true },
+        include: { users: true, orgUnit: true },
       });
 
       if (!employee) {
@@ -521,7 +521,7 @@ export function registerOtpRoutes(app: Express): void {
         data: { used: true },
       });
 
-      let user = employee.user;
+      let user = employee.users?.[0];
 
       if (!user) {
         try {

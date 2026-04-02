@@ -768,7 +768,7 @@ export async function registerLegacyRoutes(
             orgUnit: { select: { id: true, name: true, code: true } },
             department: { select: { id: true, name: true, code: true } },
             designation: { select: { id: true, name: true, code: true } },
-            user: {
+            users: {
               select: {
                 id: true,
                 roles: {
@@ -2705,10 +2705,10 @@ export async function registerLegacyRoutes(
             { secondaryPhone: { contains: searchPhone } },
           ],
         },
-        include: { user: true, orgUnit: true },
+        include: { users: true, orgUnit: true },
       });
 
-      let user = employee?.user;
+      let user = employee?.users?.[0];
       
       if (!user) {
         user = await prisma.user.findFirst({
@@ -3061,7 +3061,7 @@ export async function registerLegacyRoutes(
             { cardNumber: employeeCode.toString() },
           ],
         },
-        include: { user: true, orgUnit: true },
+        include: { users: true, orgUnit: true },
       });
 
       if (!employee) {
@@ -3102,7 +3102,7 @@ export async function registerLegacyRoutes(
         data: { used: true },
       });
 
-      let user = employee.user;
+      let user = employee.users?.[0];
 
       if (!user) {
         try {
@@ -3925,9 +3925,9 @@ export async function registerLegacyRoutes(
             try {
               const employeeRecord = await prisma.employee.findUnique({
                 where: { cardNumber: emp["CARD_NO"] },
-                include: { user: true },
+              include: { users: true },
               });
-              if (employeeRecord && !employeeRecord.user) {
+              if (employeeRecord && !(employeeRecord.users?.[0])) {
                 const fullName = [employeeRecord.firstName, employeeRecord.lastName].filter(Boolean).join(" ").trim() || "Employee";
                 const realEmail = employeeRecord.companyEmail || employeeRecord.personalEmail || null;
                 let email: string | null = null;

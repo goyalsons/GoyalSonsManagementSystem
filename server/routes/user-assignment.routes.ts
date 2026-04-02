@@ -387,7 +387,8 @@ export function registerUserAssignmentRoutes(app: Express): void {
       }
 
       const employeesWithoutUser = await prisma.employee.findMany({
-        where: { user: null },
+        // Employee.users is now the relation (User[]). "Without user" means: there are no related users.
+        where: { users: { none: {} } },
         select: { id: true, cardNumber: true, firstName: true, lastName: true, companyEmail: true, personalEmail: true, orgUnitId: true },
       });
 

@@ -78,7 +78,8 @@ export default function RolesPage() {
     queryKey: ["employees", "all-active-for-config"],
     queryFn: () => employeesApi.getAll({ statusFilter: "ACTIVE" }),
     staleTime: 60000,
-    enabled: addConfigOpen,
+    // Needed for both Add Configuration (card dropdown) and Edit Configuration (card dropdown).
+    enabled: addConfigOpen || editConfigOpen,
   });
 
   const allActiveEmployees = employeesResponse?.data || [];
@@ -99,31 +100,88 @@ export default function RolesPage() {
       .slice(0, 50);
   }, [allActiveEmployees, configCardSearch]);
 
-  const editCardFilteredEmployees = useMemo(() => {
-    if (!allActiveEmployees.length) return [];
-    const q = editCardSearch.toLowerCase().trim();
-    return allActiveEmployees
-      .filter((emp: any) => !!emp.cardNumber)
-      .filter((emp: any) => {
-        if (!q) return true;
-        const fullName = `${emp.firstName} ${emp.lastName || ""}`.toLowerCase();
-        return (
-          emp.cardNumber!.toLowerCase().includes(q) ||
-          fullName.includes(q)
-        );
-      })
-      .slice(0, 50);
-  }, [allActiveEmployees, editCardSearch]);
+  const fetchAllConfiguredUsers = async () => {
+    // /api/users has MAX_PAGE_SIZE=100, so we page until we get everything.
+    // Important: we must NOT use credentialsOnly=true here because some linked users may have
+    // email/passwordHash as NULL, and the UI must still treat their cardNumber as "already linked".
+    const pageSize = 100;
+    let page = 1;
+    const all: any[] = [];
+    while (true) {
+      const res = await usersApi.getList({ page, limit: pageSize, credentialsOnly: false });
+      all.push(...res.users);
+      if (page >= res.totalPages) break;
+      page++;
+    }
+    return all;
+  };
 
-  // Configuration list: fetch credential-based users
-  const { data: configUsersData, isLoading: configUsersLoading } = useQuery({
-    queryKey: ["users", "credentials", configListSearch],
-    queryFn: () => usersApi.getList({ limit: 100, credentialsOnly: true, search: configListSearch || undefined }),
+  // Configuration list: fetch ACTIVE employees from /api/employees (option 2)
+  const { data: configEmployeesData, isLoading: configEmployeesLoading } = useQuery({
+    queryKey: ["employees", "config-list", configListSearch],
+    queryFn: () =>
+      employeesApi.getAll({
+        statusFilter: "ACTIVE",
+        search: configListSearch || undefined,
+        page: 1,
+        limit: 10000,
+      }),
     enabled: configListOpen,
     staleTime: 10000,
   });
 
-  const configUsers = configUsersData?.users || [];
+  // Fetch all users (including those with email/passwordHash NULL)
+  // so the card->user "already linked" map is accurate.
+  const { data: configuredUsers, isLoading: configuredUsersLoading } = useQuery({
+    queryKey: ["users", "all", "cardLinkMap"],
+    queryFn: fetchAllConfiguredUsers,
+    // Required for both:
+    // - Add Configuration: to compute configured/unconfigured counts and filtering
+    // - Edit Configuration: to hide cards already linked to other users (prevents P2002)
+    enabled: configListOpen || addConfigOpen || editConfigOpen,
+    staleTime: 60000,
+  });
+
+  const configuredUserByCard = useMemo(() => {
+    const map = new Map<string, any>();
+    (configuredUsers || []).forEach((u: any) => {
+      if (u?.cardNumber) map.set(String(u.cardNumber).trim(), u);
+    });
+    return map;
+  }, [configuredUsers]);
+
+  const editCardFilteredEmployees = useMemo(() => {
+    if (!allActiveEmployees.length) return [];
+    const q = editCardSearch.toLowerCase().trim();
+
+    return allActiveEmployees
+      .filter((emp: any) => !!emp.cardNumber)
+      .filter((emp: any) => {
+        const card = String(emp.cardNumber).trim();
+        const linkedUser = configuredUserByCard.get(card);
+
+        // If this card is already linked to some other user, hide it.
+        // But include the card currently linked to the user we are editing.
+        if (linkedUser && linkedUser.id !== editConfigUserId) return false;
+        return true;
+      })
+      .filter((emp: any) => {
+        if (!q) return true;
+        const fullName = `${emp.firstName} ${emp.lastName || ""}`.toLowerCase();
+        return String(emp.cardNumber).toLowerCase().includes(q) || fullName.includes(q);
+      })
+      .slice(0, 50);
+  }, [allActiveEmployees, editCardSearch, configuredUserByCard, editConfigUserId]);
+
+  const configEmployees = configEmployeesData?.data || [];
+  const totalEmployees = configEmployeesData?.pagination?.total || 0;
+  const configuredCount = useMemo(() => {
+    return configEmployees.reduce((acc: number, emp: any) => {
+      const card = emp?.cardNumber;
+      if (!card) return acc;
+      return configuredUserByCard.has(String(card).trim()) ? acc + 1 : acc;
+    }, 0);
+  }, [configEmployees, configuredUserByCard]);
 
   const toggleUserStatusMutation = useMutation({
     mutationFn: async ({ userId, newStatus }: { userId: string; newStatus: string }) => {
@@ -148,11 +206,26 @@ export default function RolesPage() {
   });
 
   const editConfigMutation = useMutation({
-    mutationFn: async ({ userId, name, password, roleId, employeeCardNo }: { userId: string; name?: string; password?: string; roleId?: string; employeeCardNo?: string }) => {
+    mutationFn: async ({
+      userId,
+      name,
+      password,
+      roleId,
+      employeeCardNo,
+      email,
+    }: {
+      userId: string;
+      name?: string;
+      password?: string;
+      roleId?: string;
+      employeeCardNo?: string;
+      email?: string | null;
+    }) => {
       const promises: Promise<any>[] = [];
       const updateData: any = {};
       if (name) updateData.name = name;
       if (employeeCardNo !== undefined) updateData.employeeCardNo = employeeCardNo;
+      if (email !== undefined) updateData.email = email;
       if (Object.keys(updateData).length > 0) promises.push(usersApi.update(userId, updateData));
       if (password) promises.push(usersApi.resetPassword(userId, password));
       if (roleId) promises.push(usersApi.updateRole(userId, roleId));
@@ -182,13 +255,60 @@ export default function RolesPage() {
 
   const handleEditConfigSubmit = () => {
     if (!editConfigUserId) return;
+
+    const card = editConfigCardNo ? String(editConfigCardNo).trim() : "";
+    const trimmedEmail = editConfigEmail.trim();
+    if (card) {
+      // If configured users are not loaded yet, we can't reliably validate card uniqueness client-side.
+      if (configuredUsersLoading) {
+        toast({
+          title: "Please wait",
+          description: "Loading configured users, then try saving again.",
+        });
+        return;
+      }
+
+      const linkedUser = configuredUserByCard.get(card);
+      if (linkedUser && linkedUser.id !== editConfigUserId) {
+        toast({
+          title: "Card already linked",
+          description: `This employee card (${card}) is already linked to another user.`,
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
     editConfigMutation.mutate({
       userId: editConfigUserId,
       name: editConfigName || undefined,
       password: editConfigPassword || undefined,
       roleId: editConfigRoleId || undefined,
       employeeCardNo: editConfigCardNo,
+      email: trimmedEmail ? trimmedEmail : undefined,
     });
+  };
+
+  const handleAddConfigFromEmployee = (employee: any) => {
+    // Open "Add Configuration" dialog with card prefilled for employees without login credentials.
+    setConfigListOpen(false);
+    setAddConfigOpen(true);
+
+    setConfigEmployeeCardNo(employee?.cardNumber ? String(employee.cardNumber) : "");
+    setConfigCardSearch("");
+    setConfigCardDropdownOpen(false);
+
+    setConfigEmail("");
+    setConfigPassword("");
+    setConfigConfirmPassword("");
+    setConfigRoleId("");
+    setConfigName(
+      employee?.firstName
+        ? `${employee.firstName} ${employee.lastName || ""}`.trim()
+        : ""
+    );
+    setShowConfigPassword(false);
+    setShowConfigConfirmPassword(false);
   };
 
   const createCredentialsMutation = useMutation({
@@ -554,87 +674,98 @@ export default function RolesPage() {
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search by name, email, or card no..."
+                placeholder="Search by name or card no..."
                 value={configListSearch}
                 onChange={(e) => setConfigListSearch(e.target.value)}
                 className="pl-10"
               />
             </div>
             <div className="flex-1 overflow-y-auto border rounded-lg divide-y">
-              {configUsersLoading ? (
+              {configEmployeesLoading || configuredUsersLoading ? (
                 <div className="flex items-center justify-center py-12">
                   <Loader2 className="h-6 w-6 animate-spin" />
                 </div>
-              ) : configUsers.length === 0 ? (
+              ) : configEmployees.length === 0 ? (
                 <div className="text-center py-12 text-muted-foreground">
-                  {configListSearch ? "No users found matching your search." : "No configuration users found. Use 'Add Configuration' to create one."}
+                  {configListSearch ? "No employees found matching your search." : "No active employees found."}
                 </div>
               ) : (
-                configUsers.map((user) => {
-                  const isActive = user.status === "active";
+                configEmployees.map((employee: any) => {
+                  const cardNumber = employee?.cardNumber;
+                  const linkedUser = cardNumber ? configuredUserByCard.get(String(cardNumber)) : undefined;
+                  const hasConfig = Boolean(linkedUser);
+                  const isActive = linkedUser?.status === "active";
+
+                  const employeeName = `${employee?.firstName || ""} ${employee?.lastName || ""}`.trim();
+                  const displayName = hasConfig ? linkedUser?.name : employeeName;
                   return (
                     <div
-                      key={user.id}
+                      key={cardNumber ? String(cardNumber) : employeeName}
                       className={`flex items-center gap-4 px-4 py-3 transition-colors ${!isActive ? "bg-muted/40 opacity-70" : ""}`}
                     >
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-medium truncate">{user.name}</span>
-                          {user.cardNumber && (
+                          <span className="font-medium truncate">{displayName}</span>
+                          {cardNumber && (
                             <Badge variant="outline" className="text-xs shrink-0 gap-1">
                               <CreditCard className="h-3 w-3" />
-                              {user.cardNumber}
+                              {cardNumber}
                             </Badge>
                           )}
-                          {user.role && (
-                            <Badge variant="secondary" className="text-xs shrink-0">
-                              {user.role.name}
-                            </Badge>
+                          {hasConfig && linkedUser?.role && (
+                            <Badge variant="secondary" className="text-xs shrink-0">{linkedUser.role.name}</Badge>
                           )}
                         </div>
                         <div className="text-sm text-muted-foreground mt-0.5">
-                          {user.email ? (
-                            <span className="truncate">{user.email}</span>
-                          ) : (
-                            <span className="text-muted-foreground/50 italic">No email</span>
-                          )}
+                          {hasConfig ? (linkedUser?.email ? <span className="truncate">{linkedUser.email}</span> : <span>-</span>) : <span>-</span>}
                         </div>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-8 gap-1"
-                          onClick={() => handleEditConfigOpen(user)}
-                        >
-                          <Edit className="h-3.5 w-3.5" />
-                          Edit
-                        </Button>
-                        <Button
-                          variant={isActive ? "destructive" : "default"}
-                          size="sm"
-                          className="h-8"
-                          disabled={toggleUserStatusMutation.isPending}
-                          onClick={() => {
-                            toggleUserStatusMutation.mutate({
-                              userId: user.id,
-                              newStatus: isActive ? "disabled" : "active",
-                            });
-                          }}
-                        >
-                          {isActive ? "Disable" : "Enable"}
-                        </Button>
+                        {hasConfig ? (
+                          <>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-8 gap-1"
+                              onClick={() => handleEditConfigOpen(linkedUser)}
+                            >
+                              <Edit className="h-3.5 w-3.5" />
+                              Edit
+                            </Button>
+                            <Button
+                              variant={isActive ? "destructive" : "default"}
+                              size="sm"
+                              className="h-8"
+                              disabled={toggleUserStatusMutation.isPending}
+                              onClick={() => {
+                                toggleUserStatusMutation.mutate({
+                                  userId: linkedUser.id,
+                                  newStatus: isActive ? "disabled" : "active",
+                                });
+                              }}
+                            >
+                              {isActive ? "Disable" : "Enable"}
+                            </Button>
+                          </>
+                        ) : (
+                          <Button
+                            variant="default"
+                            size="sm"
+                            className="h-8"
+                            onClick={() => handleAddConfigFromEmployee(employee)}
+                          >
+                            Add Configuration
+                          </Button>
+                        )}
                       </div>
                     </div>
                   );
                 })
               )}
             </div>
-            {configUsersData && configUsersData.total > 0 && (
-              <p className="text-xs text-muted-foreground text-center">
-                Showing {configUsers.length} of {configUsersData.total} configuration user(s)
-              </p>
-            )}
+            <p className="text-xs text-muted-foreground text-center">
+              Showing {configuredCount} configured / {totalEmployees} total employees
+            </p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfigListOpen(false)}>
@@ -728,7 +859,12 @@ export default function RolesPage() {
             </div>
             <div>
               <Label>Email (ID)</Label>
-              <Input value={editConfigEmail} disabled className="mt-1 bg-muted" />
+              <Input
+                value={editConfigEmail}
+                onChange={(e) => setEditConfigEmail(e.target.value)}
+                placeholder="Enter email"
+                className="mt-1"
+              />
             </div>
             <div>
               <Label>Display Name</Label>
