@@ -119,7 +119,8 @@ export async function canAssignRole(params: {
   // Rule 3: Check org scope
   if (targetUser.orgUnitId && assigner.orgUnitId) {
     const accessibleOrgUnitIds = await getAccessibleOrgUnitIds(assignerUserId);
-    if (!accessibleOrgUnitIds.includes(targetUser.orgUnitId)) {
+    // Empty accessibleOrgUnitIds means full-access user (all policies), so skip org restriction.
+    if (accessibleOrgUnitIds.length > 0 && !accessibleOrgUnitIds.includes(targetUser.orgUnitId)) {
       return { allowed: false, reason: "target_user_out_of_scope" };
     }
   }
@@ -214,7 +215,8 @@ export async function canRemoveRole(params: {
 
   if (targetUser.orgUnitId && assigner.orgUnitId) {
     const accessibleOrgUnitIds = await getAccessibleOrgUnitIds(assignerUserId);
-    if (!accessibleOrgUnitIds.includes(targetUser.orgUnitId)) {
+    // Empty accessibleOrgUnitIds means full-access user (all policies), so skip org restriction.
+    if (accessibleOrgUnitIds.length > 0 && !accessibleOrgUnitIds.includes(targetUser.orgUnitId)) {
       return { allowed: false, reason: "target_user_out_of_scope" };
     }
   }

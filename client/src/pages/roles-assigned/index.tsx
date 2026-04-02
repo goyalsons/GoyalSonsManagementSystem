@@ -45,6 +45,7 @@ interface Employee {
   department?: { id: string; name: string; code: string } | null;
   designation?: { id: string; name: string; code: string } | null;
   user?: { id: string; roles: Array<{ role: { id: string; name: string } }> } | null;
+  users?: Array<{ id: string; roles: Array<{ role: { id: string; name: string } }> }>;
 }
 
 interface Role {
@@ -178,7 +179,12 @@ export default function RolesAssignedPage() {
     refetchOnWindowFocus: false, // Don't refetch on window focus
   });
 
-  const allEmployees = employeesResponse?.data || [];
+  // Backend now returns Employee.users (array). Keep backward compatibility with existing UI
+  // logic by normalizing a synthetic `user` from users[0].
+  const allEmployees = (employeesResponse?.data || []).map((e: any) => ({
+    ...e,
+    user: e?.user ?? (Array.isArray(e?.users) ? e.users[0] : null),
+  }));
   const allActiveEmployees = allEmployees; // Reuse same data
 
   // Calculate active employee count for each role - optimized
