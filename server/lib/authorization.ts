@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { getAllPolicyKeys } from "../constants/policies";
 
 export interface AuthorizationResult {
   allowed: boolean;
@@ -198,6 +199,11 @@ export async function getAccessibleOrgUnitIds(userId: string): Promise<string[]>
   });
 
   if (!user) return [];
+  const policyKeys = await getUserPolicies(userId);
+  const hasAllPolicies = getAllPolicyKeys().every((key) => policyKeys.includes(key));
+  // Full-access users should not be org-scoped.
+  // Downstream routes treat empty accessibleOrgUnitIds as "no org filter".
+  if (hasAllPolicies) return [];
 
   if (!user.orgUnitId) return [];
 

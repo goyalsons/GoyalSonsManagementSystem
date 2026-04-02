@@ -90,6 +90,7 @@ export function registerDataFetcherRoutes(app: Express): void {
         
         let imported = 0;
         let failed = 0;
+        const incomingCardNumbers = new Set<string>();
 
         for (const emp of employees) {
           try {
@@ -98,6 +99,8 @@ export function registerDataFetcherRoutes(app: Express): void {
               failed++;
               continue;
             }
+            const cardNumber = String(emp["CARD_NO"]).trim();
+            incomingCardNumbers.add(cardNumber);
             
             let departmentId = null;
             if (emp["DEPARTMENT.DEPT_CODE"]) {
@@ -210,7 +213,7 @@ export function registerDataFetcherRoutes(app: Express): void {
             const employeeStatus = lastInterviewDate ? "INACTIVE" : "ACTIVE";
 
             await prisma.employee.upsert({
-              where: { cardNumber: emp["CARD_NO"] },
+              where: { cardNumber },
               update: {
                 firstName,
                 lastName,
@@ -270,7 +273,7 @@ export function registerDataFetcherRoutes(app: Express): void {
                 },
               },
               create: {
-                cardNumber: emp["CARD_NO"],
+                cardNumber,
                 firstName,
                 lastName,
                 phone: emp["Phone_NO_1"] || null,
@@ -333,7 +336,7 @@ export function registerDataFetcherRoutes(app: Express): void {
             // Auto-create User + Employee role for employees without a linked user
             try {
               const employeeRecord = await prisma.employee.findUnique({
-                where: { cardNumber: emp["CARD_NO"] },
+                where: { cardNumber },
                 include: { users: true },
               });
               if (employeeRecord && !(employeeRecord.users?.[0])) {
@@ -374,6 +377,29 @@ export function registerDataFetcherRoutes(app: Express): void {
           } catch (empError: any) {
             console.error(`[Data Fetcher] Failed to import employee ${emp["CARD_NO"]}:`, empError.message);
             failed++;
+          }
+        }
+
+        // Reconcile missing employees from this snapshot by marking them INACTIVE.
+        // We avoid hard-delete because Employee is referenced across many tables.
+        if (incomingCardNumbers.size > 0) {
+          const missingCards = await prisma.employee.findMany({
+            where: {
+              cardNumber: { not: null },
+              NOT: { cardNumber: { in: Array.from(incomingCardNumbers) } },
+              lastInterviewDate: null,
+            },
+            select: { id: true },
+          });
+          if (missingCards.length > 0) {
+            await prisma.employee.updateMany({
+              where: { id: { in: missingCards.map((e) => e.id) } },
+              data: {
+                status: "INACTIVE",
+                lastInterviewDate: new Date(),
+              },
+            });
+            console.log(`[Data Fetcher] Reconciled ${missingCards.length} missing employees as INACTIVE`);
           }
         }
 

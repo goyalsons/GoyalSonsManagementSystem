@@ -377,10 +377,6 @@ export function registerUserAssignmentRoutes(app: Express): void {
    */
   app.post("/api/admin/backfill-employee-users", requireAuth, requirePolicy(POLICIES.ADMIN_PANEL), async (req, res) => {
     try {
-      if (!req.user!.roles?.some((r) => r.name === "Director")) {
-        return res.status(403).json({ message: "Only Director can run backfill" });
-      }
-
       const employeeRole = await prisma.role.findUnique({ where: { name: "Employee" }, select: { id: true } });
       if (!employeeRole) {
         return res.status(500).json({ message: "Employee role not found in database" });
@@ -443,10 +439,6 @@ export function registerUserAssignmentRoutes(app: Express): void {
    */
   app.post("/api/admin/logout-all-sessions", requireAuth, requirePolicy(POLICIES.ADMIN_PANEL), async (req, res) => {
     try {
-      if (!req.user!.roles?.some((r) => r.name === "Director")) {
-        return res.status(403).json({ message: "Only Director can logout all sessions" });
-      }
-
       const result = await prisma.session.deleteMany({});
       invalidateAllAuthCache();
       broadcastLogoutAll();

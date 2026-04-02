@@ -43,6 +43,12 @@ export function hashPassword(password: string): string {
   return crypto.createHash("sha256").update(password).digest("hex");
 }
 
+function hasAllPoliciesAccess(policies: string[] | undefined): boolean {
+  if (!policies?.length) return false;
+  const requiredPolicies = getAllPolicyKeys();
+  return requiredPolicies.every((policyKey) => policies.includes(policyKey));
+}
+
 export async function authenticateUser(email: string, password: string) {
   const passwordHash = hashPassword(password);
 
@@ -100,8 +106,8 @@ export function requirePolicy(policyKey: string) {
       return res.status(401).json({ message: "Authentication required" });
     }
 
-    // Director mode: bypass all policy restrictions
-    if (req.user.roles?.some((r) => r.name === "Director")) {
+    // Full-access users are determined by assigned policies only.
+    if (hasAllPoliciesAccess(req.user.policies)) {
       return next();
     }
 
@@ -144,7 +150,7 @@ export function requireAnyPolicy(...policyKeys: string[]) {
     if (!req.user) {
       return res.status(401).json({ message: "Authentication required" });
     }
-    if (req.user.roles?.some((r) => r.name === "Director")) {
+    if (hasAllPoliciesAccess(req.user.policies)) {
       return next();
     }
     if (!req.user.policies || req.user.policies.length === 0) {
@@ -165,6 +171,9 @@ export function requireOrgAccess(getTargetOrgUnitId: (req: Request) => string | 
     }
 
     const targetOrgUnitId = getTargetOrgUnitId(req);
+    if (hasAllPoliciesAccess(req.user.policies)) {
+      return next();
+    }
     if (targetOrgUnitId && !req.user.accessibleOrgUnitIds.includes(targetOrgUnitId)) {
       return res.status(403).json({ 
         message: "Access denied", 
@@ -199,7 +208,7 @@ function wouldHaveTriggeredEmployeeAutoAssign(
 ): boolean {
   const hasNoRoles = !authInfo.roles || authInfo.roles.length === 0;
   const hasNoPolicies = !authInfo.policies || authInfo.policies.length === 0;
-  const notDirector = !authInfo.roles?.some((r) => r.name === "Director");
+  const notDirector = !hasAllPoliciesAccess(authInfo.policies);
   const employeeSessionOrLinked =
     session.loginType === "employee" || Boolean(authInfo.employeeId);
   return Boolean(hasNoRoles && hasNoPolicies && notDirector && employeeSessionOrLinked);

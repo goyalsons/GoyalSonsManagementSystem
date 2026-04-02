@@ -179,6 +179,7 @@ async function syncApiSource(routeId: string): Promise<void> {
       
       let imported = 0;
       let failed = 0;
+      const incomingCardNumbers = new Set<string>();
 
       // Handle attendance data separately
       if (dataType === "attendance") {
@@ -239,6 +240,8 @@ async function syncApiSource(routeId: string): Promise<void> {
           if (!emp["CARD_NO"]) {
             return "skipped";
           }
+          const cardNumber = String(emp["CARD_NO"]).trim();
+          incomingCardNumbers.add(cardNumber);
 
           let departmentId = null;
           if (emp["DEPARTMENT.DEPT_CODE"]) {
@@ -387,7 +390,7 @@ async function syncApiSource(routeId: string): Promise<void> {
           };
 
           await prisma.employee.upsert({
-            where: { cardNumber: emp["CARD_NO"] },
+            where: { cardNumber },
             update: {
               firstName,
               lastName,
@@ -417,7 +420,7 @@ async function syncApiSource(routeId: string): Promise<void> {
               metadata,
             },
             create: {
-              cardNumber: emp["CARD_NO"],
+              cardNumber,
               firstName,
               lastName,
               phone: emp["Phone_NO_1"] || null,
@@ -450,7 +453,7 @@ async function syncApiSource(routeId: string): Promise<void> {
           // Auto-create User + Employee role for employees without a linked user
           try {
             const employeeRecord = await prisma.employee.findUnique({
-              where: { cardNumber: emp["CARD_NO"] },
+              where: { cardNumber },
               include: { users: true },
             });
             if (employeeRecord && !(employeeRecord.users?.[0])) {
@@ -506,6 +509,32 @@ async function syncApiSource(routeId: string): Promise<void> {
           updateProgress(processed);
         },
       );
+
+      // Reconcile records missing from the latest source snapshot.
+      // We intentionally avoid hard delete due to FK dependencies (attendance/tasks/users/etc).
+      // Missing cards are marked INACTIVE so active lists reflect the source count.
+      if (incomingCardNumbers.size > 0) {
+        const missingCards = await prisma.employee.findMany({
+          where: {
+            cardNumber: { not: null },
+            NOT: { cardNumber: { in: Array.from(incomingCardNumbers) } },
+            lastInterviewDate: null,
+          },
+          select: { id: true },
+        });
+        if (missingCards.length > 0) {
+          await prisma.employee.updateMany({
+            where: { id: { in: missingCards.map((e) => e.id) } },
+            data: {
+              status: "INACTIVE",
+              lastInterviewDate: new Date(),
+            },
+          });
+          console.log(
+            `[Auto-Sync] [${route.name}] Reconciled ${missingCards.length} missing employees as INACTIVE`
+          );
+        }
+      }
 
       const duration = Math.round((Date.now() - startTime.getTime()) / 1000);
       console.log(`[Auto-Sync] [${route.name}] Complete: ${imported} imported, ${failed} failed in ${duration}s`);
