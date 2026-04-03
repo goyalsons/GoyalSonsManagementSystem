@@ -216,6 +216,7 @@ export function registerEmpManagerRoutes(app: Express) {
           cardNumber: true,
           designation: { select: { name: true } },
           department: { select: { name: true } },
+          orgUnit: { select: { name: true, code: true } },
         },
         orderBy: { firstName: 'asc' },
       });

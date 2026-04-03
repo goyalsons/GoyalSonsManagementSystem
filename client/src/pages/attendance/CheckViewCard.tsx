@@ -36,6 +36,11 @@ interface StatusStyle {
   dots: { color: string; count: number }[];
 }
 
+type AttendanceRecordWithBranch = AttendanceRecord & {
+  branch_code?: string | null;
+  entry_type?: string | null;
+};
+
 function getStatusStyle(status: string): StatusStyle {
   const s = (status || "").toUpperCase().trim();
   if (s === "DOUBLE ABSENT" || s === "DOUBLE A" || s.includes("DOUBLE")) {
@@ -222,6 +227,41 @@ export function CheckViewCard(props: CheckViewCardProps) {
     toast({ title: "All OK", description: "All dates marked as correct for this member." });
   };
 
+  const getTaskSummary = (records: AttendanceRecord[]) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    let total = 0;
+    let completed = 0;
+    let notCompleted = 0;
+    let halfCompleted = 0;
+
+    for (const r of records) {
+      const dateStr = toDateKey(String(r.dt));
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime()) || d > today) continue;
+
+      total += 1;
+      const s = (r.STATUS || "").toUpperCase().trim();
+
+      if (s === "HALFDAY" || s === "HALF DAY" || s.includes("HALF")) {
+        halfCompleted += 1;
+      } else if (
+        s === "ABSENT" ||
+        s === "DOUBLE ABSENT" ||
+        s === "DOUBLE A" ||
+        s.includes("ABSENT") ||
+        s.includes("DOUBLE")
+      ) {
+        notCompleted += 1;
+      } else {
+        completed += 1;
+      }
+    }
+
+    return { total, completed, notCompleted, halfCompleted };
+  };
+
   return (
     <Card>
       <CardHeader className="pb-2">
@@ -254,6 +294,10 @@ export function CheckViewCard(props: CheckViewCardProps) {
               const allOk = isMemberAllOk(member.id);
               const hasProblem = hasMemberAnyNotCorrect(member.id);
               const hasRecords = (memberAttendanceMap.get(member.id)?.records?.length ?? 0) > 0;
+              const firstRecord = (memberAttendanceMap.get(member.id)?.records?.[0] ?? null) as AttendanceRecordWithBranch | null;
+              const departmentName = member.department?.name || "—";
+              const branchName = member.orgUnit?.name || firstRecord?.branch_code || "—";
+              const unitCode = member.orgUnit?.code || firstRecord?.branch_code || "—";
               return (
                 <div
                   key={member.id}
@@ -278,6 +322,14 @@ export function CheckViewCard(props: CheckViewCardProps) {
                   <div className="flex-1 min-w-0">
                     <div className="font-medium truncate text-sm">{encodeName(fullName)}</div>
                     <div className="text-xs text-muted-foreground font-mono truncate">{member.cardNumber || member.id}</div>
+                    <div className="text-[11px] text-muted-foreground truncate">
+                      Dept: {departmentName} | Branch: {branchName}
+                    </div>
+                    {expanded && (
+                      <div className="text-[11px] text-muted-foreground truncate">
+                        Unit Code: {unitCode}
+                      </div>
+                    )}
                   </div>
                   <button
                     type="button"
@@ -289,6 +341,11 @@ export function CheckViewCard(props: CheckViewCardProps) {
                 </div>
               );
             })}
+            {teamMembers.length === 0 && (
+              <div className="py-6 text-center text-xs text-muted-foreground">
+                No members match current filters.
+              </div>
+            )}
           </div>
 
           {/* Right: attendance dates for selected member */}
@@ -309,6 +366,7 @@ export function CheckViewCard(props: CheckViewCardProps) {
             ) : (() => {
               const member = teamMembers.find((m) => m.id === viewMemberId);
               const records = member ? memberAttendanceMap.get(member.id)?.records ?? [] : [];
+              const summary = getTaskSummary(records);
               const grid = buildCalendarGrid(records).filter((c) => c.day !== null);
               return (
                 <div>
@@ -328,6 +386,34 @@ export function CheckViewCard(props: CheckViewCardProps) {
                           All OK
                         </Button>
                       )}
+                    </div>
+                  )}
+                  {records.length > 0 && (
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
+                      <Card className="border-border bg-muted/40 shadow-sm">
+                        <CardContent className="p-3">
+                          <div className="text-lg md:text-xl font-semibold text-foreground">{summary.total}</div>
+                          <div className="text-[11px] md:text-xs text-muted-foreground">Total Task</div>
+                        </CardContent>
+                      </Card>
+                      <Card className="border-emerald-500/20 bg-emerald-500/10 shadow-sm">
+                        <CardContent className="p-3">
+                          <div className="text-lg md:text-xl font-semibold text-emerald-600 dark:text-emerald-400">{summary.completed}</div>
+                          <div className="text-[11px] md:text-xs text-emerald-600/80 dark:text-emerald-400/80">Completed</div>
+                        </CardContent>
+                      </Card>
+                      <Card className="border-rose-500/20 bg-rose-500/10 shadow-sm">
+                        <CardContent className="p-3">
+                          <div className="text-lg md:text-xl font-semibold text-rose-600 dark:text-rose-400">{summary.notCompleted}</div>
+                          <div className="text-[11px] md:text-xs text-rose-600/80 dark:text-rose-400/80">Not Completed</div>
+                        </CardContent>
+                      </Card>
+                      <Card className="border-amber-500/20 bg-amber-500/10 shadow-sm">
+                        <CardContent className="p-3">
+                          <div className="text-lg md:text-xl font-semibold text-amber-600 dark:text-amber-400">{summary.halfCompleted}</div>
+                          <div className="text-[11px] md:text-xs text-amber-600/80 dark:text-amber-400/80">Half Completed</div>
+                        </CardContent>
+                      </Card>
                     </div>
                   )}
                   <div className="flex flex-wrap gap-1">

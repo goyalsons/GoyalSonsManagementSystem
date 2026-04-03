@@ -71,6 +71,8 @@ interface AttendanceRecord {
   dt: string;
   Name: string;
   STATUS: string;
+  branch_code?: string | null;
+  entry_type?: string | null;
   t_in: string | null;
   t_out: string | null;
   result_t_in: string | null;
@@ -95,6 +97,7 @@ interface TeamMember {
   lastName: string | null;
   designation?: { name: string } | null;
   department?: { name: string } | null;
+  orgUnit?: { name: string | null; code: string | null } | null;
 }
 
 const MONTHS = [
@@ -195,6 +198,11 @@ export default function TeamAttendancePage() {
   const [submitModalOpen, setSubmitModalOpen] = useState(false);
   const [verificationMap, setVerificationMap] = useState<Record<string, { status: VerificationStatus; query?: string }>>({});
   const [pendingSave, setPendingSave] = useState<Record<string, { status: VerificationStatus; query?: string }>>({});
+  const [checkSearch, setCheckSearch] = useState("");
+  const [checkUnitFilter, setCheckUnitFilter] = useState("all");
+  const [checkBranchFilter, setCheckBranchFilter] = useState("all");
+  const [checkDepartmentFilter, setCheckDepartmentFilter] = useState("all");
+  const [checkPendingFilter, setCheckPendingFilter] = useState("all");
   const canViewTeam = hasPolicy("attendance.team.view");
   const canVerify = hasPolicy("attendance.team.verify");
 
@@ -347,6 +355,22 @@ export default function TeamAttendancePage() {
     const v = pendingSave[getKey(employeeId, dateStr)] ?? verificationMap[getKey(employeeId, dateStr)];
     return v?.query ?? "";
   };
+
+  const isPendingMember = useCallback((employeeId: string) => {
+    const records = memberAttendanceMap.get(employeeId)?.records ?? [];
+    if (records.length === 0) return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    for (const r of records) {
+      const dateStr = toDateKeyTeam(String(r.dt));
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime()) || d > today) continue;
+      const s = getStatus(employeeId, dateStr);
+      if (s !== "CORRECT") return true;
+    }
+    return false;
+  }, [memberAttendanceMap, getStatus]);
   const setStatus = useCallback(
     (employeeId: string, dateStr: string, status: VerificationStatus | null, query?: string) => {
       const key = getKey(employeeId, dateStr);
@@ -523,6 +547,61 @@ export default function TeamAttendancePage() {
 
   const isCheckLocked = !!checkBatch?.submittedAt;
   const isCheckLoading = createOrLoadMutation.isPending || attendanceQueries.some((q) => q.isLoading);
+  const getMemberBranchFallback = useCallback((memberId: string) => {
+    const firstRecord = memberAttendanceMap.get(memberId)?.records?.[0];
+    return (firstRecord?.branch_code || "").trim();
+  }, [memberAttendanceMap]);
+
+  const unitOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          teamMembers
+            .map((m) => (m.orgUnit?.code || getMemberBranchFallback(m.id) || "").trim())
+            .filter(Boolean)
+        )
+      ).sort((a, b) => a.localeCompare(b)),
+    [teamMembers, getMemberBranchFallback]
+  );
+  const branchOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          teamMembers
+            .map((m) => (m.orgUnit?.name || getMemberBranchFallback(m.id) || "").trim())
+            .filter(Boolean)
+        )
+      ).sort((a, b) => a.localeCompare(b)),
+    [teamMembers, getMemberBranchFallback]
+  );
+  const departmentOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(teamMembers.map((m) => (m.department?.name || "").trim()).filter(Boolean))
+      ).sort((a, b) => a.localeCompare(b)),
+    [teamMembers]
+  );
+
+  const filteredCheckMembers = useMemo(() => {
+    const q = checkSearch.trim().toLowerCase();
+    return teamMembers.filter((m) => {
+      const fullName = `${m.firstName} ${m.lastName || ""}`.trim().toLowerCase();
+      const encodedDisplayName = encodeName(`${m.firstName} ${m.lastName || ""}`.trim() || "—").toLowerCase();
+      const card = (m.cardNumber || "").toLowerCase();
+      const fallbackBranch = getMemberBranchFallback(m.id).toLowerCase();
+      const unit = (m.orgUnit?.code || fallbackBranch || "").toLowerCase();
+      const branch = (m.orgUnit?.name || fallbackBranch || "").toLowerCase();
+      const dept = (m.department?.name || "").toLowerCase();
+
+      if (q && ![fullName, encodedDisplayName, card, unit, branch, dept].some((v) => v.includes(q))) return false;
+      if (checkUnitFilter !== "all" && unit !== checkUnitFilter.toLowerCase()) return false;
+      if (checkBranchFilter !== "all" && branch !== checkBranchFilter.toLowerCase()) return false;
+      if (checkDepartmentFilter !== "all" && dept !== checkDepartmentFilter.toLowerCase()) return false;
+      if (checkPendingFilter === "pending" && !isPendingMember(m.id)) return false;
+      if (checkPendingFilter === "verified" && isPendingMember(m.id)) return false;
+      return true;
+    });
+  }, [teamMembers, checkSearch, checkUnitFilter, checkBranchFilter, checkDepartmentFilter, checkPendingFilter, isPendingMember, getMemberBranchFallback]);
 
   const handleSearch = async () => {
     const q = searchInput.trim();
@@ -626,22 +705,25 @@ export default function TeamAttendancePage() {
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex rounded-lg border border-border p-0.5">
             <Button
-              variant={viewMode === "single" ? "secondary" : "ghost"}
+              variant="ghost"
               size="sm"
               onClick={() => setViewMode("single")}
-              className="rounded-md"
+              className={cn(
+                "rounded-md",
+                viewMode === "single" && "bg-emerald-100 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-300"
+              )}
             >
               <Calendar className="h-4 w-4 mr-2" />
               Single Member
             </Button>
             <Button
-              variant={viewMode === "check" ? "secondary" : "ghost"}
+              variant="ghost"
               size="sm"
               onClick={() => canVerify && setViewMode("check")}
               disabled={!canVerify}
               className={cn(
                 "rounded-md",
-                viewMode === "check" && "bg-amber-100 dark:bg-amber-900/30"
+                viewMode === "check" && "bg-emerald-100 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-300"
               )}
             >
               <List className="h-4 w-4 mr-2" />
@@ -670,8 +752,64 @@ export default function TeamAttendancePage() {
             </Card>
           ) : checkBatch?.id ? (
             <>
+              <Card>
+                <CardContent className="p-3 md:p-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-2">
+                    <div className="xl:col-span-2">
+                      <Label className="text-xs text-muted-foreground">Search Member</Label>
+                      <Input
+                        value={checkSearch}
+                        onChange={(e) => setCheckSearch(e.target.value)}
+                        placeholder="Search by name/card/unit/branch/department"
+                        className="mt-1"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Unit</Label>
+                      <Select value={checkUnitFilter} onValueChange={setCheckUnitFilter}>
+                        <SelectTrigger className="mt-1"><SelectValue placeholder="All Units" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Units</SelectItem>
+                          {unitOptions.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Branch</Label>
+                      <Select value={checkBranchFilter} onValueChange={setCheckBranchFilter}>
+                        <SelectTrigger className="mt-1"><SelectValue placeholder="All Branches" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Branches</SelectItem>
+                          {branchOptions.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Department</Label>
+                      <Select value={checkDepartmentFilter} onValueChange={setCheckDepartmentFilter}>
+                        <SelectTrigger className="mt-1"><SelectValue placeholder="All Departments" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Departments</SelectItem>
+                          {departmentOptions.map((d) => <SelectItem key={d} value={d}>{d}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Pending</Label>
+                      <Select value={checkPendingFilter} onValueChange={setCheckPendingFilter}>
+                        <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All</SelectItem>
+                          <SelectItem value="pending">Pending Only</SelectItem>
+                          <SelectItem value="verified">Verified Only</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
               <CheckViewCard
-                teamMembers={teamMembers}
+                teamMembers={filteredCheckMembers}
                 selectedMonth={selectedMonth}
                 selectedYear={selectedYear}
                 isMinDate={isMinDate}
@@ -789,11 +927,11 @@ export default function TeamAttendancePage() {
       ) : (
       <>
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="pt-6">
-            <div className="text-2xl font-bold text-slate-800">{teamMembers.length}</div>
-            <div className="text-sm text-slate-500">Team Members</div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 md:gap-4">
+        <Card className="sm:col-span-2 xl:col-span-1 border-border bg-card shadow-sm">
+          <CardContent className="p-4 md:p-5">
+            <div className="text-2xl md:text-3xl font-semibold tracking-tight text-foreground">{teamMembers.length}</div>
+            <div className="text-xs md:text-sm text-muted-foreground mt-1">Team Members</div>
           </CardContent>
         </Card>
         {selectedMember !== "all" &&
@@ -803,28 +941,28 @@ export default function TeamAttendancePage() {
             const totalAbsent = summary.absent + summary.doubleAbsent;
             return (
               <>
-                <Card className="border-border bg-muted/50">
-                  <CardContent className="p-3 text-center pt-6">
-                    <div className="text-2xl font-bold text-foreground">{summary.total}</div>
-                    <div className="text-xs text-muted-foreground">Total Task</div>
+                <Card className="border-border bg-muted/40 shadow-sm">
+                  <CardContent className="p-4 md:p-5">
+                    <div className="text-2xl md:text-3xl font-semibold tracking-tight text-foreground">{summary.total}</div>
+                    <div className="text-xs md:text-sm text-muted-foreground mt-1">Total Task</div>
                   </CardContent>
                 </Card>
-                <Card className="border-emerald-500/20 bg-emerald-500/10">
-                  <CardContent className="p-3 text-center pt-6">
-                    <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{summary.present}</div>
-                    <div className="text-xs text-emerald-600/80 dark:text-emerald-400/80">Completed</div>
+                <Card className="border-emerald-500/20 bg-emerald-500/10 shadow-sm">
+                  <CardContent className="p-4 md:p-5">
+                    <div className="text-2xl md:text-3xl font-semibold tracking-tight text-emerald-600 dark:text-emerald-400">{summary.present}</div>
+                    <div className="text-xs md:text-sm text-emerald-600/80 dark:text-emerald-400/80 mt-1">Completed</div>
                   </CardContent>
                 </Card>
-                <Card className="border-rose-500/20 bg-rose-500/10">
-                  <CardContent className="p-3 text-center pt-6">
-                    <div className="text-2xl font-bold text-rose-600 dark:text-rose-400">{totalAbsent}</div>
-                    <div className="text-xs text-rose-600/80 dark:text-rose-400/80">Not Completed</div>
+                <Card className="border-rose-500/20 bg-rose-500/10 shadow-sm">
+                  <CardContent className="p-4 md:p-5">
+                    <div className="text-2xl md:text-3xl font-semibold tracking-tight text-rose-600 dark:text-rose-400">{totalAbsent}</div>
+                    <div className="text-xs md:text-sm text-rose-600/80 dark:text-rose-400/80 mt-1">Not Completed</div>
                   </CardContent>
                 </Card>
-                <Card className="border-amber-500/20 bg-amber-500/10">
-                  <CardContent className="p-3 text-center pt-6">
-                    <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">{summary.halfDay}</div>
-                    <div className="text-xs text-amber-600/80 dark:text-amber-400/80">Half Completed</div>
+                <Card className="border-amber-500/20 bg-amber-500/10 shadow-sm">
+                  <CardContent className="p-4 md:p-5">
+                    <div className="text-2xl md:text-3xl font-semibold tracking-tight text-amber-600 dark:text-amber-400">{summary.halfDay}</div>
+                    <div className="text-xs md:text-sm text-amber-600/80 dark:text-amber-400/80 mt-1">Half Completed</div>
                   </CardContent>
                 </Card>
               </>

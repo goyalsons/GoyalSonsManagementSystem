@@ -30,6 +30,7 @@ export interface TeamMember {
   lastName: string | null;
   designation?: { name: string } | null;
   department?: { name: string } | null;
+  orgUnit?: { name: string | null; code: string | null } | null;
 }
 
 /** Attendance record from history API */
