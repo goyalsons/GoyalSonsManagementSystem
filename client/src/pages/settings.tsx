@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth-context";
+import { usesEmployeeChannelDisplay } from "@/lib/user-session";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -141,6 +142,8 @@ export default function SettingsPage() {
     );
   }
 
+  const showCardAsLoginId = usesEmployeeChannelDisplay(user);
+
   return (
     <>
       <div className="mb-6">
@@ -191,14 +194,14 @@ export default function SettingsPage() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="email">
-                    {user?.loginType === "employee" ? "Card Number" : "Email"}
+                    {showCardAsLoginId ? "Card Number" : "Email"}
                   </Label>
                   <Input
                     id="email"
                     value={
-                      user?.loginType === "employee"
-                        ? (user?.employeeCardNo || "")
-                        : (user?.email || "")
+                      showCardAsLoginId
+                        ? user?.employeeCardNo || "—"
+                        : user?.email || ""
                     }
                     disabled
                     className="bg-muted"
@@ -308,6 +311,7 @@ export default function SettingsPage() {
               </CardContent>
             </Card>
 
+            {user?.canChangePassword !== false && (
             <Card>
               <CardHeader>
                 <CardTitle>Change Password</CardTitle>
@@ -357,6 +361,17 @@ export default function SettingsPage() {
                 </Button>
               </CardContent>
             </Card>
+            )}
+            {user?.canChangePassword === false && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Password</CardTitle>
+                  <CardDescription>
+                    This account uses OTP or single sign-on. Set a password from the admin users screen if you need email/password login.
+                  </CardDescription>
+                </CardHeader>
+              </Card>
+            )}
           </div>
         </TabsContent>
 

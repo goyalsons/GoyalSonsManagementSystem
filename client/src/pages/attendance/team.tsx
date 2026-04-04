@@ -696,10 +696,10 @@ export default function TeamAttendancePage() {
             <div className="h-9 w-9 rounded-lg bg-indigo-500 flex items-center justify-center">
               <Users className="h-5 w-5 text-white" />
             </div>
-            Team Attendance
+            Team Task
           </h1>
           <p className="text-muted-foreground mt-1">
-            View attendance records for your team members
+            View task records for your team members
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

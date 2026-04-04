@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, Table2, RefreshCw } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
+import { usesEmployeeChannelDisplay } from "@/lib/user-session";
 import SalesExcelPivotTable, { type SalesDataRow } from "@/components/SalesExcelPivotTable";
 import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
@@ -20,7 +21,7 @@ export default function SalesStaffPage() {
   const { user, hasPolicy } = useAuth();
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const isEmployee = user?.loginType === "employee" || Boolean(user?.employeeCardNo);
+  const isEmployee = usesEmployeeChannelDisplay(user);
   const employeeCardNo = user?.employeeCardNo;
   const hasStaffView = hasPolicy("sales.staff.view");
   const hasManagerView = hasPolicy("assigned-manager.view");

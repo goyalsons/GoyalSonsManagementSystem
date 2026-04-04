@@ -278,6 +278,14 @@ export function registerAuthRoutes(app: Express): void {
    */
   app.get("/api/auth/me", requireAuth, async (req, res) => {
     try {
+      const cred = await prisma.user.findUnique({
+        where: { id: req.user!.id },
+        select: { passwordHash: true },
+      });
+      const canChangePassword = Boolean(
+        cred?.passwordHash && cred.passwordHash !== "otp-only-user"
+      );
+
       // User is already loaded by loadUserFromSession middleware
       res.json({
         id: req.user!.id,
@@ -291,6 +299,7 @@ export function registerAuthRoutes(app: Express): void {
         employeeId: req.user!.employeeId,
         employeeCardNo: req.user!.employeeCardNo,
         loginType: req.user!.loginType,
+        canChangePassword,
         isManager: req.user!.isManager,
         managerScopes: req.user!.managerScopes,
         employee: req.user!.employee,

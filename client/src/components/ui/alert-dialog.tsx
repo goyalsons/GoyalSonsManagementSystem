@@ -4,6 +4,25 @@ import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog"
 import { cn } from "@/lib/utils"
 import { buttonVariants } from "@/components/ui/button"
 
+function isRadixAlertDescription(type: unknown): boolean {
+  if (type === AlertDialogPrimitive.Description) return true
+  if (typeof type === "function" || typeof type === "object") {
+    const d = (type as { displayName?: string }).displayName
+    return d === AlertDialogPrimitive.Description.displayName
+  }
+  return false
+}
+
+function hasAlertDialogDescriptionInTree(node: React.ReactNode): boolean {
+  return React.Children.toArray(node).some((child) => {
+    if (!React.isValidElement(child)) return false
+    if (isRadixAlertDescription(child.type)) return true
+    const ch = (child.props as { children?: React.ReactNode }).children
+    if (ch !== undefined && ch !== null) return hasAlertDialogDescriptionInTree(ch)
+    return false
+  })
+}
+
 const AlertDialog = AlertDialogPrimitive.Root
 
 const AlertDialogTrigger = AlertDialogPrimitive.Trigger
@@ -28,7 +47,12 @@ AlertDialogOverlay.displayName = AlertDialogPrimitive.Overlay.displayName
 const AlertDialogContent = React.forwardRef<
   React.ElementRef<typeof AlertDialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Content>
->(({ className, ...props }, ref) => (
+>(({ className, ...props }, ref) => {
+  const suppressDescribedBy =
+    props["aria-describedby"] === undefined &&
+    !hasAlertDialogDescriptionInTree(props.children)
+
+  return (
   <AlertDialogPortal>
     <AlertDialogOverlay />
     <AlertDialogPrimitive.Content
@@ -38,9 +62,11 @@ const AlertDialogContent = React.forwardRef<
         className
       )}
       {...props}
+      {...(suppressDescribedBy ? { "aria-describedby": undefined } : {})}
     />
   </AlertDialogPortal>
-))
+  )
+})
 AlertDialogContent.displayName = AlertDialogPrimitive.Content.displayName
 
 const AlertDialogHeader = ({

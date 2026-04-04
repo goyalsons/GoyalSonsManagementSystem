@@ -4,6 +4,26 @@ import { X } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
+function isRadixDialogDescription(type: unknown): boolean {
+  if (type === DialogPrimitive.Description) return true
+  if (typeof type === "function" || typeof type === "object") {
+    const d = (type as { displayName?: string }).displayName
+    return d === DialogPrimitive.Description.displayName
+  }
+  return false
+}
+
+/** True if tree includes DialogDescription (avoids Radix a11y warning when absent). */
+function hasDialogDescriptionInTree(node: React.ReactNode): boolean {
+  return React.Children.toArray(node).some((child) => {
+    if (!React.isValidElement(child)) return false
+    if (isRadixDialogDescription(child.type)) return true
+    const ch = (child.props as { children?: React.ReactNode }).children
+    if (ch !== undefined && ch !== null) return hasDialogDescriptionInTree(ch)
+    return false
+  })
+}
+
 const Dialog = DialogPrimitive.Root
 
 const DialogTrigger = DialogPrimitive.Trigger
@@ -30,7 +50,11 @@ DialogOverlay.displayName = DialogPrimitive.Overlay.displayName
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
->(({ className, children, ...props }, ref) => (
+>(({ className, children, ...props }, ref) => {
+  const suppressDescribedBy =
+    props["aria-describedby"] === undefined && !hasDialogDescriptionInTree(children)
+
+  return (
   <DialogPortal>
     <DialogOverlay />
     <DialogPrimitive.Content
@@ -41,6 +65,7 @@ const DialogContent = React.forwardRef<
         className
       )}
       {...props}
+      {...(suppressDescribedBy ? { "aria-describedby": undefined } : {})}
     >
       {children}
       <DialogPrimitive.Close className="absolute right-4 top-4 rounded-full p-1.5 text-muted-foreground transition-colors hover:text-foreground hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none">
@@ -49,7 +74,8 @@ const DialogContent = React.forwardRef<
       </DialogPrimitive.Close>
     </DialogPrimitive.Content>
   </DialogPortal>
-))
+  )
+})
 DialogContent.displayName = DialogPrimitive.Content.displayName
 
 const DialogHeader = ({

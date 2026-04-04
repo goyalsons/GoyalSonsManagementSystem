@@ -93,7 +93,7 @@ export default function HrAttendanceQueriesPage() {
           <div className="h-9 w-9 rounded-lg bg-indigo-500 flex items-center justify-center">
             <ClipboardList className="h-5 w-5 text-white" />
           </div>
-          Attendance Queries
+          Task Queries
         </h1>
         <p className="text-muted-foreground mt-1">HR dashboard: per-submission cards, resolve or reject tickets</p>
       </div>

@@ -34,6 +34,8 @@ export interface UserAuth {
     designationCode: string | null;
     designationName: string | null;
   } | null;
+  /** False for OTP-only placeholder passwords; from GET /api/auth/me */
+  canChangePassword?: boolean;
 }
 
 interface AuthContextType {

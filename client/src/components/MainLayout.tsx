@@ -551,6 +551,8 @@ export default function MainLayout({ children }: MainLayoutProps) {
         return { ...item, subItems: filteredSubItems };
       });
   }, [hasPolicy, user?.roles]);
+
+  const settingsNavPolicy = getPolicyForPath("/settings");
   
   const visibleAdminItems = useMemo(() => {
     return adminItems.filter(item => item.policy !== null && hasPolicy(item.policy));
@@ -706,15 +708,17 @@ export default function MainLayout({ children }: MainLayoutProps) {
                     <p className="text-sm font-medium truncate text-slate-900 dark:text-slate-100">{user?.name}</p>
                   </div>
                 </DropdownMenuLabel>
-                <DropdownMenuSeparator className="bg-slate-200 dark:bg-slate-800" />
-                {user?.loginType === "mdo" && (
-                <Link href="/settings">
-                    <DropdownMenuItem className="cursor-pointer rounded-lg touch-manipulation hover:bg-slate-100 dark:hover:bg-slate-800">
-                    <Settings className="h-4 w-4 mr-2" />
-                    Settings
-                  </DropdownMenuItem>
-                </Link>
-                )}
+                {settingsNavPolicy && hasPolicy(settingsNavPolicy) && (
+                    <>
+                      <DropdownMenuSeparator className="bg-slate-200 dark:bg-slate-800" />
+                      <Link href="/settings">
+                        <DropdownMenuItem className="cursor-pointer rounded-lg touch-manipulation hover:bg-slate-100 dark:hover:bg-slate-800">
+                          <Settings className="h-4 w-4 mr-2" />
+                          Settings
+                        </DropdownMenuItem>
+                      </Link>
+                    </>
+                  )}
                 <DropdownMenuSeparator className="bg-slate-200 dark:bg-slate-800" />
                 <DropdownMenuItem 
                   className="cursor-pointer text-destructive focus:text-destructive rounded-lg touch-manipulation hover:bg-destructive/10 dark:hover:bg-destructive/20"
