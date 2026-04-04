@@ -200,7 +200,7 @@ export default function TeamAttendancePage() {
   const [pendingSave, setPendingSave] = useState<Record<string, { status: VerificationStatus; query?: string }>>({});
   const [checkSearch, setCheckSearch] = useState("");
   const [checkUnitFilter, setCheckUnitFilter] = useState("all");
-  const [checkBranchFilter, setCheckBranchFilter] = useState("all");
+  const [checkDesignationFilter, setCheckDesignationFilter] = useState("all");
   const [checkDepartmentFilter, setCheckDepartmentFilter] = useState("all");
   const [checkPendingFilter, setCheckPendingFilter] = useState("all");
   const canViewTeam = hasPolicy("attendance.team.view");
@@ -563,16 +563,12 @@ export default function TeamAttendancePage() {
       ).sort((a, b) => a.localeCompare(b)),
     [teamMembers, getMemberBranchFallback]
   );
-  const branchOptions = useMemo(
+  const designationOptions = useMemo(
     () =>
       Array.from(
-        new Set(
-          teamMembers
-            .map((m) => (m.orgUnit?.name || getMemberBranchFallback(m.id) || "").trim())
-            .filter(Boolean)
-        )
+        new Set(teamMembers.map((m) => (m.designation?.name || "").trim()).filter(Boolean))
       ).sort((a, b) => a.localeCompare(b)),
-    [teamMembers, getMemberBranchFallback]
+    [teamMembers]
   );
   const departmentOptions = useMemo(
     () =>
@@ -588,20 +584,20 @@ export default function TeamAttendancePage() {
       const fullName = `${m.firstName} ${m.lastName || ""}`.trim().toLowerCase();
       const encodedDisplayName = encodeName(`${m.firstName} ${m.lastName || ""}`.trim() || "—").toLowerCase();
       const card = (m.cardNumber || "").toLowerCase();
-      const fallbackBranch = getMemberBranchFallback(m.id).toLowerCase();
-      const unit = (m.orgUnit?.code || fallbackBranch || "").toLowerCase();
-      const branch = (m.orgUnit?.name || fallbackBranch || "").toLowerCase();
+      const fallbackUnit = getMemberBranchFallback(m.id).toLowerCase();
+      const unit = (m.orgUnit?.code || fallbackUnit || "").toLowerCase();
+      const designation = (m.designation?.name || "").toLowerCase();
       const dept = (m.department?.name || "").toLowerCase();
 
-      if (q && ![fullName, encodedDisplayName, card, unit, branch, dept].some((v) => v.includes(q))) return false;
+      if (q && ![fullName, encodedDisplayName, card, unit, designation, dept].some((v) => v.includes(q))) return false;
       if (checkUnitFilter !== "all" && unit !== checkUnitFilter.toLowerCase()) return false;
-      if (checkBranchFilter !== "all" && branch !== checkBranchFilter.toLowerCase()) return false;
+      if (checkDesignationFilter !== "all" && designation !== checkDesignationFilter.toLowerCase()) return false;
       if (checkDepartmentFilter !== "all" && dept !== checkDepartmentFilter.toLowerCase()) return false;
       if (checkPendingFilter === "pending" && !isPendingMember(m.id)) return false;
       if (checkPendingFilter === "verified" && isPendingMember(m.id)) return false;
       return true;
     });
-  }, [teamMembers, checkSearch, checkUnitFilter, checkBranchFilter, checkDepartmentFilter, checkPendingFilter, isPendingMember, getMemberBranchFallback]);
+  }, [teamMembers, checkSearch, checkUnitFilter, checkDesignationFilter, checkDepartmentFilter, checkPendingFilter, isPendingMember, getMemberBranchFallback]);
 
   const handleSearch = async () => {
     const q = searchInput.trim();
@@ -760,7 +756,7 @@ export default function TeamAttendancePage() {
                       <Input
                         value={checkSearch}
                         onChange={(e) => setCheckSearch(e.target.value)}
-                        placeholder="Search by name/card/unit/branch/department"
+                        placeholder="Search by name/card/unit/designation/department"
                         className="mt-1"
                       />
                     </div>
@@ -775,12 +771,12 @@ export default function TeamAttendancePage() {
                       </Select>
                     </div>
                     <div>
-                      <Label className="text-xs text-muted-foreground">Branch</Label>
-                      <Select value={checkBranchFilter} onValueChange={setCheckBranchFilter}>
-                        <SelectTrigger className="mt-1"><SelectValue placeholder="All Branches" /></SelectTrigger>
+                      <Label className="text-xs text-muted-foreground">Designation</Label>
+                      <Select value={checkDesignationFilter} onValueChange={setCheckDesignationFilter}>
+                        <SelectTrigger className="mt-1"><SelectValue placeholder="All Designations" /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="all">All Branches</SelectItem>
-                          {branchOptions.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}
+                          <SelectItem value="all">All Designations</SelectItem>
+                          {designationOptions.map((d) => <SelectItem key={d} value={d}>{d}</SelectItem>)}
                         </SelectContent>
                       </Select>
                     </div>

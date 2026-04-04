@@ -4,6 +4,33 @@ import { requireAuth, requirePolicy } from "../lib/auth-middleware";
 import { replaceUserRoles } from "../lib/role-replacement";
 import { invalidateSessionsForUser } from "../lib/auth-cache";
 
+async function attachManagerNames<T extends { mcardno: string }>(
+  rows: T[]
+): Promise<(T & { managerFirstName: string | null; managerLastName: string | null })[]> {
+  const cards = [...new Set(rows.map((r) => String(r.mcardno ?? "").trim()).filter(Boolean))];
+  if (cards.length === 0) {
+    return rows.map((r) => ({ ...r, managerFirstName: null, managerLastName: null }));
+  }
+  const employees = await prisma.employee.findMany({
+    where: { cardNumber: { in: cards } },
+    select: { cardNumber: true, firstName: true, lastName: true },
+  });
+  const byCard = new Map(
+    employees
+      .filter((e): e is typeof e & { cardNumber: string } => e.cardNumber != null)
+      .map((e) => [e.cardNumber, { firstName: e.firstName, lastName: e.lastName }])
+  );
+  return rows.map((r) => {
+    const key = String(r.mcardno).trim();
+    const em = byCard.get(key);
+    return {
+      ...r,
+      managerFirstName: em?.firstName ?? null,
+      managerLastName: em?.lastName ?? null,
+    };
+  });
+}
+
 export function registerEmpManagerRoutes(app: Express) {
   // POST /api/emp-manager - Assign or update manager
   app.post("/api/emp-manager", requireAuth, async (req, res) => {
@@ -346,8 +373,25 @@ export function registerEmpManagerRoutes(app: Express) {
         WHERE "mis_extinct" = false
         ORDER BY "mcardno"
       `;
-      res.json({ success: true, data: managers });
+      const withNames = await attachManagerNames(managers);
+      res.json({ success: true, data: withNames });
     } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message, data: [] });
+    }
+  });
+
+  // GET /api/emp-manager/all — active + extinct (same columns as list endpoint)
+  app.get("/api/emp-manager/all", requireAuth, async (req, res) => {
+    try {
+      const managers = await prisma.$queryRaw<Array<any>>`
+        SELECT "mid", "mcardno", "mdepartmentIds", "mdesignationIds", "morgUnitIds", "mis_extinct"
+        FROM "emp_manager"
+        ORDER BY "mis_extinct" ASC, "mcardno", "mid" DESC
+      `;
+      const withNames = await attachManagerNames(managers);
+      res.json({ success: true, data: withNames });
+    } catch (error: any) {
+      console.error("Get all managers error:", error);
       res.status(500).json({ success: false, message: error.message, data: [] });
     }
   });

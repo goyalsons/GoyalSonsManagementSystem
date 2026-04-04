@@ -296,7 +296,7 @@ export function CheckViewCard(props: CheckViewCardProps) {
               const hasRecords = (memberAttendanceMap.get(member.id)?.records?.length ?? 0) > 0;
               const firstRecord = (memberAttendanceMap.get(member.id)?.records?.[0] ?? null) as AttendanceRecordWithBranch | null;
               const departmentName = member.department?.name || "—";
-              const branchName = member.orgUnit?.name || firstRecord?.branch_code || "—";
+              const designationName = member.designation?.name || "—";
               const unitCode = member.orgUnit?.code || firstRecord?.branch_code || "—";
               return (
                 <div
@@ -323,7 +323,7 @@ export function CheckViewCard(props: CheckViewCardProps) {
                     <div className="font-medium truncate text-sm">{encodeName(fullName)}</div>
                     <div className="text-xs text-muted-foreground font-mono truncate">{member.cardNumber || member.id}</div>
                     <div className="text-[11px] text-muted-foreground truncate">
-                      Dept: {departmentName} | Branch: {branchName}
+                      Dept: {departmentName} | Designation: {designationName}
                     </div>
                     {expanded && (
                       <div className="text-[11px] text-muted-foreground truncate">

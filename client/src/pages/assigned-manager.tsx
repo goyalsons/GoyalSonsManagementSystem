@@ -56,6 +56,8 @@ interface EmpManager {
   mdesignationIds: string[];
   morgUnitIds: string[];
   mis_extinct: boolean;
+  managerFirstName?: string | null;
+  managerLastName?: string | null;
 }
 
 interface Employee {
@@ -883,6 +885,7 @@ export default function AssignedManagerPage() {
                   <TableRow>
                     <TableHead>S.No</TableHead>
                     <TableHead>Card Number</TableHead>
+                    <TableHead>Name</TableHead>
                     <TableHead>Department</TableHead>
                     <TableHead>Designation</TableHead>
                     <TableHead>Org Unit</TableHead>
@@ -897,6 +900,14 @@ export default function AssignedManagerPage() {
                       </TableCell>
                       <TableCell className="font-mono font-medium">
                         {manager.mcardno}
+                      </TableCell>
+                      <TableCell className="text-slate-800">
+                        {(manager.managerFirstName?.trim() ?? "") !== "" ||
+                        (manager.managerLastName?.trim() ?? "") !== "" ? (
+                          encodeFullName(manager.managerFirstName, manager.managerLastName)
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
                       </TableCell>
                       <TableCell>
                         {manager.mdepartmentIds && manager.mdepartmentIds.length > 0 ? (
@@ -962,6 +973,10 @@ export default function AssignedManagerPage() {
               {managerToDelete && (
                 <div className="mt-2 p-2 bg-slate-100 rounded text-sm">
                   <p><strong>Card Number:</strong> {managerToDelete.mcardno}</p>
+                  {((managerToDelete.managerFirstName?.trim() ?? "") !== "" ||
+                    (managerToDelete.managerLastName?.trim() ?? "") !== "") && (
+                    <p><strong>Name:</strong> {encodeFullName(managerToDelete.managerFirstName, managerToDelete.managerLastName)}</p>
+                  )}
                   {managerToDelete.mdepartmentIds && managerToDelete.mdepartmentIds.length > 0 && (
                     <p><strong>Departments:</strong> {getDepartmentNames(managerToDelete.mdepartmentIds)}</p>
                   )}

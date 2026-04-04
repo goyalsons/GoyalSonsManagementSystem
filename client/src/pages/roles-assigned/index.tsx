@@ -94,7 +94,8 @@ export default function RolesAssignedPage() {
   const [policySearchQuery, setPolicySearchQuery] = useState<string>(""); // Search for policies
   const [viewMode, setViewMode] = useState<"policies" | "members">("policies"); // "policies" or "members"
   const [roleDialogOpen, setRoleDialogOpen] = useState(false);
-  const [replaceExistingRoles, setReplaceExistingRoles] = useState(false);
+  /** Default true: one role per user in DB; replacing avoids P2002 when switching Director → Employee. */
+  const [replaceExistingRoles, setReplaceExistingRoles] = useState(true);
   
   // Add Role Dialog State
   const [addRoleDialogOpen, setAddRoleDialogOpen] = useState(false);
@@ -328,7 +329,7 @@ export default function RolesAssignedPage() {
     setSelectedDepartments(new Set());
     setSelectedDesignations(new Set());
     setViewMode("policies");
-    setReplaceExistingRoles(false);
+    setReplaceExistingRoles(true);
     setRoleDialogOpen(true);
     // Reset selected policies - will be set when roleDetails loads
     setSelectedPolicies(new Set());
@@ -345,7 +346,7 @@ export default function RolesAssignedPage() {
     setSelectedDepartments(new Set());
     setSelectedDesignations(new Set());
     setViewMode("policies");
-    setReplaceExistingRoles(false);
+    setReplaceExistingRoles(true);
     setRoleDialogOpen(true);
     // Reset selected policies - will be set when roleDetails loads
     setSelectedPolicies(new Set());
@@ -421,7 +422,7 @@ export default function RolesAssignedPage() {
     setSelectedDepartments(new Set());
     setSelectedDesignations(new Set());
     setViewMode("members");
-    setReplaceExistingRoles(false);
+    setReplaceExistingRoles(true);
     setRoleDialogOpen(true);
   };
 
@@ -488,10 +489,21 @@ export default function RolesAssignedPage() {
     onSuccess: (results) => {
       const successCount = results.filter((r) => r.success).length;
       const failCount = results.length - successCount;
-      
+      const failMessages = results
+        .filter((r): r is { employeeId: string; success: false; error: string } => !r.success)
+        .map((r) => r.error)
+        .filter(Boolean);
+      const policyNote =
+        successCount > 0
+          ? " Role policies were applied for successful assignments."
+          : "";
+
       toast({
-        title: "Roles assigned",
-        description: `${successCount} employee(s) assigned successfully${failCount > 0 ? `. ${failCount} failed.` : ""}. All role policies have been automatically assigned.`,
+        title: failCount > 0 && successCount === 0 ? "Role assignment failed" : "Roles assigned",
+        description: `${successCount} employee(s) assigned successfully.${failCount > 0 ? ` ${failCount} failed.` : ""}${policyNote}${
+          failMessages.length > 0 ? ` ${failMessages.join(" ")}` : ""
+        }`,
+        variant: failCount > 0 && successCount === 0 ? "destructive" : undefined,
       });
       queryClient.invalidateQueries({ queryKey: ["employees"] });
       queryClient.invalidateQueries({ queryKey: ["employees", "all-active"] });
@@ -506,7 +518,7 @@ export default function RolesAssignedPage() {
       setSelectedUnits(new Set());
       setSelectedDepartments(new Set());
       setSelectedDesignations(new Set());
-      setReplaceExistingRoles(false);
+      setReplaceExistingRoles(true);
     },
     onError: (error: any) => {
       toast({
@@ -1070,7 +1082,7 @@ export default function RolesAssignedPage() {
             setSelectedUnits(new Set());
             setSelectedDepartments(new Set());
             setSelectedDesignations(new Set());
-            setReplaceExistingRoles(false);
+            setReplaceExistingRoles(true);
           }
         }}
       >
@@ -1551,6 +1563,7 @@ export default function RolesAssignedPage() {
               <>
                 <Button
                   onClick={() => {
+                    setReplaceExistingRoles(true);
                     setViewMode("members");
                   }}
                   variant="outline"

@@ -40,9 +40,19 @@ export function registerUserAssignmentRoutes(app: Express): void {
       });
 
       if (!securityCheck.allowed) {
+        const extra =
+          securityCheck.reason === "privilege_escalation_prevention" &&
+          securityCheck.missingPolicies?.length
+            ? ` You lack these policies on the role: ${securityCheck.missingPolicies.join(", ")}.`
+            : securityCheck.reason === "target_user_out_of_scope"
+              ? " Target user is outside your org scope."
+              : securityCheck.reason
+                ? ` (${securityCheck.reason})`
+                : "";
         return res.status(403).json({
-          message: "Access denied",
-          reason: securityCheck.reason
+          message: `Access denied.${extra}`,
+          reason: securityCheck.reason,
+          missingPolicies: securityCheck.missingPolicies,
         });
       }
 
@@ -104,7 +114,10 @@ export function registerUserAssignmentRoutes(app: Express): void {
       });
     } catch (error: any) {
       if (error.code === "P2002") {
-        return res.status(400).json({ message: "Role is already assigned to this user" });
+        return res.status(400).json({
+          message:
+            'Only one role is allowed per user. Turn on "Replace existing roles" when assigning, or remove their current role first.',
+        });
       }
       console.error("Assign role error:", error);
       res.status(500).json({ message: "Failed to assign role" });
