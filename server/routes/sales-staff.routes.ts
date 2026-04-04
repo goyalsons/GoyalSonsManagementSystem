@@ -12,6 +12,12 @@ const SALES_API_PORT = parseInt(process.env.SALES_API_PORT || "99", 10);
 const SALES_API_PATH = process.env.SALES_API_PATH || '/gsweb_v3/webform2.aspx';
 const SALES_API_KEY = process.env.SALES_API_KEY || 'ank2024';
 
+/** Wall-clock zone for vendor UPD_ON (default IST). Railway is UTC; local dev is often IST — without a fixed offset, "last refresh" can differ by ~5.5h. */
+function salesVendorUpdOnUtcOffset(): string {
+  const raw = (process.env.SALES_VENDOR_UPD_ON_UTC_OFFSET || "+05:30").trim();
+  return /^[+-]\d{2}:\d{2}$/.test(raw) ? raw : "+05:30";
+}
+
 export let runSalesPivotRefresh: (() => Promise<void>) | null = null;
 
 // Helper function to ensure database connection is alive
@@ -737,23 +743,26 @@ export function registerSalesStaffRoutes(app: Express) {
   // ==================== SALES PIVOT API ====================
   function parseApiHitDate(value: string | null | undefined): Date | null {
     if (!value) return null;
-    const parsed = new Date(value);
-    if (!isNaN(parsed.getTime())) return parsed;
 
-    const match = value.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})\s*(AM|PM)$/i);
-    if (match) {
-      const month = parseInt(match[1], 10);
-      const day = parseInt(match[2], 10);
-      const year = parseInt(match[3], 10);
-      let hour = parseInt(match[4], 10);
-      const minute = parseInt(match[5], 10);
-      const second = parseInt(match[6], 10);
-      const meridiem = match[7].toUpperCase();
+    const slashAmPm = value.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})\s*(AM|PM)$/i);
+    if (slashAmPm) {
+      const month = parseInt(slashAmPm[1], 10);
+      const day = parseInt(slashAmPm[2], 10);
+      const year = parseInt(slashAmPm[3], 10);
+      let hour = parseInt(slashAmPm[4], 10);
+      const minute = parseInt(slashAmPm[5], 10);
+      const second = parseInt(slashAmPm[6], 10);
+      const meridiem = slashAmPm[7].toUpperCase();
       if (meridiem === "PM" && hour < 12) hour += 12;
       if (meridiem === "AM" && hour === 12) hour = 0;
-      const manual = new Date(year, month - 1, day, hour, minute, second);
-      return isNaN(manual.getTime()) ? null : manual;
+      const offset = salesVendorUpdOnUtcOffset();
+      const iso = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:${String(second).padStart(2, "0")}${offset}`;
+      const zoned = new Date(iso);
+      return isNaN(zoned.getTime()) ? null : zoned;
     }
+
+    const parsed = new Date(value);
+    if (!isNaN(parsed.getTime())) return parsed;
 
     return null;
   }
