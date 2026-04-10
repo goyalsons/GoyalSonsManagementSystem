@@ -75,6 +75,14 @@ interface ConfigResponse {
   configured: boolean;
 }
 
+interface EmployeeByCardResponse {
+  id: string;
+  cardNumber: string | null;
+  firstName: string;
+  lastName: string | null;
+  weeklyOff: string | null;
+}
+
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December"
@@ -87,13 +95,81 @@ interface StatusStyle {
   dots: { color: string; count: number }[];
 }
 
+function parseWeeklyOffDays(weeklyOff: string | null | undefined): Set<number> {
+  const out = new Set<number>();
+  if (!weeklyOff) return out;
+  const text = weeklyOff.toUpperCase();
+  const map: Record<string, number> = {
+    SUN: 0, SUNDAY: 0,
+    MON: 1, MONDAY: 1,
+    TUE: 2, TUESDAY: 2,
+    WED: 3, WEDNESDAY: 3,
+    THU: 4, THURSDAY: 4,
+    FRI: 5, FRIDAY: 5,
+    SAT: 6, SATURDAY: 6,
+  };
+  const tokens = text.split(/[^A-Z0-9]+/).filter(Boolean);
+  for (const t of tokens) {
+    if (Object.prototype.hasOwnProperty.call(map, t)) out.add(map[t]);
+    else if (/^[0-6]$/.test(t)) out.add(Number(t));
+  }
+  return out;
+}
+
+function isWeeklyOffDay(
+  dateLike: string | null | undefined,
+  weeklyOff: string | null | undefined,
+): boolean {
+  if (!dateLike) return false;
+  const d = new Date(dateLike);
+  if (Number.isNaN(d.getTime())) return false;
+  const offDays = parseWeeklyOffDays(weeklyOff);
+  if (offDays.size === 0) return false;
+  return offDays.has(d.getDay());
+}
+
+function getDisplayStatusLabel(status: string, dateLike?: string | null, weeklyOff?: string | null): string {
+  const s = (status || "").toUpperCase().trim();
+  if (s === "ABSENT" && isWeeklyOffDay(dateLike || null, weeklyOff || null)) {
+    return "WEEKLY MEETING DAY";
+  }
+  return s || "-";
+}
+
+function getBaseStatusBgColor(status: string): string {
+  const s = (status || "").toUpperCase().trim();
+  if (s === "DOUBLE ABSENT" || s === "DOUBLE A" || s.includes("DOUBLE")) return "#ef4444";
+  if (s === "ABSENT") return "#ef4444";
+  if (s === "PRESENT") return "#10b981";
+  if (s === "PRESENT LATE") return "#10b981";
+  if (s === "PRESENT EARLY_OUT" || s === "PRESENT E") return "#10b981";
+  if (s === "PRESENT LATE EARLY_OUT" || s === "PRESENT L") return "#10b981";
+  if (s === "HALFDAY" || s === "HALF DAY") return "#eab308";
+  if (s === "MISS OUT" || s === "MISS IN") return "#f97316";
+  if (s === "MISS PENDING" || s === "MISS PEND") return "var(--muted)";
+  if (s === "LEAVE") return "#3b82f6";
+  if (s === "WEEKLY OFF" || s === "WO") return "#a855f7";
+  if (s.includes("PRESENT")) return "#10b981";
+  if (s.includes("ABSENT")) return "#ef4444";
+  if (s.includes("MISS")) return "#f97316";
+  if (s.includes("HALF")) return "#eab308";
+  return "var(--muted)";
+}
+
 /**
  * Maps BigQuery STATUS field directly to visual style.
  * Exact mapping from user specification - NO client-side calculations.
  * Colors are determined ONLY by what BigQuery returns in the STATUS field.
  */
-function getStatusStyle(status: string): StatusStyle {
+function getStatusStyle(status: string, dateLike?: string | null, weeklyOff?: string | null): StatusStyle {
   const s = (status || "").toUpperCase().trim();
+
+  // Weekly off day: split background (half weekly-off purple + half actual status color)
+  if (isWeeklyOffDay(dateLike || null, weeklyOff || null)) {
+    const other = getBaseStatusBgColor(status);
+    const purple = "#a855f7";
+    return { bgColor: `linear-gradient(90deg, ${purple} 0 50%, ${other} 50% 100%)`, dots: [] };
+  }
   
   // DOUBLE ABSENT - Red with 2 black dots
   if (s === "DOUBLE ABSENT" || s === "DOUBLE A" || s.includes("DOUBLE")) {
@@ -290,6 +366,12 @@ export default function AttendanceHistoryPage() {
     enabled: !!searchCardNo && configData?.configured,
     staleTime: 0,
     refetchOnMount: true,
+  });
+
+  const { data: employeeByCard } = useQuery<EmployeeByCardResponse>({
+    queryKey: ["employee-by-card", searchCardNo],
+    queryFn: () => apiGet(`/employees/by-card/${encodeURIComponent(searchCardNo)}`),
+    enabled: !!searchCardNo,
   });
 
   const handleSearch = () => {
@@ -669,7 +751,7 @@ export default function AttendanceHistoryPage() {
                       );
                     }
 
-                    const style = getStatusStyle(cell.record.STATUS);
+                    const style = getStatusStyle(cell.record.STATUS, String(cell.record.dt), employeeByCard?.weeklyOff);
                     const isMuted = style.bgColor.includes("var(--muted)");
                     const isWhite = style.bgColor.toLowerCase() === "#ffffff";
                     
@@ -677,7 +759,7 @@ export default function AttendanceHistoryPage() {
                       <div
                         key={index}
                         className="aspect-square sm:h-14 border border-border/50 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all relative overflow-hidden"
-                        style={{ backgroundColor: style.bgColor }}
+                        style={{ background: style.bgColor }}
                         onClick={() => openDetails(cell.record!)}
                       >
                         <span className={`text-sm sm:text-base font-bold ${(isWhite || isMuted) ? 'text-foreground' : 'text-white shadow-sm'}`}>
@@ -790,13 +872,11 @@ export default function AttendanceHistoryPage() {
                     <span className="text-muted-foreground">Status:</span>
                     <div>
                       {(() => {
-                        const statusStyle = getStatusStyle(selectedRecord.STATUS);
+                        const statusStyle = getStatusStyle(selectedRecord.STATUS, String(selectedRecord.dt), employeeByCard?.weeklyOff);
                         return (
                           <Badge 
-                            className="border-none shadow-sm relative w-12 h-6 flex items-center justify-center"
-                            style={{ 
-                              backgroundColor: statusStyle.bgColor,
-                            }}
+                            className="border-none shadow-sm relative min-w-12 h-6 flex items-center justify-center"
+                        style={{ background: statusStyle.bgColor }}
                           >
                             {statusStyle.dots.length > 0 ? (
                               <div className="flex justify-center gap-0.5">
@@ -814,6 +894,9 @@ export default function AttendanceHistoryPage() {
                           </Badge>
                         );
                       })()}
+                      <div className="text-[11px] text-muted-foreground font-medium mt-1">
+                        {getDisplayStatusLabel(selectedRecord.STATUS, String(selectedRecord.dt), employeeByCard?.weeklyOff)}
+                      </div>
                       {isVerificationPendingForRecord(selectedRecord) && (
                         <div className="text-[11px] text-muted-foreground font-medium mt-1">
                           Verification Pending

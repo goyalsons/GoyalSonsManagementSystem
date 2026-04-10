@@ -41,7 +41,57 @@ type AttendanceRecordWithBranch = AttendanceRecord & {
   entry_type?: string | null;
 };
 
-function getStatusStyle(status: string): StatusStyle {
+function parseWeeklyOffDays(weeklyOff: string | null | undefined): Set<number> {
+  const out = new Set<number>();
+  if (!weeklyOff) return out;
+  const text = weeklyOff.toUpperCase();
+  const map: Record<string, number> = {
+    SUN: 0, SUNDAY: 0,
+    MON: 1, MONDAY: 1,
+    TUE: 2, TUESDAY: 2,
+    WED: 3, WEDNESDAY: 3,
+    THU: 4, THURSDAY: 4,
+    FRI: 5, FRIDAY: 5,
+    SAT: 6, SATURDAY: 6,
+  };
+  const tokens = text.split(/[^A-Z0-9]+/).filter(Boolean);
+  for (const t of tokens) {
+    if (Object.prototype.hasOwnProperty.call(map, t)) out.add(map[t]);
+    else if (/^[0-6]$/.test(t)) out.add(Number(t));
+  }
+  return out;
+}
+
+function isWeeklyOffDay(
+  dateLike: string | null | undefined,
+  weeklyOff: string | null | undefined,
+): boolean {
+  if (!dateLike) return false;
+  const d = new Date(dateLike);
+  if (Number.isNaN(d.getTime())) return false;
+  const offDays = parseWeeklyOffDays(weeklyOff);
+  if (offDays.size === 0) return false;
+  return offDays.has(d.getDay());
+}
+
+function getBaseStatusBgColor(status: string): string {
+  const s = (status || "").toUpperCase().trim();
+  if (s === "DOUBLE ABSENT" || s === "DOUBLE A" || s.includes("DOUBLE")) return "#ef4444";
+  if (s === "ABSENT") return "#ef4444";
+  if (s.includes("PRESENT")) return "#10b981";
+  if (s === "HALFDAY" || s === "HALF DAY" || s.includes("HALF")) return "#eab308";
+  if (s.includes("MISS")) return "#f97316";
+  if (s === "LEAVE") return "#3b82f6";
+  if (s === "WEEKLY OFF" || s === "WO") return "#a855f7";
+  return "var(--muted)";
+}
+
+function getStatusStyle(status: string, dateLike?: string | null, weeklyOff?: string | null): StatusStyle {
+  if (isWeeklyOffDay(dateLike || null, weeklyOff || null)) {
+    const purple = "#a855f7";
+    const other = getBaseStatusBgColor(status);
+    return { bgColor: `linear-gradient(90deg, ${purple} 0 50%, ${other} 50% 100%)`, dots: [] };
+  }
   const s = (status || "").toUpperCase().trim();
   if (s === "DOUBLE ABSENT" || s === "DOUBLE A" || s.includes("DOUBLE")) {
     return { bgColor: "#ef4444", dots: [{ color: "#000000", count: 2 }] };
@@ -91,6 +141,7 @@ export interface CheckViewCardProps {
   isLoading: boolean;
   savePending: () => void;
   pendingSave: Record<string, { status: VerificationStatus; query?: string }>;
+  weeklyOffByCard: Record<string, string | null>;
 }
 
 export function CheckViewCard(props: CheckViewCardProps) {
@@ -119,6 +170,7 @@ export function CheckViewCard(props: CheckViewCardProps) {
     isLoading,
     savePending,
     pendingSave,
+    weeklyOffByCard,
   } = props;
 
   const viewMemberId = teamMembers.find((m) => selectedCheckMemberIds.has(m.id))?.id ?? null;
@@ -419,7 +471,8 @@ export function CheckViewCard(props: CheckViewCardProps) {
                   <div className="flex flex-wrap gap-1">
                     {grid.map((cell) => {
                       const { day, record, isFuture, dateStr } = cell;
-                      const style = record ? getStatusStyle(record.STATUS) : null;
+                      const weeklyOff = member?.cardNumber ? weeklyOffByCard[member.cardNumber] : null;
+                      const style = record ? getStatusStyle(record.STATUS, dateStr, weeklyOff) : null;
                       const isMuted = style?.bgColor?.includes("var(--muted)");
                       const verStatus = member ? getStatus(member.id, dateStr) : null;
                       const isNotCorrect = verStatus === "NOT_CORRECT";

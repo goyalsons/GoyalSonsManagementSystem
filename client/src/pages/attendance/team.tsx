@@ -100,6 +100,14 @@ interface TeamMember {
   orgUnit?: { name: string | null; code: string | null } | null;
 }
 
+interface EmployeeByCardResponse {
+  id: string;
+  cardNumber: string | null;
+  firstName: string;
+  lastName: string | null;
+  weeklyOff: string | null;
+}
+
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December"
@@ -107,7 +115,53 @@ const MONTHS = [
 
 const YEARS = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i);
 
-function getStatusColor(status: string): string {
+function parseWeeklyOffDays(weeklyOff: string | null | undefined): Set<number> {
+  const out = new Set<number>();
+  if (!weeklyOff) return out;
+  const text = weeklyOff.toUpperCase();
+  const map: Record<string, number> = {
+    SUN: 0, SUNDAY: 0,
+    MON: 1, MONDAY: 1,
+    TUE: 2, TUESDAY: 2,
+    WED: 3, WEDNESDAY: 3,
+    THU: 4, THURSDAY: 4,
+    FRI: 5, FRIDAY: 5,
+    SAT: 6, SATURDAY: 6,
+  };
+  const tokens = text.split(/[^A-Z0-9]+/).filter(Boolean);
+  for (const t of tokens) {
+    if (Object.prototype.hasOwnProperty.call(map, t)) out.add(map[t]);
+    else if (/^[0-6]$/.test(t)) out.add(Number(t));
+  }
+  return out;
+}
+
+function isWeeklyOffDay(
+  dateLike: string | null | undefined,
+  weeklyOff: string | null | undefined,
+): boolean {
+  if (!dateLike) return false;
+  const d = new Date(dateLike);
+  if (Number.isNaN(d.getTime())) return false;
+  const offDays = parseWeeklyOffDays(weeklyOff);
+  if (offDays.size === 0) return false;
+  return offDays.has(d.getDay());
+}
+
+function getBaseStatusBgColor(status: string): string {
+  const s = (status || "").toUpperCase().trim();
+  if (s.includes("DOUBLE") && s.includes("ABSENT")) return "#ef4444";
+  if (s === "ABSENT") return "#ef4444";
+  if (s.includes("PRESENT")) return "#10b981";
+  if (s === "HALFDAY" || s === "HALF DAY" || s.includes("HALF")) return "#eab308";
+  if (s.includes("MISS")) return "#f97316";
+  if (s === "LEAVE") return "#3b82f6";
+  if (s === "WEEKLY OFF" || s === "WO") return "#a855f7";
+  return "var(--muted)";
+}
+
+function getStatusColor(status: string, dateLike?: string | null, weeklyOff?: string | null): string {
+  if (isWeeklyOffDay(dateLike || null, weeklyOff || null)) return "#a855f7";
   const s = (status || "").toUpperCase().trim();
   if (s.includes("DOUBLE") && s.includes("ABSENT")) return "#ef4444";
   if (s === "ABSENT") return "#ef4444";
@@ -119,8 +173,9 @@ function getStatusColor(status: string): string {
   return "#9ca3af";
 }
 
-function getStatusLabel(status: string): string {
+function getStatusLabel(status: string, dateLike?: string | null, weeklyOff?: string | null): string {
   const s = (status || "").toUpperCase().trim();
+  if (s === "ABSENT" && isWeeklyOffDay(dateLike || null, weeklyOff || null)) return "WEEKLY MEETING DAY";
   if (s.includes("PRESENT")) return "P";
   if (s === "ABSENT" || s.includes("DOUBLE")) return "A";
   if (s.includes("HALF")) return "HD";
@@ -135,7 +190,12 @@ interface StatusStyle {
   dots: { color: string; count: number }[];
 }
 
-function getStatusStyle(status: string): StatusStyle {
+function getStatusStyle(status: string, dateLike?: string | null, weeklyOff?: string | null): StatusStyle {
+  if (isWeeklyOffDay(dateLike || null, weeklyOff || null)) {
+    const purple = "#a855f7";
+    const other = getBaseStatusBgColor(status);
+    return { bgColor: `linear-gradient(90deg, ${purple} 0 50%, ${other} 50% 100%)`, dots: [] };
+  }
   const s = (status || "").toUpperCase().trim();
   if (s === "DOUBLE ABSENT" || s === "DOUBLE A" || s.includes("DOUBLE")) {
     return { bgColor: "#ef4444", dots: [{ color: "#000000", count: 2 }] };
@@ -228,6 +288,28 @@ export default function TeamAttendancePage() {
   });
 
   const teamMembers: TeamMember[] = teamResponse?.data ?? [];
+
+  const { data: weeklyOffByCard = {} } = useQuery<Record<string, string | null>>({
+    queryKey: ["team-weekly-off", teamMembers.map((m) => m.cardNumber).join("|")],
+    enabled: canViewTeam && teamMembers.length > 0,
+    queryFn: async () => {
+      const entries = await Promise.all(
+        teamMembers
+          .filter((m) => Boolean(m.cardNumber))
+          .map(async (m) => {
+            const emp = await apiGet(`/employees/by-card/${encodeURIComponent(String(m.cardNumber))}`) as EmployeeByCardResponse;
+            return [String(m.cardNumber), emp?.weeklyOff ?? null] as const;
+          }),
+      );
+      return Object.fromEntries(entries);
+    },
+  });
+
+  const selectedMemberCardNo = useMemo(
+    () => teamMembers.find((m) => m.cardNumber === selectedMember || m.id === selectedMember)?.cardNumber ?? null,
+    [teamMembers, selectedMember],
+  );
+  const selectedMemberWeeklyOff = selectedMemberCardNo ? (weeklyOffByCard[selectedMemberCardNo] ?? null) : null;
 
   // Fetch attendance for selected member or all team
   const { data: attendanceData, isLoading: loadingAttendance, refetch: refetchAttendance } = useQuery<AttendanceResponse>({
@@ -825,6 +907,7 @@ export default function TeamAttendancePage() {
                 isLoading={isCheckLoading}
                 savePending={savePending}
                 pendingSave={pendingSave}
+                weeklyOffByCard={weeklyOffByCard}
               />
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
@@ -1154,13 +1237,13 @@ export default function TeamAttendancePage() {
                     </div>
                   );
                 }
-                const style = getStatusStyle(cell.record.STATUS);
+                const style = getStatusStyle(cell.record.STATUS, String(cell.record.dt), selectedMemberWeeklyOff);
                 const isMuted = style.bgColor.includes("var(--muted)");
                 return (
                   <div
                     key={index}
                     className="aspect-square sm:h-14 border border-border/50 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all relative overflow-hidden"
-                    style={{ backgroundColor: style.bgColor }}
+                    style={{ background: style.bgColor }}
                     onClick={() => {
                       setSelectedRecord(cell.record);
                       setDetailsOpen(true);
@@ -1276,8 +1359,8 @@ export default function TeamAttendancePage() {
               <div>
                 <span className="text-muted-foreground">Status:</span>
                 <div>
-                  <Badge style={{ backgroundColor: getStatusColor(selectedRecord.STATUS) }} className="text-white border-none">
-                    {getStatusLabel(selectedRecord.STATUS)}
+                  <Badge style={{ backgroundColor: getStatusColor(selectedRecord.STATUS, String(selectedRecord.dt), selectedMemberWeeklyOff) }} className="text-white border-none">
+                    {getStatusLabel(selectedRecord.STATUS, String(selectedRecord.dt), selectedMemberWeeklyOff)}
                   </Badge>
                 </div>
               </div>
