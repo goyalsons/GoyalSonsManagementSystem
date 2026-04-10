@@ -146,14 +146,15 @@ function getBaseStatusBgColor(status: string): string {
   if (s === "PRESENT LATE EARLY_OUT" || s === "PRESENT L") return "#10b981";
   if (s === "HALFDAY" || s === "HALF DAY") return "#eab308";
   if (s === "MISS OUT" || s === "MISS IN") return "#f97316";
-  if (s === "MISS PENDING" || s === "MISS PEND") return "var(--muted)";
+  if (s === "MISS PENDING" || s === "MISS PEND") return "#9ca3af";
   if (s === "LEAVE") return "#3b82f6";
   if (s === "WEEKLY OFF" || s === "WO") return "#a855f7";
   if (s.includes("PRESENT")) return "#10b981";
   if (s.includes("ABSENT")) return "#ef4444";
   if (s.includes("MISS")) return "#f97316";
   if (s.includes("HALF")) return "#eab308";
-  return "var(--muted)";
+  // Never return near-white for split weekly-off tiles
+  return "#9ca3af";
 }
 
 /**

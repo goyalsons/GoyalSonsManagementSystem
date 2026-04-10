@@ -83,7 +83,8 @@ function getBaseStatusBgColor(status: string): string {
   if (s.includes("MISS")) return "#f97316";
   if (s === "LEAVE") return "#3b82f6";
   if (s === "WEEKLY OFF" || s === "WO") return "#a855f7";
-  return "var(--muted)";
+  // Never return near-white for split weekly-off tiles
+  return "#9ca3af";
 }
 
 function getStatusStyle(status: string, dateLike?: string | null, weeklyOff?: string | null): StatusStyle {
@@ -105,7 +106,7 @@ function getStatusStyle(status: string, dateLike?: string | null, weeklyOff?: st
   }
   if (s === "HALFDAY" || s === "HALF DAY") return { bgColor: "#eab308", dots: [] };
   if (s === "MISS OUT" || s === "MISS IN") return { bgColor: "#f97316", dots: [{ color: "#3b82f6", count: 1 }] };
-  if (s === "MISS PENDING" || s === "MISS PEND") return { bgColor: "var(--muted)", dots: [{ color: "#9ca3af", count: 1 }] };
+  if (s === "MISS PENDING" || s === "MISS PEND") return { bgColor: "#9ca3af", dots: [{ color: "#ffffff", count: 1 }] };
   if (s === "LEAVE") return { bgColor: "#3b82f6", dots: [] };
   if (s === "WEEKLY OFF" || s === "WO") return { bgColor: "#a855f7", dots: [] };
   if (s.includes("PRESENT") && s.includes("LATE") && s.includes("EARLY")) {
@@ -117,7 +118,7 @@ function getStatusStyle(status: string, dateLike?: string | null, weeklyOff?: st
   if (s.includes("ABSENT")) return { bgColor: "#ef4444", dots: [] };
   if (s.includes("MISS")) return { bgColor: "#f97316", dots: [] };
   if (s.includes("HALF")) return { bgColor: "#eab308", dots: [] };
-  return { bgColor: "var(--muted)", dots: [] };
+  return { bgColor: "#9ca3af", dots: [] };
 }
 
 export interface CheckViewCardProps {
@@ -193,6 +194,8 @@ export function CheckViewCard(props: CheckViewCardProps) {
   // Always YYYY-MM-DD so keys match calendar and canSubmit
   const toDateKey = (dt: string | unknown): string => {
     const s = typeof dt === "string" ? dt : (dt as { value?: string })?.value ?? "";
+    // Preserve YYYY-MM-DD directly to avoid timezone shifts.
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
     const d = new Date(s);
     if (isNaN(d.getTime())) return s.slice(0, 10);
     const y = d.getFullYear(),
@@ -314,6 +317,190 @@ export function CheckViewCard(props: CheckViewCardProps) {
     return { total, completed, notCompleted, halfCompleted };
   };
 
+  const renderAttendancePanelContent = () => {
+    if (!viewMemberId) {
+      return (
+        <div className="flex flex-col items-center justify-center py-12 text-muted-foreground text-sm gap-2">
+          <User className="h-10 w-10 opacity-50" />
+          <p>Select a member to view attendance dates</p>
+        </div>
+      );
+    }
+
+    if (isLoading) {
+      return (
+        <div className="flex items-center justify-center py-12 gap-2 text-muted-foreground text-sm">
+          <Loader2 className="h-6 w-6 animate-spin" />
+          Loading attendance...
+        </div>
+      );
+    }
+
+    const member = teamMembers.find((m) => m.id === viewMemberId);
+    const records = member ? memberAttendanceMap.get(member.id)?.records ?? [] : [];
+    const summary = getTaskSummary(records);
+    const grid = buildCalendarGrid(records);
+
+    return (
+      <div>
+        {member && (
+          <div className="flex flex-wrap items-center gap-2 mb-2">
+            <p className="text-sm font-medium text-muted-foreground">
+              {encodeName(`${member.firstName} ${member.lastName || ""}`.trim() || "—")} — Click a date to verify
+            </p>
+            {!isLocked && records.length > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-green-200 bg-green-50 text-green-700 hover:bg-green-100 dark:bg-green-950/30 dark:border-green-800"
+                onClick={handleAllOk}
+              >
+                <CheckCircle2 className="h-4 w-4 mr-1" />
+                All OK
+              </Button>
+            )}
+          </div>
+        )}
+        {records.length > 0 && (
+          <div className="grid grid-cols-4 gap-1.5 md:gap-2 mb-3">
+            <Card className="border-border bg-muted/40 shadow-sm">
+              <CardContent className="p-2 md:p-3">
+                <div className="text-base md:text-xl font-semibold text-foreground">{summary.total}</div>
+                <div className="text-[10px] md:text-xs text-muted-foreground leading-tight">Total Task</div>
+              </CardContent>
+            </Card>
+            <Card className="border-emerald-500/20 bg-emerald-500/10 shadow-sm">
+              <CardContent className="p-2 md:p-3">
+                <div className="text-base md:text-xl font-semibold text-emerald-600 dark:text-emerald-400">{summary.completed}</div>
+                <div className="text-[10px] md:text-xs text-emerald-600/80 dark:text-emerald-400/80 leading-tight">Completed</div>
+              </CardContent>
+            </Card>
+            <Card className="border-rose-500/20 bg-rose-500/10 shadow-sm">
+              <CardContent className="p-2 md:p-3">
+                <div className="text-base md:text-xl font-semibold text-rose-600 dark:text-rose-400">{summary.notCompleted}</div>
+                <div className="text-[10px] md:text-xs text-rose-600/80 dark:text-rose-400/80 leading-tight">Not Completed</div>
+              </CardContent>
+            </Card>
+            <Card className="border-amber-500/20 bg-amber-500/10 shadow-sm">
+              <CardContent className="p-2 md:p-3">
+                <div className="text-base md:text-xl font-semibold text-amber-600 dark:text-amber-400">{summary.halfCompleted}</div>
+                <div className="text-[10px] md:text-xs text-amber-600/80 dark:text-amber-400/80 leading-tight">Half Completed</div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+        <div className="grid grid-cols-7 gap-1 mb-2">
+          {["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"].map((day) => (
+            <div
+              key={day}
+              className="h-6 flex items-center justify-center text-[10px] font-semibold text-muted-foreground uppercase tracking-tight"
+            >
+              {day}
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-7 gap-1">
+          {grid.map((cell, idx) => {
+            const { day, record, isFuture, dateStr } = cell;
+            const weeklyOff = member?.cardNumber ? weeklyOffByCard[member.cardNumber] : null;
+            const style = record ? getStatusStyle(record.STATUS, dateStr, weeklyOff) : null;
+            const isMuted = style?.bgColor?.includes("var(--muted)");
+            const verStatus = member ? getStatus(member.id, dateStr) : null;
+            const isNotCorrect = verStatus === "NOT_CORRECT";
+            const key = `${viewMemberId}_${dateStr}`;
+            const open = dateMenuKey === key;
+
+            if (day === null) {
+              return (
+                <div
+                  key={`empty-${idx}`}
+                  className="h-9 w-9 border border-border/50 rounded bg-muted/20"
+                />
+              );
+            }
+
+            if (isFuture) {
+              return (
+                <div
+                  key={dateStr}
+                  className="h-9 w-9 border border-border/50 rounded flex items-center justify-center bg-muted/30 opacity-50"
+                >
+                  <span className="text-xs font-semibold text-muted-foreground">{day}</span>
+                </div>
+              );
+            }
+            if (!record) {
+              const isPastOrToday = !isFuture;
+              return (
+                <div
+                  key={dateStr}
+                  className={cn(
+                    "h-9 w-9 border rounded flex items-center justify-center",
+                    isPastOrToday ? "border-red-300/60 bg-red-500 text-white" : "border-border/50 bg-muted/20"
+                  )}
+                >
+                  <span className={cn("text-xs font-semibold", isPastOrToday ? "text-white" : "text-muted-foreground")}>
+                    {day}
+                  </span>
+                </div>
+              );
+            }
+
+            return (
+              <DropdownMenu key={dateStr} open={open} onOpenChange={(o) => setDateMenuKey(o ? key : null)}>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    disabled={isLocked}
+                    className={cn(
+                      "h-9 w-9 min-w-[2.25rem] border rounded flex flex-col items-center justify-center relative overflow-hidden transition-all",
+                      isNotCorrect && "ring-2 ring-black border-black",
+                      !isLocked && "cursor-pointer hover:ring-2 hover:ring-primary/50"
+                    )}
+                    style={{ background: style?.bgColor }}
+                  >
+                    <span className={cn("text-xs font-bold", isMuted ? "text-foreground" : "text-white")}>
+                      {day}
+                    </span>
+                    {verStatus === "CORRECT" && (
+                      <span className="absolute bottom-0.5 right-0.5 text-white" title="Verified">
+                        <CheckCircle2 className="h-3 w-3" />
+                      </span>
+                    )}
+                    {style?.dots?.length ? (
+                      <div className="absolute bottom-0.5 left-0 right-0 flex justify-center gap-0.5">
+                        {style.dots.flatMap((dot, di) =>
+                          Array.from({ length: dot.count }, (_, i) => (
+                            <div key={`${di}-${i}`} className="w-1 h-1 rounded-full" style={{ backgroundColor: dot.color }} />
+                          ))
+                        )}
+                      </div>
+                    ) : null}
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setDateMenuKey(null);
+                      if (member) setStatus(member.id, dateStr, verStatus === "CORRECT" ? null : "CORRECT");
+                    }}
+                  >
+                    <CheckCircle2 className="h-4 w-4 mr-2" />
+                    Correct
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => member && openNotCorrect(member.id, dateStr)}>
+                    <XCircle className="h-4 w-4 mr-2" />
+                    Not Correct
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <Card>
       <CardHeader className="pb-2">
@@ -338,7 +525,7 @@ export function CheckViewCard(props: CheckViewCardProps) {
       <CardContent className="space-y-4">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {/* Left: member list — compact height on mobile/tablet so attendance shows right below */}
-          <div className="lg:col-span-1 space-y-1 max-h-[min(40vh,260px)] lg:max-h-[min(70vh,500px)] overflow-y-auto rounded-lg border border-border p-2">
+          <div className="order-2 lg:order-1 lg:col-span-1 space-y-1 max-h-[min(40vh,260px)] lg:max-h-[min(70vh,500px)] overflow-y-auto rounded-lg border border-border p-2">
             {teamMembers.map((member) => {
               const fullName = `${member.firstName} ${member.lastName || ""}`.trim() || "—";
               const expanded = expandedMemberIds.has(member.id);
@@ -351,45 +538,54 @@ export function CheckViewCard(props: CheckViewCardProps) {
               const designationName = member.designation?.name || "—";
               const unitCode = member.orgUnit?.code || firstRecord?.branch_code || "—";
               return (
-                <div
-                  key={member.id}
-                  className={cn(
-                    "rounded-lg border transition-colors flex items-center gap-2 p-2",
-                    "border-border bg-card",
-                    selected && hasProblem && "border-red-300 bg-red-50/90 ring-1 ring-red-200 dark:bg-red-950/40 dark:border-red-800",
-                    selected && allOk && "border-green-300 bg-green-50/90 ring-1 ring-green-200 dark:bg-green-950/40 dark:border-green-800",
-                    selected && !hasProblem && !allOk && "border-indigo-300 bg-indigo-50/50 ring-1 ring-indigo-200 dark:bg-indigo-950/20",
-                    !selected && hasProblem && "border-red-200 bg-red-50/80 dark:bg-red-950/30 dark:border-red-900/50",
-                    !selected && allOk && "border-green-200 bg-green-50/80 dark:bg-green-950/30 dark:border-green-900/50"
-                  )}
-                >
-                  <input
-                    type="radio"
-                    name="check-view-member"
-                    checked={selected}
-                    onChange={() => handleCheckboxChange(member.id)}
-                    disabled={isLocked}
-                    className="shrink-0"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium truncate text-sm">{encodeName(fullName)}</div>
-                    <div className="text-xs text-muted-foreground font-mono truncate">{member.cardNumber || member.id}</div>
-                    <div className="text-[11px] text-muted-foreground truncate">
-                      Dept: {departmentName} | Designation: {designationName}
-                    </div>
-                    {expanded && (
-                      <div className="text-[11px] text-muted-foreground truncate">
-                        Unit Code: {unitCode}
-                      </div>
+                <div key={member.id} className="space-y-2">
+                  <div
+                    className={cn(
+                      "rounded-lg border transition-colors flex items-center gap-2 p-2",
+                      "border-border bg-card",
+                      selected && hasProblem && "border-red-300 bg-red-50/90 ring-1 ring-red-200 dark:bg-red-950/40 dark:border-red-800",
+                      selected && allOk && "border-green-300 bg-green-50/90 ring-1 ring-green-200 dark:bg-green-950/40 dark:border-green-800",
+                      selected && !hasProblem && !allOk && "border-indigo-300 bg-indigo-50/50 ring-1 ring-indigo-200 dark:bg-indigo-950/20",
+                      !selected && hasProblem && "border-red-200 bg-red-50/80 dark:bg-red-950/30 dark:border-red-900/50",
+                      !selected && allOk && "border-green-200 bg-green-50/80 dark:bg-green-950/30 dark:border-green-900/50"
                     )}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => toggleExpand(member.id)}
-                    className="p-1 rounded hover:bg-muted shrink-0"
                   >
-                    {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                  </button>
+                    <input
+                      type="radio"
+                      name="check-view-member"
+                      checked={selected}
+                      onChange={() => handleCheckboxChange(member.id)}
+                      disabled={isLocked}
+                      className="shrink-0"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium truncate text-sm">{encodeName(fullName)}</div>
+                      <div className="text-xs text-muted-foreground font-mono truncate">{member.cardNumber || member.id}</div>
+                      <div className="text-[11px] text-muted-foreground truncate">
+                        Dept: {departmentName} | Designation: {designationName}
+                      </div>
+                      {expanded && (
+                        <div className="text-[11px] text-muted-foreground truncate">
+                          Unit Code: {unitCode}
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => toggleExpand(member.id)}
+                      className="p-1 rounded hover:bg-muted shrink-0"
+                    >
+                      {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                    </button>
+                  </div>
+                  {selected && (
+                    <div
+                      className="lg:hidden min-h-[200px] rounded-lg border border-border p-3 bg-muted/20"
+                      id="team-attendance-panel"
+                    >
+                      {renderAttendancePanelContent()}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -402,158 +598,10 @@ export function CheckViewCard(props: CheckViewCardProps) {
 
           {/* Right: attendance dates for selected member */}
           <div
-            className="lg:col-span-2 min-h-[200px] rounded-lg border border-border p-3 bg-muted/20"
+            className="hidden lg:block order-1 lg:order-2 lg:col-span-2 min-h-[200px] rounded-lg border border-border p-3 bg-muted/20"
             id="team-attendance-panel"
           >
-            {!viewMemberId ? (
-              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground text-sm gap-2">
-                <User className="h-10 w-10 opacity-50" />
-                <p>Select a member to view attendance dates</p>
-              </div>
-            ) : isLoading ? (
-              <div className="flex items-center justify-center py-12 gap-2 text-muted-foreground text-sm">
-                <Loader2 className="h-6 w-6 animate-spin" />
-                Loading attendance...
-              </div>
-            ) : (() => {
-              const member = teamMembers.find((m) => m.id === viewMemberId);
-              const records = member ? memberAttendanceMap.get(member.id)?.records ?? [] : [];
-              const summary = getTaskSummary(records);
-              const grid = buildCalendarGrid(records).filter((c) => c.day !== null);
-              return (
-                <div>
-                  {member && (
-                    <div className="flex flex-wrap items-center gap-2 mb-2">
-                      <p className="text-sm font-medium text-muted-foreground">
-                        {encodeName(`${member.firstName} ${member.lastName || ""}`.trim() || "—")} — Click a date to verify
-                      </p>
-                      {!isLocked && records.length > 0 && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="border-green-200 bg-green-50 text-green-700 hover:bg-green-100 dark:bg-green-950/30 dark:border-green-800"
-                          onClick={handleAllOk}
-                        >
-                          <CheckCircle2 className="h-4 w-4 mr-1" />
-                          All OK
-                        </Button>
-                      )}
-                    </div>
-                  )}
-                  {records.length > 0 && (
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
-                      <Card className="border-border bg-muted/40 shadow-sm">
-                        <CardContent className="p-3">
-                          <div className="text-lg md:text-xl font-semibold text-foreground">{summary.total}</div>
-                          <div className="text-[11px] md:text-xs text-muted-foreground">Total Task</div>
-                        </CardContent>
-                      </Card>
-                      <Card className="border-emerald-500/20 bg-emerald-500/10 shadow-sm">
-                        <CardContent className="p-3">
-                          <div className="text-lg md:text-xl font-semibold text-emerald-600 dark:text-emerald-400">{summary.completed}</div>
-                          <div className="text-[11px] md:text-xs text-emerald-600/80 dark:text-emerald-400/80">Completed</div>
-                        </CardContent>
-                      </Card>
-                      <Card className="border-rose-500/20 bg-rose-500/10 shadow-sm">
-                        <CardContent className="p-3">
-                          <div className="text-lg md:text-xl font-semibold text-rose-600 dark:text-rose-400">{summary.notCompleted}</div>
-                          <div className="text-[11px] md:text-xs text-rose-600/80 dark:text-rose-400/80">Not Completed</div>
-                        </CardContent>
-                      </Card>
-                      <Card className="border-amber-500/20 bg-amber-500/10 shadow-sm">
-                        <CardContent className="p-3">
-                          <div className="text-lg md:text-xl font-semibold text-amber-600 dark:text-amber-400">{summary.halfCompleted}</div>
-                          <div className="text-[11px] md:text-xs text-amber-600/80 dark:text-amber-400/80">Half Completed</div>
-                        </CardContent>
-                      </Card>
-                    </div>
-                  )}
-                  <div className="flex flex-wrap gap-1">
-                    {grid.map((cell) => {
-                      const { day, record, isFuture, dateStr } = cell;
-                      const weeklyOff = member?.cardNumber ? weeklyOffByCard[member.cardNumber] : null;
-                      const style = record ? getStatusStyle(record.STATUS, dateStr, weeklyOff) : null;
-                      const isMuted = style?.bgColor?.includes("var(--muted)");
-                      const verStatus = member ? getStatus(member.id, dateStr) : null;
-                      const isNotCorrect = verStatus === "NOT_CORRECT";
-                      const key = `${viewMemberId}_${dateStr}`;
-                      const open = dateMenuKey === key;
-
-                      if (isFuture) {
-                        return (
-                          <div
-                            key={dateStr}
-                            className="h-9 w-9 border border-border/50 rounded flex items-center justify-center bg-muted/30 opacity-50"
-                          >
-                            <span className="text-xs font-semibold text-muted-foreground">{day}</span>
-                          </div>
-                        );
-                      }
-                      if (!record) {
-                        return (
-                          <div
-                            key={dateStr}
-                            className="h-9 w-9 border border-border/50 rounded flex items-center justify-center bg-muted/20"
-                          >
-                            <span className="text-xs font-semibold text-muted-foreground">{day}</span>
-                          </div>
-                        );
-                      }
-
-                      return (
-                        <DropdownMenu key={dateStr} open={open} onOpenChange={(o) => setDateMenuKey(o ? key : null)}>
-                          <DropdownMenuTrigger asChild>
-                            <button
-                              type="button"
-                              disabled={isLocked}
-                              className={cn(
-                                "h-9 w-9 min-w-[2.25rem] border rounded flex flex-col items-center justify-center relative overflow-hidden transition-all",
-                                isNotCorrect && "ring-2 ring-black border-black",
-                                !isLocked && "cursor-pointer hover:ring-2 hover:ring-primary/50"
-                              )}
-                              style={{ backgroundColor: style?.bgColor }}
-                            >
-                              <span className={cn("text-xs font-bold", isMuted ? "text-foreground" : "text-white")}>
-                                {day}
-                              </span>
-                              {verStatus === "CORRECT" && (
-                                <span className="absolute bottom-0.5 right-0.5 text-white" title="Verified">
-                                  <CheckCircle2 className="h-3 w-3" />
-                                </span>
-                              )}
-                              {style?.dots?.length ? (
-                                <div className="absolute bottom-0.5 left-0 right-0 flex justify-center gap-0.5">
-                                  {style.dots.flatMap((dot, di) =>
-                                    Array.from({ length: dot.count }, (_, i) => (
-                                      <div key={`${di}-${i}`} className="w-1 h-1 rounded-full" style={{ backgroundColor: dot.color }} />
-                                    ))
-                                  )}
-                                </div>
-                              ) : null}
-                            </button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="start">
-                            <DropdownMenuItem
-                              onClick={() => {
-                                setDateMenuKey(null);
-                                if (member) setStatus(member.id, dateStr, verStatus === "CORRECT" ? null : "CORRECT");
-                              }}
-                            >
-                              <CheckCircle2 className="h-4 w-4 mr-2" />
-                              Correct
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => member && openNotCorrect(member.id, dateStr)}>
-                              <XCircle className="h-4 w-4 mr-2" />
-                              Not Correct
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })()}
+            {renderAttendancePanelContent()}
           </div>
         </div>
 

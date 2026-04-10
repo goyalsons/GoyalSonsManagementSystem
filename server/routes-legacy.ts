@@ -1674,6 +1674,55 @@ export async function registerLegacyRoutes(
     res.json({ configured: isBigQueryConfigured() });
   });
 
+  // POST /api/attendance/history/batch - Fetch attendance for multiple cards in one request (faster than N calls)
+  app.post("/api/attendance/history/batch", requireAuth, async (req, res) => {
+    try {
+      // Prevent caching to ensure fresh data for each month
+      res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+      res.set('Expires', '0');
+      res.set('Pragma', 'no-cache');
+
+      const hasPolicy = req.user!.policies?.includes("attendance.history.view");
+      if (!hasPolicy) {
+        return res.status(403).json({ message: "Access denied", reason: "missing_policy", required: "attendance.history.view" });
+      }
+
+      if (!isBigQueryConfigured()) {
+        return res.status(503).json({ message: "BigQuery is not configured. Please add BIGQUERY_CREDENTIALS secret." });
+      }
+
+      const { cardNos, month } = (req.body || {}) as { cardNos?: unknown; month?: unknown };
+      const list = Array.isArray(cardNos) ? cardNos : [];
+      const normalized = Array.from(
+        new Set(
+          list
+            .map((c) => String(c ?? "").trim())
+            .filter(Boolean)
+        )
+      ).slice(0, 3); // safety: this endpoint is intended for small neighbor batches
+
+      if (normalized.length === 0) {
+        return res.status(400).json({ message: "cardNos[] is required" });
+      }
+
+      const results: Record<string, any> = {};
+      await Promise.all(
+        normalized.map(async (c) => {
+          try {
+            results[c] = await getEmployeeAttendance(c, typeof month === "string" ? month : undefined);
+          } catch (e: any) {
+            results[c] = { error: true, message: e?.message || "Failed to fetch" };
+          }
+        })
+      );
+
+      return res.json({ success: true, results });
+    } catch (error: any) {
+      console.error("[Attendance History Batch] Error:", error);
+      return res.status(500).json({ message: error?.message || "Failed to fetch attendance history batch" });
+    }
+  });
+
   app.get("/api/attendance/history/:cardNo", requireAuth, async (req, res) => {
     try {
       // Prevent caching to ensure fresh data for each month

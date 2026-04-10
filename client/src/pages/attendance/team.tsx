@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
-import { useQuery, useQueries, useQueryClient, useMutation } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -49,7 +49,7 @@ import {
   Unlock,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { apiGet } from "@/lib/api";
+import { apiGet, apiPost } from "@/lib/api";
 import { encodeName, cn } from "@/lib/utils";
 import {
   createOrLoadBatch,
@@ -157,7 +157,8 @@ function getBaseStatusBgColor(status: string): string {
   if (s.includes("MISS")) return "#f97316";
   if (s === "LEAVE") return "#3b82f6";
   if (s === "WEEKLY OFF" || s === "WO") return "#a855f7";
-  return "var(--muted)";
+  // Never return near-white for split weekly-off tiles
+  return "#9ca3af";
 }
 
 function getStatusColor(status: string, dateLike?: string | null, weeklyOff?: string | null): string {
@@ -354,22 +355,72 @@ export default function TeamAttendancePage() {
     }
   }, [verificationsData]);
 
-  const attendanceQueries = useQueries({
-    queries: teamMembers.map((m) => ({
-      queryKey: ["team-attendance-check", m.cardNumber || m.id, monthDate],
-      queryFn: () => apiGet<AttendanceResponse>(`/attendance/history/${m.cardNumber || m.id}?month=${monthDate}`),
-      enabled: !!m.cardNumber && viewMode === "check" && !!checkBatch?.id,
-    })),
+  const neighborCards = useMemo(() => {
+    if (!(viewMode === "check" && !!checkBatch?.id)) return [] as string[];
+    const list = teamMembers;
+    const selectedId = Array.from(selectedCheckMemberIds)[0] ?? null;
+    const selectedIdx = selectedId ? list.findIndex((m) => m.id === selectedId) : -1;
+    const idxs =
+      selectedIdx >= 0
+        ? [selectedIdx - 1, selectedIdx, selectedIdx + 1]
+        : list.length > 0
+          ? [0]
+          : [];
+    const cards = idxs
+      .filter((i) => i >= 0 && i < list.length)
+      .map((i) => list[i]?.cardNumber)
+      .filter((c): c is string => Boolean(c))
+      .map((c) => String(c));
+    return Array.from(new Set(cards)).slice(0, 3);
+  }, [viewMode, checkBatch?.id, teamMembers, selectedCheckMemberIds]);
+
+  const { data: batchAttendance, isFetching: isFetchingBatchAttendance } = useQuery<{
+    success: boolean;
+    results: Record<string, AttendanceResponse>;
+  }>({
+    queryKey: ["attendance-history-batch", neighborCards.join("|"), monthDate],
+    enabled: neighborCards.length > 0,
+    queryFn: async () => {
+      // Fast path: batch endpoint (single request)
+      try {
+        return await apiPost("/attendance/history/batch", { cardNos: neighborCards, month: monthDate });
+      } catch {
+        // Fallback: if server hasn't reloaded / route not present, fetch individually (still limited to 1-3 cards)
+        const resultsEntries = await Promise.all(
+          neighborCards.map(async (cardNo) => {
+            const data = await apiGet<AttendanceResponse>(`/attendance/history/${encodeURIComponent(cardNo)}?month=${encodeURIComponent(monthDate)}`);
+            return [cardNo, data] as const;
+          })
+        );
+        return { success: true, results: Object.fromEntries(resultsEntries) };
+      }
+    },
+    staleTime: 0,
   });
 
-  const memberAttendanceMap = useMemo(() => {
+  const memberAttendanceMap = useMemo<Map<string, AttendanceResponse>>(() => {
     const map = new Map<string, AttendanceResponse>();
-    teamMembers.forEach((member, i) => {
-      const data = attendanceQueries[i]?.data;
-      if (data?.records) map.set(member.id, data);
-    });
+    // Use cached data when already fetched previously (React Query cache).
+    // Also include fresh results from the limited useQueries set above.
+    for (const member of teamMembers) {
+      const card = member.cardNumber;
+      if (!card) continue;
+      const key = ["attendance-history-batch-item", String(card), monthDate] as const;
+      const cached = queryClient.getQueryData<AttendanceResponse>(key as any);
+      if (cached?.records) {
+        map.set(member.id, cached);
+      }
+    }
+    // Merge newly fetched batch results into cache + map
+    const results = batchAttendance?.results || {};
+    for (const [cardNo, payload] of Object.entries(results)) {
+      if (!payload?.records) continue;
+      queryClient.setQueryData(["attendance-history-batch-item", cardNo, monthDate] as any, payload);
+      const member = teamMembers.find((m) => String(m.cardNumber) === String(cardNo));
+      if (member) map.set(member.id, payload);
+    }
     return map;
-  }, [teamMembers, attendanceQueries]);
+  }, [teamMembers, batchAttendance, monthDate, queryClient]);
 
   // BigQuery has data only for current + previous month; refresh when date may change
   const [nowKey, setNowKey] = useState(() => Date.now());
@@ -628,7 +679,7 @@ export default function TeamAttendancePage() {
   };
 
   const isCheckLocked = !!checkBatch?.submittedAt;
-  const isCheckLoading = createOrLoadMutation.isPending || attendanceQueries.some((q) => q.isLoading);
+  const isCheckLoading = createOrLoadMutation.isPending || isFetchingBatchAttendance;
   const getMemberBranchFallback = useCallback((memberId: string) => {
     const firstRecord = memberAttendanceMap.get(memberId)?.records?.[0];
     return (firstRecord?.branch_code || "").trim();
@@ -831,21 +882,21 @@ export default function TeamAttendancePage() {
           ) : checkBatch?.id ? (
             <>
               <Card>
-                <CardContent className="p-3 md:p-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-2">
-                    <div className="xl:col-span-2">
-                      <Label className="text-xs text-muted-foreground">Search Member</Label>
+                <CardContent className="p-2.5 md:p-4">
+                  <div className="grid grid-cols-2 md:grid-cols-2 xl:grid-cols-5 gap-1.5 md:gap-2">
+                    <div className="col-span-2 xl:col-span-2">
+                      <Label className="text-[11px] md:text-xs text-muted-foreground">Search Member</Label>
                       <Input
                         value={checkSearch}
                         onChange={(e) => setCheckSearch(e.target.value)}
                         placeholder="Search by name/card/unit/designation/department"
-                        className="mt-1"
+                        className="mt-1 h-9 md:h-10 text-sm placeholder:text-xs md:placeholder:text-sm"
                       />
                     </div>
                     <div>
-                      <Label className="text-xs text-muted-foreground">Unit</Label>
+                      <Label className="text-[11px] md:text-xs text-muted-foreground">Unit</Label>
                       <Select value={checkUnitFilter} onValueChange={setCheckUnitFilter}>
-                        <SelectTrigger className="mt-1"><SelectValue placeholder="All Units" /></SelectTrigger>
+                        <SelectTrigger className="mt-1 h-9 md:h-10 text-sm"><SelectValue placeholder="All Units" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="all">All Units</SelectItem>
                           {unitOptions.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
@@ -853,9 +904,9 @@ export default function TeamAttendancePage() {
                       </Select>
                     </div>
                     <div>
-                      <Label className="text-xs text-muted-foreground">Designation</Label>
+                      <Label className="text-[11px] md:text-xs text-muted-foreground">Designation</Label>
                       <Select value={checkDesignationFilter} onValueChange={setCheckDesignationFilter}>
-                        <SelectTrigger className="mt-1"><SelectValue placeholder="All Designations" /></SelectTrigger>
+                        <SelectTrigger className="mt-1 h-9 md:h-10 text-sm"><SelectValue placeholder="All Designations" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="all">All Designations</SelectItem>
                           {designationOptions.map((d) => <SelectItem key={d} value={d}>{d}</SelectItem>)}
@@ -863,9 +914,9 @@ export default function TeamAttendancePage() {
                       </Select>
                     </div>
                     <div>
-                      <Label className="text-xs text-muted-foreground">Department</Label>
+                      <Label className="text-[11px] md:text-xs text-muted-foreground">Department</Label>
                       <Select value={checkDepartmentFilter} onValueChange={setCheckDepartmentFilter}>
-                        <SelectTrigger className="mt-1"><SelectValue placeholder="All Departments" /></SelectTrigger>
+                        <SelectTrigger className="mt-1 h-9 md:h-10 text-sm"><SelectValue placeholder="All Departments" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="all">All Departments</SelectItem>
                           {departmentOptions.map((d) => <SelectItem key={d} value={d}>{d}</SelectItem>)}
@@ -873,9 +924,9 @@ export default function TeamAttendancePage() {
                       </Select>
                     </div>
                     <div>
-                      <Label className="text-xs text-muted-foreground">Pending</Label>
+                      <Label className="text-[11px] md:text-xs text-muted-foreground">Pending</Label>
                       <Select value={checkPendingFilter} onValueChange={setCheckPendingFilter}>
-                        <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                        <SelectTrigger className="mt-1 h-9 md:h-10 text-sm"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="all">All</SelectItem>
                           <SelectItem value="pending">Pending Only</SelectItem>
@@ -918,7 +969,7 @@ export default function TeamAttendancePage() {
                           <Button
                             size="sm"
                             onClick={handleSubmitToHr}
-                            disabled={submitMutation.isPending || !canSubmit}
+                            disabled={isCheckLoading || submitMutation.isPending || !canSubmit}
                             className="gap-2"
                           >
                             {submitMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
